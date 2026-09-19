@@ -153,7 +153,7 @@ Do not be a silent machine. Ensure the world breathes.
 
 const app = new Hono<{ Bindings: Env }>()
 
-app.get('/', (c) => c.text('THE AGENT IS LIVE.'))
+app.get('/', (c) => c.text('THE REPO BOT (AKA BILLI FAE BOTS) IS LIVE.'))
 
 // --- ROUTE: The Oracle (Fast-Path env.AI.run) ---
 app.get('/oracle', async (c) => {

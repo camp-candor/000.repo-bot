@@ -35,7 +35,7 @@
   // 🔴 FIX: You must explicitly list ALL bindings here too.
   "env": {
     "staging": {
-      "name": "npm-agent-01",
+      "name": "repo-bot-00",
       "ai": {
         "binding": "AI",
       },

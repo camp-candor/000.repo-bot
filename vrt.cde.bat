@@ -1,3 +1,3 @@
 cd..
 cd vcode-debug
-start Code.exe ../npm-worker-01
+start Code.exe ../000.repo-bot
