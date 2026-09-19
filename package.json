@@ -1,9 +1,9 @@
 {
-    "name": "npm-worker-00",
-    "version": "0.0.1",
+    "name": "repo-bot-00",
+    "version": "0.0.0",
     "type": "module",
     "private": true,
-    "description": "PIMAL MAMA WORKER INTELLECT",
+    "description": "BILLI FAE BOTS",
     "workspaces": [
         "packages/*",
         "apps/*"
