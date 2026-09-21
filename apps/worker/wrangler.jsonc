@@ -1,60 +1,54 @@
 {
-  "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "npm-agent-01",
-  "main": "src/index.ts",
-  "compatibility_date": "2026-01-07",
-  "compatibility_flags": [
-    "nodejs_compat"
-  ],
-  "observability": {
-    "enabled": true,
-  },
-  "ai": {
-    "binding": "AI",
-  },
-  "durable_objects": {
-    "bindings": [
-      {
-        "name": "AGENT_SESSION",
-        "class_name": "AgentSessionDO",
-      },
-    ],
-  },
-  "migrations": [
-    {
-      "tag": "v1",
-      "new_sqlite_classes": [
-        "AgentSessionDO"
-      ],
+    "$schema": "node_modules/wrangler/config-schema.json",
+    "name": "npm-agent-01",
+    "main": "src/index.ts",
+    "compatibility_date": "2026-01-07",
+    "compatibility_flags": ["nodejs_compat"],
+    "observability": {
+        "enabled": true,
     },
-  ],
-  "alias": {
-    "ajv": "../../node_modules/@funtuantw/pi-agent-cf/stubs/ajv.js",
-  },
-  // STAGING ENVIRONMENT
-  // 🔴 FIX: You must explicitly list ALL bindings here too.
-  "env": {
-    "staging": {
-      "name": "repo-bot-00",
-      "ai": {
+    "ai": {
         "binding": "AI",
-      },
-      "durable_objects": {
-        "bindings": [
-          {
-            "name": "AGENT_SESSION",
-            "class_name": "AgentSessionDO",
-          },
-        ],
-      },
-      "migrations": [
-        {
-          "tag": "v1",
-          "new_sqlite_classes": [
-            "AgentSessionDO"
-          ],
-        },
-      ],
     },
-  },
+    "durable_objects": {
+        "bindings": [
+            {
+                "name": "AGENT_SESSION",
+                "class_name": "AgentSessionDO",
+            },
+        ],
+    },
+    "migrations": [
+        {
+            "tag": "v1",
+            "new_sqlite_classes": ["AgentSessionDO"],
+        },
+    ],
+    "alias": {
+        "ajv": "../../node_modules/@funtuantw/pi-agent-cf/stubs/ajv.js",
+    },
+    // STAGING ENVIRONMENT
+    // 🔴 FIX: You must explicitly list ALL bindings here too.
+    "env": {
+        "staging": {
+            "name": "repo-bot-00",
+            "ai": {
+                "binding": "AI",
+            },
+            "durable_objects": {
+                "bindings": [
+                    {
+                        "name": "AGENT_SESSION",
+                        "class_name": "AgentSessionDO",
+                    },
+                ],
+            },
+            "migrations": [
+                {
+                    "tag": "v1",
+                    "new_sqlite_classes": ["AgentSessionDO"],
+                },
+            ],
+        },
+    },
 }
