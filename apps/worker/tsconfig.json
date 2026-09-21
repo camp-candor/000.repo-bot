@@ -9,7 +9,8 @@
         "types": [
             "@cloudflare/workers-types",
             "@cloudflare/vitest-pool-workers"
-        ]
+        ],
+        "noEmit": true
     },
     "include": ["src", "test", "vitest.config.ts", "worker-configuration.d.ts"],
     "references": []
