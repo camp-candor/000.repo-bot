@@ -4,6 +4,8 @@ import { reducer } from '../98.menu.unit/menu.reduce.js'
 import { MenuModel } from '../98.menu.unit/menu.model.js'
 import * as Act from '../98.menu.unit/menu.action.js'
 
+import { resolveWorkerDir } from '../98.menu.unit/buz/00.menu.buzz.js'
+
 describe('Agent Menu Toggle Target Mode', () => {
     it('initializes with LIVE mode and default activeBaseUrl', () => {
         const model = new MenuModel()
@@ -15,5 +17,11 @@ describe('Agent Menu Toggle Target Mode', () => {
     it('has TOGGLE_TARGET_MODE action defined correctly', () => {
         const action = new Act.ToggleTargetMode()
         expect(action.type).toBe('[Menu action] Toggle Target Mode')
+    })
+
+    it('resolves valid worker directory containing package.json', () => {
+        const workerDir = resolveWorkerDir()
+        expect(fs.existsSync(workerDir)).toBe(true)
+        expect(fs.existsSync(`${workerDir}/package.json`)).toBe(true)
     })
 })

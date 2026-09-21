@@ -84,6 +84,13 @@ app.get('/oracle', async (c) => {
         const prompt = c.req.query('prompt') || 'Inspect repository status'
         const gatewayId = c.env.CLOUDFLARE_AI_GATEWAY || 'repo-bot-gateway'
 
+        if (!c.env.AI) {
+            return c.text(
+                'Cloudflare Workers AI binding is not available in local mode. Switch TARGET to LIVE to query The Oracle.',
+                503,
+            )
+        }
+
         const response = await c.env.AI.run('@cf/meta/llama-3.2-3b-instruct', {
             messages: [
                 { role: 'user', content: `${prompt}. Output ONLY raw JSON.` },

@@ -1,4 +1,19 @@
+import fs from 'fs'
+import path from 'path'
+import dotenv from 'dotenv'
 import Menu from './fce/menu.interface.js'
+
+try {
+    let curr = process.cwd()
+    while (curr && curr !== path.dirname(curr)) {
+        const envCandidate = path.join(curr, '.env')
+        if (fs.existsSync(envCandidate)) {
+            dotenv.config({ path: envCandidate })
+            break
+        }
+        curr = path.dirname(curr)
+    }
+} catch (e) {}
 
 const resolvedLiveUrl = (
     process.env.LIVE_WORKER_URL ||

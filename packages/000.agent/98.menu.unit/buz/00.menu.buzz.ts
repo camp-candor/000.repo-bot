@@ -2,6 +2,7 @@
 import { spawn } from 'child_process'
 import fs from 'fs'
 import path from 'path'
+import dotenv from 'dotenv'
 import * as ActMnu from '../menu.action.js'
 import * as ActOlm from '../../00.agent.unit/agent.action.js'
 
@@ -14,6 +15,18 @@ import * as Color from '../../val/console-color.js'
 
 let bit: any
 let rootSlv: any
+
+try {
+    let curr = process.cwd()
+    while (curr && curr !== path.dirname(curr)) {
+        const envCandidate = path.join(curr, '.env')
+        if (fs.existsSync(envCandidate)) {
+            dotenv.config({ path: envCandidate })
+            break
+        }
+        curr = path.dirname(curr)
+    }
+} catch (e) {}
 
 const UPDATE_GRID = '[Grid action] Update Grid'
 const WRITE_CONSOLE = '[Write action] Write Console'
@@ -117,6 +130,7 @@ export const toggleTargetMode = async (
                 cwd: workerDir,
                 stdio: 'pipe',
                 shell: process.platform === 'win32',
+                env: process.env,
             },
         )
 
