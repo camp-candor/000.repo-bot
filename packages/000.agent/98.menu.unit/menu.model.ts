@@ -3,6 +3,10 @@ import MenuBit from './fce/menu.interface.js'
 
 export class MenuModel implements Menu {
     lst: string[] = []
+    targetMode: 'LIVE' | 'LOCAL' = 'LIVE'
+    activeBaseUrl: string =
+        process.env.WORKER_URL || 'https://worker-agent.berad4000.workers.dev'
+    localProcess: any = null
 
     geoJsonNow: any
     atlasNow: any

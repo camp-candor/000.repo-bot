@@ -25,6 +25,12 @@ export class CloseMenu implements Action {
     constructor(public bale: MenuBit) {}
 }
 
+export const TOGGLE_TARGET_MODE = '[Menu action] Toggle Target Mode'
+export class ToggleTargetMode implements Action {
+    readonly type = TOGGLE_TARGET_MODE
+    constructor(public bale?: MenuBit) {}
+}
+
 export const LIBRARY_MENU = '[Menu action] Library Menu'
 export class LibraryMenu implements Action {
     readonly type = LIBRARY_MENU
@@ -151,6 +157,7 @@ export type Actions =
     | UpdateMenu
     | TestMenu
     | CloseMenu
+    | ToggleTargetMode
     | TimeMenu
     | CreateMenu
     | HexmapMenu
