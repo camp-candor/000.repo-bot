@@ -16,6 +16,9 @@ export function reducer(
         case Act.INIT_MENU:
             return Buzz.initMenu(clone(model), act.bale, state)
 
+        case Act.TOGGLE_TARGET_MODE:
+            return Buzz.toggleTargetMode(clone(model), act.bale, state)
+
         default:
             return model
     }

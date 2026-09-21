@@ -44,3 +44,26 @@
         ├── 98.menu.unit/    # Agent Menu Screen, Sub-routes, Local/Live Switchboard
         └── act/             # Action barrel re-exports
 ```
+
+### 2.1 Workspace Roles & Modification Permissions
+
+| Workspace            | Package Name               | Modifiable? | Primary Role & Tech Stack                                              |
+| -------------------- | -------------------------- | ----------- | ---------------------------------------------------------------------- |
+| `apps/worker`        | `@camp_candor/agent`       | **YES**     | Cloudflare Worker AI Control Plane (Hono, Durable Objects, Workers AI) |
+| `packages/000.agent` | `@camp_candor/000.agent`   | **YES**     | Agent Redux/Buzzer Units, Menu Screens, Process Spawning, State Store  |
+| `apps/995.library`   | `@camp_candor/995.library` | **NEVER**   | Static Blessed UI layout primitives, Grid, and Base Runner             |
+
+---
+
+## 3. Terminal Extension Protocol (Injecting via `packages/000.agent`)
+
+The base runner (`apps/995.library/run.ts`) routes the `AGENT MENU` choice to
+`packages/000.agent/98.menu.unit`:
+
+1. All Agent-specific menus, toggles, prompts, and actions belong strictly in:
+
+- `packages/000.agent/98.menu.unit/`
+- `packages/000.agent/00.agent.unit/`
+
+2. Never touch `apps/995.library/98.menu.unit/menu.*.ts` or add domain actions
+   to `apps/995.library/`.
