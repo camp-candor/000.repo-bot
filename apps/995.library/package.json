@@ -44,7 +44,6 @@
         "nearest-color": "^0.4.4",
         "neo4j-driver": "5.28.2",
         "nodepub": "^3.2.1",
-        "ollama": "^0.5.0",
         "open-editor": "^5.1.0",
         "openai": "^5.15.0",
         "pngjs": "^7.0.0",

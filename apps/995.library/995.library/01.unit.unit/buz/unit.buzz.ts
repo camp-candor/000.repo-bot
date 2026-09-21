@@ -315,7 +315,7 @@ export const updateUnit = async (cpy: UnitModel, bal: UnitBit, ste: State) => {
 
     let bit
 
-    // Extract the unit name from the full path (e.g., '../../000.ollama/000.ollama/01.tick.unit' -> '01.tick.unit')
+    // Extract the unit name from the full path (e.g., '../../000.example/000.example/01.tick.unit' -> '01.tick.unit')
     const unitBasename = path.basename(bal.idx)
     const root = unitBasename.split('.')[1] || ''
 
@@ -545,7 +545,7 @@ export const listUnit = (cpy: UnitModel, bal: UnitBit, ste: State) => {
 
             for (const entry of entries) {
                 if (!entry.isDirectory()) continue
-                // Match 00.ollama.unit pattern
+                // Match 00.example.unit pattern
                 if (/^\d{2}\..+\.unit$/.test(entry.name)) {
                     const relativeDir = path
                         .relative(parentDir, targetDir)

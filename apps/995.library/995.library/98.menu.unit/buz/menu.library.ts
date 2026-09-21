@@ -353,7 +353,7 @@ export const libraryMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
             break
 
         case ActUnt.FLATTEN_UNIT.split(']')[1]:
-            lst = ['MINDTRUST_SOWER', 'GLOPS_OLLAMA', 'MINDTRUST_SCRIBE']
+            lst = ['MINDTRUST_SOWER', 'MINDTRUST_SCRIBE']
             bit = await ste.hunt(ActGrd.UPDATE_GRID, {
                 x: 0,
                 y: 4,

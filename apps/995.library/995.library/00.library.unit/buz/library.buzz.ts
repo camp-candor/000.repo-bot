@@ -534,7 +534,12 @@ export const flatLibrary = async (
         '.yml',
         '.yaml',
     ])
-    const ALLOWED_FILES = new Set(['.gitignore', 'package.json'])
+    const ALLOWED_FILES = new Set([
+        '.gitignore',
+        'package.json',
+        'AGENTS.md',
+        'AGENT_INSTRUCTIONS.md',
+    ])
 
     async function getFilePaths(dir: string): Promise<string[]> {
         let entries

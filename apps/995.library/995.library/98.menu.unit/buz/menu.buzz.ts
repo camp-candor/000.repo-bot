@@ -28,7 +28,7 @@ import * as FOCUS from '../../val/focus'
 
 let bit, lst, dex, idx, dat, src, val
 
-let SOWER, CONCEPT, CLICKUP, OLLAMA, AGENT
+let SOWER, CONCEPT, CLICKUP, AGENT
 
 let opened = false
 

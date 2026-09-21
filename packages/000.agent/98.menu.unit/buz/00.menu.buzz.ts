@@ -1,5 +1,6 @@
 /* eslint-disable */
 import { spawn } from 'child_process'
+import fs from 'fs'
 import path from 'path'
 import * as ActMnu from '../menu.action.js'
 import * as ActOlm from '../../00.agent.unit/agent.action.js'
@@ -20,6 +21,32 @@ const UPDATE_CONSOLE = '[Console action] Update Console'
 const OPEN_CHOICE = '[Open action] Open Choice'
 const CLOSE_TERMINAL = '[Close action] Close Terminal'
 const PRINT_MENU = '[Render action] Print Menu'
+
+export const resolveWorkerDir = (): string => {
+    // 1. Check upwards from process.cwd()
+    let curr = process.cwd()
+    while (curr && curr !== path.dirname(curr)) {
+        const candidate = path.join(curr, 'apps', 'worker')
+        if (fs.existsSync(candidate)) {
+            return candidate
+        }
+        curr = path.dirname(curr)
+    }
+
+    // 2. Check upwards from __dirname if available
+    if (typeof __dirname !== 'undefined') {
+        let dir = __dirname
+        while (dir && dir !== path.dirname(dir)) {
+            const candidate = path.join(dir, 'apps', 'worker')
+            if (fs.existsSync(candidate)) {
+                return candidate
+            }
+            dir = path.dirname(dir)
+        }
+    }
+
+    return path.resolve(process.cwd(), 'apps/worker')
+}
 
 export const initMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
     if (bal.slv != null) rootSlv = bal.slv
@@ -68,7 +95,7 @@ export const toggleTargetMode = async (
             src: '⏳ Spawning local Cloudflare Worker on port 8787...',
         })
 
-        const workerDir = path.resolve(process.cwd(), 'apps/worker')
+        const workerDir = resolveWorkerDir()
         const cmd = process.platform === 'win32' ? 'npx.cmd' : 'npx'
         const child = spawn(
             cmd,
@@ -79,6 +106,15 @@ export const toggleTargetMode = async (
                 shell: process.platform === 'win32',
             },
         )
+
+        child.on('error', (err) => {
+            if (global.LIBRARY) {
+                global.LIBRARY.hunt(UPDATE_CONSOLE, {
+                    idx: 'cns00',
+                    src: `⚠️ Worker spawn error: ${err.message}`,
+                }).catch(() => {})
+            }
+        })
 
         cpy.localProcess = child
 
@@ -105,7 +141,21 @@ export const toggleTargetMode = async (
                 src: `🟢 TARGET SWITCHED: LOCAL (${LOCAL_URL}) [ACTIVE]`,
             })
         } else {
-            if (child) child.kill()
+            if (child) {
+                try {
+                    if (process.platform === 'win32' && child.pid) {
+                        const killProc = spawn('taskkill', [
+                            '/pid',
+                            child.pid.toString(),
+                            '/f',
+                            '/t',
+                        ])
+                        killProc.on('error', () => {})
+                    } else {
+                        child.kill('SIGTERM')
+                    }
+                } catch (e) {}
+            }
             cpy.localProcess = null
             cpy.targetMode = 'LIVE'
             cpy.activeBaseUrl = LIVE_URL
@@ -118,13 +168,14 @@ export const toggleTargetMode = async (
     } else {
         if (cpy.localProcess) {
             try {
-                if (process.platform === 'win32') {
-                    spawn('taskkill', [
+                if (process.platform === 'win32' && cpy.localProcess.pid) {
+                    const killProc = spawn('taskkill', [
                         '/pid',
                         cpy.localProcess.pid.toString(),
                         '/f',
                         '/t',
                     ])
+                    killProc.on('error', () => {})
                 } else {
                     cpy.localProcess.kill('SIGTERM')
                 }

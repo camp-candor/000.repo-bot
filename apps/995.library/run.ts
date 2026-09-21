@@ -62,6 +62,7 @@ const init = async () => {
                 src: '✅ Init complete',
             })
 
+            // Register AGENT MENU into the Blessed Menu registry
             await LIBRARY.hunt(MENU_ACTION_LIBRARY.ROUTE_MENU, {
                 idx: 'AGENT MENU',
                 src: 'Open the Agent menu\nto manage agents.',
@@ -79,7 +80,7 @@ const init = async () => {
 
             await LIBRARY.hunt(MENU_ACTION_LIBRARY.OPEN_MENU, { src: '' })
         } catch (err) {
-            console.error(`exec error: ${err}`)
+            console.error(`exec error loading agent: ${err}`)
             throw err
         }
     } catch (err) {
@@ -88,11 +89,10 @@ const init = async () => {
     }
 }
 
-// 4. Main Execution Flow
+// 3. Main Execution Flow: Build both library and agent packages
 const main = async () => {
     try {
         console.log('🔨 Building TypeScript...')
-        // Await the build.
         var { stdout, stderr } = await exec(
             'tsc -b 995.library ../../packages/000.agent',
             { cwd: import.meta.dirname },

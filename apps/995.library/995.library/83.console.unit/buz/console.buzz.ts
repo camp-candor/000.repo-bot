@@ -56,7 +56,7 @@ export const createConsole = (
     dat.bit = contrib.log({
         fg: dat.clr,
         selectedFg: dat.clr,
-        label: 'Ollama Log',
+        label: 'Console Log',
         left: dat.net.left,
         top: dat.net.top,
         width: dat.net.width,
