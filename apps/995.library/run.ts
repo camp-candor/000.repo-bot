@@ -9,7 +9,6 @@ import { createRequire } from 'module'
 const require = createRequire(import.meta.url)
 const exec = promisify(execCb)
 
-debugger
 // 1. Setup CLI
 program.option('--first').option('-t, --separator <char>')
 
@@ -19,8 +18,6 @@ const options = program.opts()
 // 2. Logic to run AFTER build
 const init = async () => {
     console.log('⚡ Initialization started...')
-
-    debugger
 
     global.window = global as any
 
@@ -60,8 +57,6 @@ const init = async () => {
             )
 
             await new Promise((resolve) => setTimeout(resolve, 10))
-
-            debugger
 
             await LIBRARY.hunt(MENU_ACTION_LIBRARY.PRINT_MENU, {
                 src: '✅ Init complete',
