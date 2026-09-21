@@ -1,11 +1,15 @@
 import Menu from './fce/menu.interface.js'
-import MenuBit from './fce/menu.interface.js'
+
+const resolvedLiveUrl = (
+    process.env.LIVE_WORKER_URL ||
+    process.env.WORKER_URL ||
+    'https://repo-bot-00.berad4000.workers.dev'
+).replace(/\/$/, '')
 
 export class MenuModel implements Menu {
     lst: string[] = []
     targetMode: 'LIVE' | 'LOCAL' = 'LIVE'
-    activeBaseUrl: string =
-        process.env.WORKER_URL || 'https://worker-agent.berad4000.workers.dev'
+    activeBaseUrl: string = resolvedLiveUrl
     localProcess: any = null
 
     geoJsonNow: any

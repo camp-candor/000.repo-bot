@@ -22,6 +22,13 @@ const OPEN_CHOICE = '[Open action] Open Choice'
 const CLOSE_TERMINAL = '[Close action] Close Terminal'
 const PRINT_MENU = '[Render action] Print Menu'
 
+const getLiveUrl = () =>
+    (
+        process.env.LIVE_WORKER_URL ||
+        process.env.WORKER_URL ||
+        'https://repo-bot-00.berad4000.workers.dev'
+    ).replace(/\/$/, '')
+
 export const resolveWorkerDir = (): string => {
     // 1. Check upwards from process.cwd()
     let curr = process.cwd()
@@ -51,6 +58,9 @@ export const resolveWorkerDir = (): string => {
 export const initMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
     if (bal.slv != null) rootSlv = bal.slv
 
+    if (!cpy.activeBaseUrl) cpy.activeBaseUrl = getLiveUrl()
+    ;(global as any).agentBaseUrl = cpy.activeBaseUrl
+
     bit = await global.LIBRARY.hunt(UPDATE_GRID, {
         x: 4,
         y: 0,
@@ -73,6 +83,10 @@ export const initMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
     })
     bit = await global.LIBRARY.hunt(UPDATE_CONSOLE, {
         idx: 'cns00',
+        src: `ACTIVE TARGET: [${cpy.targetMode}] ${cpy.activeBaseUrl}`,
+    })
+    bit = await global.LIBRARY.hunt(UPDATE_CONSOLE, {
+        idx: 'cns00',
         src: '-----------',
     })
 
@@ -86,13 +100,12 @@ export const toggleTargetMode = async (
     ste: State,
 ) => {
     const LOCAL_URL = 'http://127.0.0.1:8787'
-    const LIVE_URL =
-        process.env.WORKER_URL || 'https://worker-agent.berad4000.workers.dev'
+    const LIVE_URL = getLiveUrl()
 
     if (cpy.targetMode === 'LIVE') {
         await global.LIBRARY.hunt(UPDATE_CONSOLE, {
             idx: 'cns00',
-            src: '⏳ Spawning local Cloudflare Worker on port 8787...',
+            src: '>> Spawning local Cloudflare Worker on port 8787...',
         })
 
         const workerDir = resolveWorkerDir()
@@ -119,7 +132,7 @@ export const toggleTargetMode = async (
         cpy.localProcess = child
 
         let ready = false
-        for (let attempt = 1; attempt <= 12; attempt++) {
+        for (let attempt = 1; attempt <= 15; attempt++) {
             await new Promise((resolve) => setTimeout(resolve, 1000))
             try {
                 const res = await fetch(`${LOCAL_URL}/health`)
@@ -138,7 +151,7 @@ export const toggleTargetMode = async (
             ;(global as any).agentBaseUrl = LOCAL_URL
             await global.LIBRARY.hunt(UPDATE_CONSOLE, {
                 idx: 'cns00',
-                src: `🟢 TARGET SWITCHED: LOCAL (${LOCAL_URL}) [ACTIVE]`,
+                src: `>> [ONLINE] Local worker is online on [${LOCAL_URL}](${LOCAL_URL})\n>> Ready to receive requests locally.`,
             })
         } else {
             if (child) {
@@ -162,7 +175,7 @@ export const toggleTargetMode = async (
             ;(global as any).agentBaseUrl = LIVE_URL
             await global.LIBRARY.hunt(UPDATE_CONSOLE, {
                 idx: 'cns00',
-                src: '🔴 FAILED to start local worker. Reverting to LIVE.',
+                src: '>> [FAILED] Local worker timed out after 15s. Reverting to LIVE.',
             })
         }
     } else {
@@ -188,7 +201,7 @@ export const toggleTargetMode = async (
         ;(global as any).agentBaseUrl = LIVE_URL
         await global.LIBRARY.hunt(UPDATE_CONSOLE, {
             idx: 'cns00',
-            src: `🌐 TARGET SWITCHED: LIVE (${LIVE_URL}) [ACTIVE]`,
+            src: `>> [SWITCHED] Target set to LIVE (${LIVE_URL})`,
         })
     }
 
@@ -202,17 +215,17 @@ export const toggleTargetMode = async (
 export const updateMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
     const toggleLabel =
         cpy.targetMode === 'LIVE'
-            ? '🎯 TARGET: [LIVE] -> Switch to LOCAL'
-            : '🎯 TARGET: [LOCAL] -> Switch to LIVE'
+            ? 'TARGET: [LIVE] -> Switch to LOCAL'
+            : 'TARGET: [LOCAL] -> Switch to LIVE'
 
     const lst = [
-        toggleLabel,
         ActOlm.UPDATE_agent.split(']')[1],
         ActOlm.TEST_agent.split(']')[1],
         ActOlm.LIST_agent.split(']')[1],
         'GET / (Health Check)',
         'GET /oracle (The Oracle)',
         'ROOT MENU',
+        toggleLabel,
     ]
 
     bit = await global.LIBRARY.hunt(UPDATE_GRID, {
@@ -304,7 +317,8 @@ export const updateMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
 }
 
 const testRoute = async (route: string, ste: State, baseUrl: string) => {
-    const url = `${baseUrl}${route}`
+    const cleanBase = baseUrl.replace(/\/$/, '')
+    const url = `${cleanBase}${route}`
     await global.LIBRARY.hunt(UPDATE_CONSOLE, {
         idx: 'cns00',
         src: `Fetching: ${url}`,
@@ -314,7 +328,7 @@ const testRoute = async (route: string, ste: State, baseUrl: string) => {
         const text = await res.text()
         await global.LIBRARY.hunt(UPDATE_CONSOLE, {
             idx: 'cns00',
-            src: `Response:\n${text}`,
+            src: `Response (${res.status}):\n${text || '[Empty Body]'}`,
         })
     } catch (err: any) {
         await global.LIBRARY.hunt(UPDATE_CONSOLE, {
@@ -347,7 +361,8 @@ const testAiRoute = async (route: string, ste: State, baseUrl: string) => {
     })
 
     const prompt = choiceBit.chcBit.src
-    const url = `${baseUrl}${route}?prompt=${encodeURIComponent(prompt)}`
+    const cleanBase = baseUrl.replace(/\/$/, '')
+    const url = `${cleanBase}${route}?prompt=${encodeURIComponent(prompt)}`
 
     await global.LIBRARY.hunt(UPDATE_CONSOLE, {
         idx: 'cns00',
@@ -358,7 +373,7 @@ const testAiRoute = async (route: string, ste: State, baseUrl: string) => {
         const text = await res.text()
         await global.LIBRARY.hunt(UPDATE_CONSOLE, {
             idx: 'cns00',
-            src: `Response:\n${text}`,
+            src: `Response (${res.status}):\n${text || '[Empty Body]'}`,
         })
     } catch (err: any) {
         await global.LIBRARY.hunt(UPDATE_CONSOLE, {
