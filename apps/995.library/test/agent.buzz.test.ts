@@ -85,7 +85,7 @@ test.serial(
         t.true(postStub.calledOnce)
         const [postUrl, postBody] = postStub.firstCall.args
         t.true(postUrl.includes('/sessions/cli-agent-session/prompt'))
-        t.deepEqual(postBody, { prompt: 'roll 2d6' })
+        t.deepEqual(postBody, { text: 'roll 2d6' })
 
         // Verify result
         t.true(bal.slv.calledOnce)

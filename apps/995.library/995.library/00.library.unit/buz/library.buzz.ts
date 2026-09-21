@@ -523,7 +523,18 @@ export const flatLibrary = async (
         })
 
     const IGNORED_DIRS = new Set(['node_modules', 'dist', 'data', '.git'])
-    const CODE_EXTS = new Set(['.ts', '.tsx', '.js', '.cjs', '.mjs'])
+    const CODE_EXTS = new Set([
+        '.ts',
+        '.tsx',
+        '.js',
+        '.cjs',
+        '.mjs',
+        '.jsonc',
+        '.toml',
+        '.yml',
+        '.yaml',
+    ])
+    const ALLOWED_FILES = new Set(['.gitignore', 'package.json'])
 
     async function getFilePaths(dir: string): Promise<string[]> {
         let entries
@@ -555,30 +566,52 @@ export const flatLibrary = async (
     }
 
     try {
-        const targetRoots = ['apps', 'packages'].map((folder) =>
+        const targetRoots = ['apps', 'packages', '.github', '.'].map((folder) =>
             path.join(repoRoot, folder),
         )
         const allScannedFiles: string[] = []
 
         for (const targetRoot of targetRoots) {
             if (!fs.existsSync(targetRoot)) continue
-            const subEntries = await fs.readdir(targetRoot, {
-                withFileTypes: true,
-            })
-            for (const entry of subEntries) {
-                if (!entry.isDirectory()) continue
-                if (IGNORED_DIRS.has(entry.name) && entry.name !== 'schema')
-                    continue
-                const subDir = path.join(targetRoot, entry.name)
-                const files = await getFilePaths(subDir)
+
+            if (targetRoot === repoRoot) {
+                // Special case for root to avoid scanning everything again
+                const subEntries = await fs.readdir(targetRoot, {
+                    withFileTypes: true,
+                })
+                for (const entry of subEntries) {
+                    if (entry.isFile()) {
+                        allScannedFiles.push(path.join(targetRoot, entry.name))
+                    }
+                }
+            } else if (path.basename(targetRoot) === '.github') {
+                // Specifically scan .github
+                const files = await getFilePaths(targetRoot)
                 allScannedFiles.push(...files)
+            } else {
+                const subEntries = await fs.readdir(targetRoot, {
+                    withFileTypes: true,
+                })
+                for (const entry of subEntries) {
+                    if (!entry.isDirectory()) continue
+                    if (IGNORED_DIRS.has(entry.name) && entry.name !== 'schema')
+                        continue
+                    const subDir = path.join(targetRoot, entry.name)
+                    const files = await getFilePaths(subDir)
+                    allScannedFiles.push(...files)
+                }
             }
         }
 
         // Filter for code files
         const codeFiles = allScannedFiles.filter((file) => {
             const ext = path.extname(file)
-            if (!CODE_EXTS.has(ext)) return false
+            const filename = path.basename(file)
+
+            const isAllowedFile =
+                ALLOWED_FILES.has(filename) || filename.startsWith('tsconfig')
+
+            if (!CODE_EXTS.has(ext) && !isAllowedFile) return false
             // If it's a JS file and a corresponding TS file exists in the same folder, skip the compiled duplicate
             if (ext === '.js') {
                 const tsSibling = file.slice(0, -3) + '.ts'
