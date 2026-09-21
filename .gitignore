@@ -188,3 +188,16 @@ examples
 
 .cursor/rules/nx-rules.mdc
 .github/instructions/nx.instructions.md
+
+# Environment & Secret variables
+.env
+.env.*
+.dev.vars
+.dev.vars.*
+*.pem
+
+# Dependencies & Build artifacts
+node_modules/
+dist/
+.wrangler/
+.mf/

@@ -1,4 +1,4 @@
-import { describe, test, expect, afterAll } from 'vitest'
+import { describe, test, expect } from 'vitest'
 import { request } from 'playwright-core'
 import { TARGET_URL } from './config.js'
 

@@ -34,7 +34,7 @@ export function createSuckStub<T extends DurableObject>(
     // between the Node.js 'fetch' and Cloudflare 'fetch', but we cast the result back
     // to DurableObjectStub<T> to keep the rest of the codebase strict.
     return new Proxy(originalStub, {
-        get(target: any, prop, receiver) {
+        get(target: any, prop) {
             if (prop === 'fetch') {
                 return async (...args: any[]) => {
                     // 1. THE DICE ROLL (Packet Loss)

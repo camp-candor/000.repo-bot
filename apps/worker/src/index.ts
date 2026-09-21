@@ -7,111 +7,351 @@ import {
 import { Type, type Static } from '@sinclair/typebox'
 
 // ============================================================================
-// [ THE CONDUCTOR'S SANCTUARY: THE DYNAMIC SWITCHBOARD ]
-// A Cloudflare Agent capable of multi-tool orchestration and generative jazz.
+// [ REPO-BOT: EDGE DEVOPS & ORCHESTRATION CONTROL PLANE ]
 // ============================================================================
 
-interface Env extends AgentEnv {
+export interface Env extends AgentEnv {
     CLOUDFLARE_ACCOUNT_ID: string
     CLOUDFLARE_API_TOKEN: string
-    AI: any // Binding for the 'Oracle' fast-path
+    CLOUDFLARE_AI_GATEWAY: string // Gateway slug (e.g., "repo-bot-gateway")
+    GITHUB_TOKEN: string // Token loaded from .env / .dev.vars
+    GITHUB_DEFAULT_OWNER?: string
+    AI: any // Cloudflare Workers AI binding
+}
+
+// Helper: GitHub REST API fetcher with deterministic headers
+async function githubRequest(
+    endpoint: string,
+    env: Env,
+    options: RequestInit = {},
+) {
+    const url = `https://api.github.com${endpoint}`
+    const response = await fetch(url, {
+        ...options,
+        headers: {
+            'Accept': 'application/vnd.github+json',
+            'Authorization': `Bearer ${env.GITHUB_TOKEN}`,
+            'X-GitHub-Api-Version': '2022-11-28',
+            'User-Agent': 'repo-bot-edge-isolate',
+            'Content-Type': 'application/json',
+            ...(options.headers || {}),
+        },
+    })
+
+    const data = await response.json()
+    if (!response.ok) {
+        throw new Error(
+            `GitHub API error (${response.status}): ${(data as any).message || JSON.stringify(data)}`,
+        )
+    }
+    return data
 }
 
 // ----------------------------------------------------------------------------
-// 🎛️ THE INSTRUMENTS (Tools & Schemas)
+// 🎛️ DETERMINISTIC TOOLS (TypeBox additionalProperties: false)
 // ----------------------------------------------------------------------------
 
-// --- INSTRUMENT 1: THE RHYTHM SECTION (Dice) ---
-const RollDiceParams = Type.Object({
-    number_of_dice: Type.Number({ description: 'Number of dice to roll' }),
-    sides_per_die: Type.Number({ description: 'Number of sides on the dice' }),
-    reason: Type.String({ description: 'The narrative reason for the roll.' }), // Added for juice!
-})
+// TOOL 1: Capture HEAD SHA (S_clean anchor)
+const GetCommitShaParams = Type.Object(
+    {
+        owner: Type.String({ description: 'GitHub organization or username' }),
+        repo: Type.String({ description: 'Repository name' }),
+        branch: Type.String({
+            description: 'Branch name to inspect (e.g., main or staging)',
+            default: 'main',
+        }),
+    },
+    { additionalProperties: false },
+)
 
-const RollDice: AgentTool<typeof RollDiceParams> = {
-    name: 'roll_dice',
-    label: 'Roll Dice',
-    // THE ROUTING SIGNAL: Notice the strict boundaries.
+const createGetCommitShaTool = (
+    env: Env,
+): AgentTool<typeof GetCommitShaParams> => ({
+    name: 'get_commit_sha',
+    label: 'Get Branch Commit SHA (S_clean)',
     description:
-        'REQUIRED: Invoke ONLY when a mechanical probability check, attack, or random number is requested. Returns the mathematical result.',
-    parameters: RollDiceParams,
-    execute: async (_id: any, args: Static<typeof RollDiceParams>) => {
-        const rolls = []
-        let total = 0
-        const num = args.number_of_dice || 1
-        const sides = args.sides_per_die || 20
+        'REQUIRED: Queries the HEAD commit SHA of a target branch to capture the immutable rollback anchor (S_clean) before provisioning changes.',
+    parameters: GetCommitShaParams,
+    execute: async (_id: any, args: Static<typeof GetCommitShaParams>) => {
+        try {
+            const data: any = await githubRequest(
+                `/repos/${args.owner}/${args.repo}/git/ref/heads/${args.branch}`,
+                env,
+            )
+            const sha = data.object.sha
 
-        for (let i = 0; i < num; i++) {
-            const roll = Math.floor(Math.random() * sides) + 1
-            rolls.push(roll)
-            total += roll
-        }
+            const receipt = JSON.stringify({
+                action: 'COMMIT_SHA_CAPTURED',
+                repo: `${args.owner}/${args.repo}`,
+                branch: args.branch,
+                s_clean: sha,
+            })
 
-        // We return a receipt. The LLM will read this receipt and THEN narrate the result!
-        const receipt = JSON.stringify({
-            action: 'DICE_ROLLED',
-            reason: args.reason,
-            total,
-            rolls,
-        })
-        return {
-            content: [{ type: 'text', text: receipt }],
-            details: { total, rolls },
+            return {
+                content: [{ type: 'text', text: receipt }],
+                details: { sha, branch: args.branch },
+            }
+        } catch (err: any) {
+            return {
+                content: [
+                    {
+                        type: 'text',
+                        text: JSON.stringify({
+                            error: err.message,
+                            status: 'FAILED',
+                        }),
+                    },
+                ],
+                details: { error: err.message },
+            }
         }
     },
-}
-
-// --- INSTRUMENT 2: THE SYNTHESIZER (Vibe Modulation) ---
-const ModulateVibeParams = Type.Object({
-    hex_color: Type.String({
-        description:
-            'A hex color code representing the requested mood (e.g., #ff0000 for danger).',
-    }),
-    shader_intensity: Type.Number({
-        minimum: 0,
-        maximum: 1,
-        description: 'How intense the visual distortion should be.',
-    }),
-    ambient_audio: Type.String({
-        enum: ['silence', 'rain', 'heartbeat', 'static'],
-    }),
 })
 
-const ModulateVibe: AgentTool<typeof ModulateVibeParams> = {
-    name: 'modulate_vibe',
-    label: 'Modulate Environment Vibe',
-    // THE ROUTING SIGNAL: Triggers on atmospheric requests.
-    description:
-        'REQUIRED: Invoke ONLY when the user asks to change the environment, the mood, the lighting, or the visual state of the world.',
-    parameters: ModulateVibeParams,
-    execute: async (_id: any, args: Static<typeof ModulateVibeParams>) => {
-        // In a real app, this payload is caught by the frontend to update React state/WebGL
-        const receipt = JSON.stringify({
-            action: 'VIBE_SHIFTED',
-            new_color: args.hex_color,
-            audio_track: args.ambient_audio,
-        })
+// TOOL 2: Cut Ephemeral Branch (spec/TASK-XX-<short-sha>)
+const CreateEphemeralBranchParams = Type.Object(
+    {
+        owner: Type.String({ description: 'GitHub organization or username' }),
+        repo: Type.String({ description: 'Repository name' }),
+        branch_name: Type.String({
+            description:
+                'Ephemeral branch name (MUST follow spec/TASK-XX-<short-sha>)',
+        }),
+        base_sha: Type.String({
+            description: 'The S_clean commit SHA anchoring this branch',
+        }),
+    },
+    { additionalProperties: false },
+)
 
-        return {
-            content: [{ type: 'text', text: receipt }],
-            details: { ...args },
+const createEphemeralBranchTool = (
+    env: Env,
+): AgentTool<typeof CreateEphemeralBranchParams> => ({
+    name: 'create_ephemeral_branch',
+    label: 'Create Ephemeral Branch',
+    description:
+        'Creates an isolated branch anchored to a specific commit SHA. Never allows direct mutation of main.',
+    parameters: CreateEphemeralBranchParams,
+    execute: async (
+        _id: any,
+        args: Static<typeof CreateEphemeralBranchParams>,
+    ) => {
+        try {
+            const ref = args.branch_name.startsWith('refs/heads/')
+                ? args.branch_name
+                : `refs/heads/${args.branch_name}`
+
+            const data: any = await githubRequest(
+                `/repos/${args.owner}/${args.repo}/git/refs`,
+                env,
+                {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        ref,
+                        sha: args.base_sha,
+                    }),
+                },
+            )
+
+            const receipt = JSON.stringify({
+                action: 'EPHEMERAL_BRANCH_CREATED',
+                ref: data.ref,
+                anchored_sha: args.base_sha,
+            })
+
+            return {
+                content: [{ type: 'text', text: receipt }],
+                details: { ref: data.ref, sha: args.base_sha },
+            }
+        } catch (err: any) {
+            return {
+                content: [
+                    {
+                        type: 'text',
+                        text: JSON.stringify({
+                            error: err.message,
+                            status: 'FAILED',
+                        }),
+                    },
+                ],
+                details: { error: err.message },
+            }
         }
     },
-}
+})
+
+// TOOL 3: Bounded File Commit
+const WriteRepoFileParams = Type.Object(
+    {
+        owner: Type.String({ description: 'GitHub organization or username' }),
+        repo: Type.String({ description: 'Repository name' }),
+        path: Type.String({
+            description: 'Repository file path (e.g., docs/specs/TASK-01.md)',
+        }),
+        content: Type.String({
+            description: 'UTF-8 string content to write to the file',
+        }),
+        commit_message: Type.String({
+            description:
+                'Conventional commit message (e.g., chore(spec): add TASK-01)',
+        }),
+        branch: Type.String({
+            description: 'Target branch name (MUST be an ephemeral branch)',
+        }),
+        sha: Type.Optional(
+            Type.String({
+                description:
+                    'Existing file blob SHA if updating an existing file; omit if creating',
+            }),
+        ),
+    },
+    { additionalProperties: false },
+)
+
+const createWriteRepoFileTool = (
+    env: Env,
+): AgentTool<typeof WriteRepoFileParams> => ({
+    name: 'write_repo_file',
+    label: 'Write or Update Repo File',
+    description:
+        'Writes or updates a bounded file on a specific branch via GitHub Contents API. Encodes content to base64.',
+    parameters: WriteRepoFileParams,
+    execute: async (_id: any, args: Static<typeof WriteRepoFileParams>) => {
+        try {
+            const base64Content = btoa(
+                unescape(encodeURIComponent(args.content)),
+            )
+
+            const body: Record<string, any> = {
+                message: args.commit_message,
+                content: base64Content,
+                branch: args.branch,
+            }
+            if (args.sha) body.sha = args.sha
+
+            const data: any = await githubRequest(
+                `/repos/${args.owner}/${args.repo}/contents/${args.path}`,
+                env,
+                {
+                    method: 'PUT',
+                    body: JSON.stringify(body),
+                },
+            )
+
+            const receipt = JSON.stringify({
+                action: 'FILE_COMMITTED',
+                path: args.path,
+                branch: args.branch,
+                commit_sha: data.commit.sha,
+            })
+
+            return {
+                content: [{ type: 'text', text: receipt }],
+                details: { commit_sha: data.commit.sha, path: args.path },
+            }
+        } catch (err: any) {
+            return {
+                content: [
+                    {
+                        type: 'text',
+                        text: JSON.stringify({
+                            error: err.message,
+                            status: 'FAILED',
+                        }),
+                    },
+                ],
+                details: { error: err.message },
+            }
+        }
+    },
+})
+
+// TOOL 4: Open Pull Request
+const CreatePullRequestParams = Type.Object(
+    {
+        owner: Type.String({ description: 'GitHub organization or username' }),
+        repo: Type.String({ description: 'Repository name' }),
+        title: Type.String({ description: 'PR Title' }),
+        body: Type.String({
+            description:
+                'Detailed description, linked spec, and scope invariants',
+        }),
+        head_branch: Type.String({
+            description: 'Source branch containing candidate commits',
+        }),
+        base_branch: Type.String({
+            description: 'Target branch (e.g., main)',
+            default: 'main',
+        }),
+    },
+    { additionalProperties: false },
+)
+
+const createPullRequestTool = (
+    env: Env,
+): AgentTool<typeof CreatePullRequestParams> => ({
+    name: 'create_pull_request',
+    label: 'Create Pull Request',
+    description:
+        'Opens a GitHub Pull Request from an ephemeral branch to trunk for automated gauntlet validation and audit review.',
+    parameters: CreatePullRequestParams,
+    execute: async (_id: any, args: Static<typeof CreatePullRequestParams>) => {
+        try {
+            const data: any = await githubRequest(
+                `/repos/${args.owner}/${args.repo}/pulls`,
+                env,
+                {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        title: args.title,
+                        body: args.body,
+                        head: args.head_branch,
+                        base: args.base_branch || 'main',
+                    }),
+                },
+            )
+
+            const receipt = JSON.stringify({
+                action: 'PULL_REQUEST_OPENED',
+                pr_number: data.number,
+                html_url: data.html_url,
+                head: args.head_branch,
+                base: args.base_branch,
+            })
+
+            return {
+                content: [{ type: 'text', text: receipt }],
+                details: { pr_number: data.number, url: data.html_url },
+            }
+        } catch (err: any) {
+            return {
+                content: [
+                    {
+                        type: 'text',
+                        text: JSON.stringify({
+                            error: err.message,
+                            status: 'FAILED',
+                        }),
+                    },
+                ],
+                details: { error: err.message },
+            }
+        }
+    },
+})
 
 // ----------------------------------------------------------------------------
-// 🧠 THE BRAIN: LLM & SYSTEM PROMPT CONFIGURATION
+// 🧠 SYSTEM PROMPT & CLOUDFLARE AI GATEWAY CONFIGURATION
 // ----------------------------------------------------------------------------
 
 const cfModel: any = {
     id: '@hf/nousresearch/hermes-2-pro-mistral-7b',
     api: 'openai-completions',
     provider: 'openai',
-    baseUrl: '', // Set dynamically
+    baseUrl: '', // Set dynamically via Cloudflare AI Gateway
     reasoning: false,
     input: ['text'],
-    // We raise the temperature slightly from 0.0 to 0.4. We want a little bit of creative jazz.
-    temperature: 0.4,
+    temperature: 0.1,
     compat: {
         supportsStore: false,
         supportsDeveloperRole: false,
@@ -121,26 +361,27 @@ const cfModel: any = {
 
 const dynamicWorker = createAgentWorker<Env>({
     systemPrompt: (env) => {
-        cfModel.baseUrl = `https://api.cloudflare.com/client/v4/accounts/${env.CLOUDFLARE_ACCOUNT_ID}/ai/v1`
+        const gatewaySlug = env.CLOUDFLARE_AI_GATEWAY || 'repo-bot-gateway'
+        cfModel.baseUrl = `https://gateway.ai.cloudflare.com/v1/${env.CLOUDFLARE_ACCOUNT_ID}/${gatewaySlug}/workers-ai/v1`
 
-        // THE CONDUCTOR'S BATON: We explicitly give the model permission to choose.
         return `
-You are the Vibe Architect of a Southern Gothic Biopunk reality. You are a creative intelligence.
-You possess two powerful instruments (Tools):
-1. 'roll_dice': Use this for math, probability, and combat.
-2. 'modulate_vibe': Use this to change the visual lighting and auditory atmosphere of the user's screen.
+You are repo-bot, the deterministic DevOps Control Plane and Git Mechanic for the studio ecosystem.
+You coordinate workspace isolation, branch scaffolding, spec commits, and PR generation.
 
-THE RULE OF IMPROVISATION:
-Read the user's intent carefully. 
-- If they ask for math or action, invoke a tool. 
-- If they ask a lore question, or speak poetically, DO NOT USE A TOOL. Simply respond with chilling, atmospheric narrative text.
-- If you use a tool, you MUST read the JSON receipt it returns, and then output a narrative sentence describing the result to the user.
-
-Do not be a silent machine. Ensure the world breathes.
+GOVERNING RULES:
+1. THE ANCHOR INVARIANT: Before modifying or cutting branches, you MUST capture the base commit SHA (S_clean) using 'get_commit_sha'.
+2. WORKSPACE ISOLATION: Never commit directly to 'main'. Always provision an ephemeral branch prefixed with 'spec/' using 'create_ephemeral_branch'.
+3. BOUNDED MUTATION: Only write files explicitly requested. Always read receipts from tools before narrating outcomes.
+4. ZERO VIBE TOLERANCE: Output concrete commit hashes, branch refs, and PR URLs. Do not invent fictional repositories or pretend actions succeeded without a tool receipt.
     `.trim()
     },
     model: cfModel,
-    tools: (_env) => [RollDice, ModulateVibe],
+    tools: (env) => [
+        createGetCommitShaTool(env),
+        createEphemeralBranchTool(env),
+        createWriteRepoFileTool(env),
+        createPullRequestTool(env),
+    ],
     getApiKey: (provider, env) => {
         if (provider === 'openai') return env.CLOUDFLARE_API_TOKEN
         return undefined
@@ -148,22 +389,38 @@ Do not be a silent machine. Ensure the world breathes.
 })
 
 // ----------------------------------------------------------------------------
-// 🎚️ THE MIXING BOARD: HONO ROUTER
+// 🎚️ ROUTER & DIAGNOSTICS
 // ----------------------------------------------------------------------------
 
 const app = new Hono<{ Bindings: Env }>()
 
-app.get('/', (c) => c.text('THE REPO BOT (AKA BILLI FAE BOTS) IS LIVE.'))
+app.get('/', (c) => c.text('REPO-BOT EDGE CONTROL PLANE IS LIVE.'))
 
-// --- ROUTE: The Oracle (Fast-Path env.AI.run) ---
+app.get('/health', async (c) => {
+    return c.json({
+        status: 'healthy',
+        hasGithubToken: Boolean(c.env.GITHUB_TOKEN),
+        hasAccountId: Boolean(c.env.CLOUDFLARE_ACCOUNT_ID),
+        aiGateway: c.env.CLOUDFLARE_AI_GATEWAY || 'repo-bot-gateway',
+    })
+})
+
 app.get('/oracle', async (c) => {
     try {
-        const prompt = c.req.query('prompt') || 'Roll a d20'
+        const prompt = c.req.query('prompt') || 'Inspect repository status'
+        const gatewayId = c.env.CLOUDFLARE_AI_GATEWAY || 'repo-bot-gateway'
+
         const response = await c.env.AI.run('@cf/meta/llama-3.2-3b-instruct', {
             messages: [
                 { role: 'user', content: `${prompt}. Output ONLY raw JSON.` },
             ],
+            gateway: {
+                id: gatewayId,
+                skipCache: false,
+                cacheTtl: 3600,
+            },
         })
+
         return c.text(response.response || JSON.stringify(response))
     } catch (error: any) {
         console.error('Oracle Error:', error)
@@ -171,9 +428,10 @@ app.get('/oracle', async (c) => {
     }
 })
 
+// Session routing (/sessions, /sessions/:id/prompt, /sessions/:id/ws)
 app.all('/*', async (c) => {
     if (!dynamicWorker.handler.fetch) return c.text('Handler missing', 500)
-    return await dynamicWorker.handler.fetch(c.req.raw, c.env, c.executionCtx)
+    return await dynamicWorker.handler.fetch(c.req.raw as any, c.env, c.executionCtx)
 })
 
 export const AgentSessionDO = dynamicWorker.AgentSessionDO
