@@ -25,7 +25,7 @@ export const updateAgent = async (
 
         // 1. Send the prompt to the session's prompt endpoint (REST fire-and-forget)
         await axios.post(`${WORKER_URL}/sessions/${sessionId}/prompt`, {
-            text: message,
+            prompt: message,
         })
 
         // 2. Poll the state endpoint until the agent finishes generating
