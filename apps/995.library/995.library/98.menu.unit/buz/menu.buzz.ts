@@ -38,10 +38,27 @@ export const initMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
     if (!opened) {
         opened = true
         const path = require('path')
-        const pkg = require(path.resolve(process.cwd(), 'package.json'))
-        const libPkg = require(
-            path.resolve(process.cwd(), 'apps/995.library/package.json'),
+        const fs = require('fs')
+
+        let pkg = { version: '0.0.0' }
+        let libPkg = { version: '0.0.0' }
+
+        const libSubPath = path.resolve(
+            process.cwd(),
+            'apps/995.library/package.json',
         )
+        const cwdPkgPath = path.resolve(process.cwd(), 'package.json')
+        const rootUpPath = path.resolve(process.cwd(), '../../package.json')
+
+        if (fs.existsSync(libSubPath)) {
+            // process.cwd() is repository root
+            if (fs.existsSync(cwdPkgPath)) pkg = require(cwdPkgPath)
+            libPkg = require(libSubPath)
+        } else {
+            // process.cwd() is apps/995.library (or sub-workspace)
+            if (fs.existsSync(cwdPkgPath)) libPkg = require(cwdPkgPath)
+            if (fs.existsSync(rootUpPath)) pkg = require(rootUpPath)
+        }
 
         bit = await ste.hunt(ActTrm.INIT_TERMINAL, {})
         bit = await ste.hunt(ActTrm.CLEAR_TERMINAL, {})
@@ -88,7 +105,15 @@ export const openMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
     const path = require('path')
     const exec = require('child_process').exec
 
-    const pkg = FS.readJsonSync(path.resolve(process.cwd(), './package.json'))
+    const libSubPath = path.resolve(
+        process.cwd(),
+        'apps/995.library/package.json',
+    )
+    const cwdPkgPath = path.resolve(process.cwd(), 'package.json')
+    const libPkgPath = FS.existsSync(libSubPath) ? libSubPath : cwdPkgPath
+    const pkg = FS.existsSync(libPkgPath)
+        ? FS.readJsonSync(libPkgPath)
+        : { version: '0.0.0' }
     const version = pkg.version
 
     bit = await ste.hunt(ActCns.UPDATE_CONSOLE, {

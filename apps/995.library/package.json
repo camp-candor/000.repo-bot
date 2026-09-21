@@ -1,9 +1,10 @@
 {
     "name": "@camp_candor/995.library",
-    "version": "1.0.3",
+    "version": "1.0.4",
     "private": true,
     "scripts": {
-        "dev": "npx tsx run.ts -t pivot"
+        "dev": "npx tsx run.ts -t pivot",
+        "test": "ava"
     },
     "ava": {
         "files": [
