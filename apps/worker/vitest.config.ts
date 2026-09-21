@@ -11,6 +11,11 @@ export default defineWorkersConfig({
         },
     },
     test: {
+        server: {
+            deps: {
+                inline: [/^(?!.*vitest).*$/]
+            }
+        },
         poolOptions: {
             workers: {
                 wrangler: { configPath: './wrangler.test.jsonc' },
