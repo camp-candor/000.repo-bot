@@ -18,7 +18,8 @@ import * as FOCUS from '../../val/focus'
 import * as ActMnu from '../menu.action'
 
 //import * as ActFoc from "../../01.focus.unit/focus.action";
-
+//import * as ActPvt from "../../96.pivot.unit/pivot.action";
+import * as ActGer from '../../05.gears.unit/gears.action'
 import * as ActTrm from '../../80.terminal.unit/terminal.action'
 import * as ActChc from '../../85.choice.unit/choice.action'
 import * as ActPut from '../../84.input.unit/input.action'
@@ -27,7 +28,6 @@ import * as ActGrd from '../../81.grid.unit/grid.action'
 import * as ActCns from '../../83.console.unit/console.action'
 
 import * as ActTrn from '../../act/turn.action'
-
 import * as ActClr from '../../act/color.action'
 import * as ActSow from '../../act/sower.action'
 
@@ -40,8 +40,6 @@ var opened = false
 export const libraryMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
     bit = await ste.hunt(ActTrm.CLEAR_TERMINAL, {})
 
-    debugger
-
     bit = await ste.hunt(ActCns.UPDATE_CONSOLE, {
         idx: 'cns00',
         src: 'LIBRARY MENU',
@@ -52,13 +50,16 @@ export const libraryMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
     })
 
     lst = [
+        ActGer.LORE_GEARS.split(']')[1],
+        ActGer.CREATE_GEARS.split(']')[1],
         ActUnt.UPDATE_UNIT.split(']')[1],
         ActAct.UPDATE_ACTION.split(']')[1],
         ActUnt.CREATE_UNIT.split(']')[1],
         ActUnt.FLATTEN_UNIT.split(']')[1],
-        ActLib.PROGESS_LIBRARY.split(']')[1],
+        ActLib.PROGRESS_LIBRARY.split(']')[1],
         ActLib.UPDATE_LIBRARY.split(']')[1],
         ActLib.LIST_LIBRARY.split(']')[1],
+        ActLib.LAUNCH_LIBRARY.split(']')[1],
         'ROOT MENU',
     ]
 
@@ -75,6 +76,12 @@ export const libraryMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
             '-Regenerate the library\nwiring manifest (BEE.ts).',
         [ActLib.LIST_LIBRARY.split(']')[1]]:
             '-List all the units\ncurrently in the library.',
+        [ActGer.LORE_GEARS.split(']')[1]]:
+            '-List all GEARS units\ncurrently in the library.',
+        [ActGer.CREATE_GEARS.split(']')[1]]:
+            '-List all GEARS units\ncurrently in the library.',
+        [ActLib.LAUNCH_LIBRARY.split(']')[1]]: '-Launch library urls.',
+
         'ROOT MENU': '-Return to the root menu.',
     }
 
@@ -105,6 +112,56 @@ export const libraryMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
     src = bit.chcBit.src
 
     switch (src) {
+        case ActLib.LAUNCH_LIBRARY.split(']')[1]:
+            bit = await ste.hunt(ActLib.LAUNCH_LIBRARY, {})
+            break
+
+        case ActGer.LORE_GEARS.split(']')[1]:
+            bit = await ste.hunt(ActGrd.UPDATE_GRID, {
+                x: 0,
+                y: 4,
+                xSpan: 4,
+                ySpan: 6,
+            })
+            bit = await ste.hunt(ActPut.OPEN_INPUT, {
+                dat: { clr0: Color.BLACK, clr1: Color.YELLOW },
+                src: Align.VERTICAL,
+                lst,
+                txt: 'input verb',
+                net: bit.grdBit.dat,
+            })
+            src = bit.putBit.src
+
+            var FS = require('fs-extra')
+
+            bit = await ste.hunt(ActGer.LORE_GEARS, { src, dat: { fs: FS } })
+            bit = await ste.hunt(ActMnu.PRINT_MENU, bit)
+            bit = await ste.hunt(ActMnu.UPDATE_MENU)
+            break
+
+        case ActGer.CREATE_GEARS.split(']')[1]:
+            bit = await ste.hunt(ActGrd.UPDATE_GRID, {
+                x: 0,
+                y: 4,
+                xSpan: 4,
+                ySpan: 6,
+            })
+            bit = await ste.hunt(ActPut.OPEN_INPUT, {
+                dat: { clr0: Color.BLACK, clr1: Color.YELLOW },
+                src: Align.VERTICAL,
+                lst,
+                txt: 'input verb',
+                net: bit.grdBit.dat,
+            })
+            src = bit.putBit.src
+
+            var FS = require('fs-extra')
+
+            bit = await ste.hunt(ActGer.CREATE_GEARS, { src, dat: { fs: FS } })
+            bit = await ste.hunt(ActMnu.PRINT_MENU, bit)
+            bit = await ste.hunt(ActMnu.UPDATE_MENU)
+            break
+
         case ActAct.UPDATE_ACTION.split(']')[1]:
             bit = await ste.hunt(ActLib.LIST_LIBRARY, {})
             lst = bit.libBit.lst
@@ -308,6 +365,7 @@ export const libraryMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
             })
 
             src = bit.chcBit.src
+            src = process.env[src]
             var root = src
 
             bit = await ste.hunt(ActLib.LIST_LIBRARY, { src })
@@ -334,7 +392,7 @@ export const libraryMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
             bit = await ste.hunt(ActGrd.UPDATE_GRID, {
                 x: 0,
                 y: 4,
-                xSpan: 12,
+                xSpan: 4,
                 ySpan: 12,
             })
             bit = await ste.hunt(ActChc.OPEN_CHOICE, {
@@ -345,7 +403,7 @@ export const libraryMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
             })
             idx = bit.chcBit.src
 
-            src = root + '/' + idx
+            src = root + '/' + src
 
             var updateBit = await ste.hunt(ActUnt.FLATTEN_UNIT, {
                 idx,
@@ -451,7 +509,7 @@ export const libraryMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
             bit = await ste.hunt(ActMnu.PRINT_MENU, bit)
             break
 
-        case ActLib.PROGESS_LIBRARY.split(']')[1]:
+        case ActLib.PROGRESS_LIBRARY.split(']')[1]:
             bit = await ste.hunt(ActLib.SCAN_LIBRARY, {})
             lst = bit.libBit.lst
 
@@ -470,10 +528,15 @@ export const libraryMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
             src = bit.chcBit.src
 
             if (src) {
-                //you need some kind of opening message here for the console
-                //because the progress library takes so long
-                bit = await ste.hunt(ActLib.PROGESS_LIBRARY, { src })
-                //a console message here when its done would be nice
+                await ste.hunt(ActCns.UPDATE_CONSOLE, {
+                    idx: 'cns00',
+                    src: 'Progressing library... Please wait.',
+                })
+                bit = await ste.hunt(ActLib.PROGRESS_LIBRARY, { src })
+                await ste.hunt(ActCns.UPDATE_CONSOLE, {
+                    idx: 'cns00',
+                    src: 'Library progression completed.',
+                })
             } else {
                 ste.hunt(ActCns.UPDATE_CONSOLE, {
                     idx: 'cns00',

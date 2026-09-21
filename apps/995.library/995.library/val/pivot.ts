@@ -1,4 +1,3 @@
-export const MYTHOS = 'MYTHOS'
 export const TIME = 'TIME'
 
 export const EARTH = 'EARTH'

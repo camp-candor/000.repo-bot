@@ -4,5 +4,4 @@ export default interface AlligatorBit {
     val?: number
     dat?: any
     slv?: Function
-    lst?: any[]
 }

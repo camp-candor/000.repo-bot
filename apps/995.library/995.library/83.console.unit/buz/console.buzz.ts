@@ -25,7 +25,6 @@ export const updateConsole = async (
     bal.src
 
     dat.bit.log(bal.src)
-    ste.value.terminal.screen.render()
 
     const terminal: TerminalModel = ste.value.terminal
     if (terminal && terminal.screen) {

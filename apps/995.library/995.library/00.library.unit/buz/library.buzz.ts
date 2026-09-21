@@ -176,7 +176,7 @@ export const updateLibrary = async (
                 'import ' + unitName + 'Unit from "' + unitImportSrc + '";'
 
             const faceImportSrc = './' + a + '/fce/' + element + '.interface'
-            let faceImportSte =
+            const faceImportSte =
                 'import ' + unitName + ' from "' + faceImportSrc + '";'
 
             const modlImportSrc = './' + a + '/' + element + '.model'
@@ -192,15 +192,8 @@ export const updateLibrary = async (
                 '";'
 
             const reduced = element + ' : reduceFrom' + unitName + '.reducer'
-            let model =
+            const model =
                 element + ' : ' + unitName + ' = new ' + unitName + 'Model();'
-
-            if (unitName === 'Model') {
-                faceImportSte =
-                    'import ModelInterface from "' + faceImportSrc + '";'
-                model =
-                    element + ' : ModelInterface = new ' + unitName + 'Model();'
-            }
 
             const item = {
                 model,
@@ -300,113 +293,180 @@ export const updateLibrary = async (
     return cpy
 }
 
-export const progessLibrary = (
+export const progressLibrary = async (
     cpy: LibraryModel,
     bal: LibraryBit,
     ste: State,
 ) => {
-    const fs = require('fs')
+    /**
+     * Synchronizes and overrides a remote directory with the contents of the local `apps/995.library`.
+     *
+     * This function is essential for propagating updates made to the central `995.library` out to
+     * individual project workspaces. It acts as a one-way mirror operation.
+     *
+     * @param {LibraryModel} cpy - The current state model for the library unit.
+     * @param {LibraryBit} bal - The payload object containing operational parameters.
+     *                           - `bal.src` MUST specify the target remote directory path. It may contain brackets (e.g., `[../path]`) which will be stripped.
+     *                           - `bal.slv` (Optional) The resolver callback to handle async responses.
+     * @param {State} ste - The global state store for dispatching console updates via `ste.hunt`.
+     *
+     * @returns {LibraryModel} The original, unmodified state copy.
+     *
+     * @remarks
+     * 1. **Destructive Action:** The target directory specified by `bal.src` is completely wiped (`fs.rm` with `force: true` and `recursive: true`) before copying.
+     * 2. **Execution Flow:**
+     *    - Validates `bal.src` is provided. If not, dispatches an error via `bal.slv`.
+     *    - Cleans the target path string and resolves absolute paths.
+     *    - Attempts to recursively remove the target directory if it exists.
+     *    - Recursively copies the entire `apps/995.library` folder into the target location.
+     * 3. **Console Output:** Dispatches `UPDATE_CONSOLE` events to `cns00` to track progress and report errors to the terminal UI.
+     * 4. **Response:** Resolves with an `idx` of `'progress-library'` upon success or `'progress-library-error'` with the error message upon failure.
+     */
+    const fs = require('fs').promises
     const path = require('path')
 
     if (!bal.src) {
         if (bal.slv)
             bal.slv({
                 libBit: {
-                    idx: 'progess-library-error',
+                    idx: 'progress-library-error',
                     src: 'No src provided',
                 },
             })
         return cpy
     }
 
-    const targetDir = path.resolve(process.cwd(), bal.src)
+    // Strip brackets that might be present from list commands (e.g., `[../remote/path]`)
+    const cleanSrc = bal.src.replace(/[\[\]]/g, '')
+
+    const targetDir = path.resolve(process.cwd(), cleanSrc)
     const sourceDir = path.resolve(process.cwd(), 'apps', '995.library')
 
-    //a console message here updating the library menu what is happening would be nice
+    await ste.hunt(ActCns.UPDATE_CONSOLE, {
+        idx: 'cns00',
+        src: 'Starting to progress library to ' + targetDir,
+    })
 
     try {
-        //is there any way to use an async version of fs.exists
-        if (fs.existsSync(targetDir)) {
-            fs.rmSync(targetDir, { recursive: true, force: true })
+        try {
+            await fs.access(targetDir)
+            await fs.rm(targetDir, { recursive: true, force: true })
+        } catch (e) {
+            // directory does not exist, which is fine
         }
 
-        //is there any way to use an async version of fs.cp
-        fs.cpSync(sourceDir, targetDir, { recursive: true })
+        await fs.cp(sourceDir, targetDir, { recursive: true })
 
-        //a console message updating what is happening would be nice
+        await ste.hunt(ActCns.UPDATE_CONSOLE, {
+            idx: 'cns00',
+            src: 'Library copied to ' + targetDir,
+        })
 
         if (bal.slv)
-            bal.slv({ libBit: { idx: 'progess-library', src: bal.src } })
+            bal.slv({ libBit: { idx: 'progress-library', src: bal.src } })
     } catch (err) {
-        debugger
-
-        //a console message here updating the library menu what is happening would be nice
+        await ste.hunt(ActCns.UPDATE_CONSOLE, {
+            idx: 'cns00',
+            src: 'Error progressing library: ' + err.message,
+        })
 
         if (bal.slv)
             bal.slv({
-                libBit: { idx: 'progess-library-error', src: err.message },
+                libBit: { idx: 'progress-library-error', src: err.message },
             })
     }
 
     return cpy
 }
 
-export const scanLibrary = async (
-    cpy: LibraryModel,
-    bal: LibraryBit,
-    ste: State,
-) => {
-    const fs = require('fs').promises
+export const scanLibrary = (cpy: LibraryModel, bal: LibraryBit, ste: State) => {
+    /**
+     * Scans sibling directories to find other workspaces containing an `apps/995.library` folder.
+     *
+     * It moves up one level from the current repository root and inspects all adjacent directories.
+     * If a sibling repository contains an `apps/995.library` path, its relative path (from the current
+     * process root) is added to the results list. This list can then be used to synchronize or
+     * "progress" the library across different projects.
+     */
+    const fs = require('fs')
     const path = require('path')
 
-    const resultList = []
-    const upperLevel = path.resolve(process.cwd(), '..')
-    const currentAppPath = path
-        .resolve(process.cwd(), 'apps', '995.library')
-        .replace(/\\/g, '/')
+    const resultList: string[] = []
+    const parentDir = path.resolve(process.cwd(), '..')
 
-    async function scanDir(dir, depth) {
-        if (depth > 4) return
-        try {
-            const entries = await fs.readdir(dir, { withFileTypes: true })
-            for (const entry of entries) {
-                if (!entry.isDirectory()) continue
-                if (
-                    entry.name === 'node_modules' ||
-                    entry.name === '.git' ||
-                    entry.name === 'dist'
-                )
-                    continue
+    try {
+        const entries = fs.readdirSync(parentDir, { withFileTypes: true })
 
-                const fullPath = path.join(dir, entry.name)
-                const normalizedPath = fullPath.replace(/\\/g, '/')
+        for (const entry of entries) {
+            if (!entry.isDirectory()) continue
 
-                if (
-                    normalizedPath.endsWith('apps/995.library') &&
-                    normalizedPath !== currentAppPath
-                ) {
-                    resultList.push(
-                        path
-                            .relative(process.cwd(), fullPath)
-                            .replace(/\\/g, '/'),
-                    )
-                } else {
-                    await scanDir(fullPath, depth + 1)
-                }
+            const itemPath = path.join(parentDir, entry.name)
+
+            // Skip the current repo
+            if (itemPath === process.cwd()) continue
+
+            const libraryDir = path.join(itemPath, 'apps', '995.library')
+            if (fs.existsSync(libraryDir)) {
+                const relativePath = path.relative(process.cwd(), libraryDir)
+                resultList.push(`[${relativePath.replace(/\\/g, '/')}]`)
             }
-        } catch (e) {
-            // ignore
-            debugger
         }
+    } catch (err: any) {
+        console.error(`Error in scanLibrary: ${err.message}`)
     }
 
-    await scanDir(upperLevel, 0)
-
-    if (bal.slv) {
-        bal.slv({ libBit: { idx: 'scan-library', lst: resultList } })
-    }
+    if (bal.slv) bal.slv({ libBit: { idx: 'scan-library', lst: resultList } })
 
     return cpy
 }
 
 var patch = (ste, type, bale) => ste.dispatch({ type, bale })
+
+export const launchLibrary = async (
+    cpy: LibraryModel,
+    bal: LibraryBit,
+    ste: State,
+) => {
+    const fs = require('fs')
+    const path = require('path')
+    const { exec } = require('child_process')
+
+    const filePath = path.resolve(process.cwd(), 'data/launch.txt')
+
+    if (fs.existsSync(filePath)) {
+        const fileContent = fs.readFileSync(filePath, 'utf-8')
+        const urls = fileContent
+            .split('\n')
+            .map((url: string) => url.trim())
+            .filter((url: string) => url.length > 0)
+
+        for (const url of urls) {
+            let command
+            switch (process.platform) {
+                case 'darwin':
+                    command = `open "${url}"`
+                    break
+                case 'win32':
+                    command = `start "" "${url}"`
+                    break
+                default:
+                    command = `xdg-open "${url}"`
+                    break
+            }
+
+            exec(command, (error: any) => {
+                if (error) {
+                    console.error(`Error opening url: ${url}`, error)
+                }
+            })
+
+            await new Promise((resolve) => setTimeout(resolve, 1000))
+        }
+    } else {
+        console.error('launch.txt not found at data/launch.txt')
+    }
+
+    if (bal.slv != null) bal.slv({ libBit: { idx: 'launch-library' } })
+
+    return cpy
+}

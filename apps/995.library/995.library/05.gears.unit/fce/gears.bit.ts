@@ -1,7 +1,6 @@
-export default interface TerminalBit {
+export default interface GearsBit {
     idx: string
     src?: string
-    lst?: any[]
     val?: number
     dat?: any
     slv?: Function

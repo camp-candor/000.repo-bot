@@ -28,7 +28,7 @@ import * as FOCUS from '../../val/focus'
 
 let bit, lst, dex, idx, dat, src, val
 
-let SOWER, CONCEPT, CLICKUP, OLLAMA, MYTHOS, AGENT
+let SOWER, CONCEPT, CLICKUP, OLLAMA, AGENT
 
 let opened = false
 
@@ -38,8 +38,10 @@ export const initMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
     if (!opened) {
         opened = true
         const path = require('path')
-        const pkg = require('../../../../../../package.json')
-        const libPkg = require('../../../../package.json')
+        const pkg = require(path.resolve(process.cwd(), 'package.json'))
+        const libPkg = require(
+            path.resolve(process.cwd(), 'apps/995.library/package.json'),
+        )
 
         bit = await ste.hunt(ActTrm.INIT_TERMINAL, {})
         bit = await ste.hunt(ActTrm.CLEAR_TERMINAL, {})
@@ -86,9 +88,7 @@ export const openMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
     const path = require('path')
     const exec = require('child_process').exec
 
-    const pkg = FS.readJsonSync(
-        path.resolve(__dirname, '../../../../../../package.json'),
-    )
+    const pkg = FS.readJsonSync(path.resolve(process.cwd(), './package.json'))
     const version = pkg.version
 
     bit = await ste.hunt(ActCns.UPDATE_CONSOLE, {
@@ -195,9 +195,9 @@ export const printMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
     dat = bal
     if (dat == null) return bal.slv({ mnuBit: { idx: 'print-menu', dat } })
 
-    const itm = JSON.stringify(dat, null, 2)
+    const itm = JSON.stringify(dat)
 
-    lst = itm.split('\n')
+    lst = itm.split(',')
     lst.forEach((a) =>
         ste.hunt(ActCns.UPDATE_CONSOLE, { idx: 'cns00', src: a }),
     )

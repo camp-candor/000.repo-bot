@@ -21,9 +21,9 @@ export class ListLibrary implements Action {
     constructor(public bale: LibraryBit) {}
 }
 
-export const PROGESS_LIBRARY = '[Progess action] Progess Library'
-export class ProgessLibrary implements Action {
-    readonly type = PROGESS_LIBRARY
+export const PROGRESS_LIBRARY = '[Progress action] Progress Library'
+export class ProgressLibrary implements Action {
+    readonly type = PROGRESS_LIBRARY
     constructor(public bale: undefined) {}
 }
 
@@ -33,5 +33,16 @@ export class ScanLibrary implements Action {
     constructor(public bale: undefined) {}
 }
 
+export const LAUNCH_LIBRARY = '[Launch action] Launch Library'
+export class LaunchLibrary implements Action {
+    readonly type = LAUNCH_LIBRARY
+    constructor(public bale: undefined) {}
+}
+
 export type Actions =
-    InitLibrary | UpdateLibrary | ListLibrary | ProgessLibrary | ScanLibrary
+    | InitLibrary
+    | UpdateLibrary
+    | ListLibrary
+    | ProgressLibrary
+    | ScanLibrary
+    | LaunchLibrary
