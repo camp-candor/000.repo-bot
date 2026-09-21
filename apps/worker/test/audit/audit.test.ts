@@ -11,7 +11,7 @@ describe(`Mandate 4: Audit (${TARGET_URL})`, () => {
         const response = await api.get('/')
         expect(response.ok()).toBe(true)
         const body = await response.text()
-        expect(body).toContain('ACTIVE')
+        expect(body).toContain('REPO-BOT EDGE CONTROL PLANE IS LIVE')
     })
 
     // --- Oracle Fast-Path ---
