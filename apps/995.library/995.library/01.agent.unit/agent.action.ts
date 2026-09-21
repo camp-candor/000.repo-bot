@@ -1,5 +1,5 @@
-import { Action } from '../99.core/interface/action.interface'
-import AgentBit from './fce/agent.bit'
+import type { Action } from '../99.core/interface/action.interface'
+import type AgentBit from './fce/agent.bit'
 
 // Agent actions
 

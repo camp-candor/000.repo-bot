@@ -2,7 +2,7 @@ import clone from 'clone-deep'
 import * as Act from './agent.action'
 import { AgentModel } from './agent.model'
 import * as Buzz from './agent.buzzer'
-import State from '../99.core/state'
+import type State from '../99.core/state'
 
 export function reducer(
     model: AgentModel = new AgentModel(),

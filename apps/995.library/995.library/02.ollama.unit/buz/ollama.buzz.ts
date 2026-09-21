@@ -11,9 +11,9 @@ import * as ActPvt from '../../act/pivot.action'
 import * as ActCvs from '../../act/canvas.action'
 import * as ActCns from '../../act/console.action'
 
-import { OllamaModel } from '../ollama.model'
-import OllamaBit from '../fce/ollama.bit'
-import State from '../../99.core/state'
+import type { OllamaModel } from '../ollama.model'
+import type OllamaBit from '../fce/ollama.bit'
+import type State from '../../99.core/state'
 import ollama from 'ollama'
 import S from 'string'
 

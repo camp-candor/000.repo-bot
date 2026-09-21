@@ -2,7 +2,7 @@ import clone from 'clone-deep'
 import * as Act from './pivot.action'
 import { PivotModel } from './pivot.model'
 import * as Buzz from './pivot.buzzer'
-import State from '../99.core/state'
+import type State from '../99.core/state'
 
 export function reducer(
     model: PivotModel = new PivotModel(),

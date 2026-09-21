@@ -1,5 +1,5 @@
-import { Action } from '../99.core/interface/action.interface'
-import OllamaBit from './fce/ollama.bit'
+import type { Action } from '../99.core/interface/action.interface'
+import type OllamaBit from './fce/ollama.bit'
 
 // Ollama actions
 

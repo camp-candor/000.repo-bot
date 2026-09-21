@@ -39,6 +39,12 @@ export class LaunchLibrary implements Action {
     constructor(public bale: undefined) {}
 }
 
+export const FLAT_LIBRARY = '[Flat action] Flat Library'
+export class FlatLibrary implements Action {
+    readonly type = FLAT_LIBRARY
+    constructor(public bale?: LibraryBit) {}
+}
+
 export type Actions =
     | InitLibrary
     | UpdateLibrary
@@ -46,3 +52,4 @@ export type Actions =
     | ProgressLibrary
     | ScanLibrary
     | LaunchLibrary
+    | FlatLibrary

@@ -1,7 +1,7 @@
 // ----- SOURCE: ..\..\packages\000.server\00.server.unit\buz\server.buzz.ts -----
 import { ServerModel } from '../server.model.js'
-import ServerBit from '../fce/server.bit.js'
-import State from '../../99.core/state.js'
+import type ServerBit from '../fce/server.bit.js'
+import type State from '../../99.core/state.js'
 import { gameState } from '../server.model.js'
 
 export const initServer = (cpy: ServerModel, bal: ServerBit, ste: State) => {
@@ -160,7 +160,7 @@ export const serverMonster = (bal: { idx: string }) => {
 }
 
 export const updateEntity = (bal: { idx: string; lst: any }) => {
-    let entity = gameState.players[bal.idx] || gameState.monsters[bal.idx]
+    const entity = gameState.players[bal.idx] || gameState.monsters[bal.idx]
 
     if (entity) {
         Object.assign(entity, bal.lst)
@@ -209,7 +209,7 @@ export const dredgeMangledVerdict = (rawString) => {
         if (match && match[1]) {
             // Clean up the dredged string
             // The LLM escapes quotes inside JSON (e.g., \"The Spirit Archive\"). We need to unescape them.
-            let extractedPrompt = match[1]
+            const extractedPrompt = match[1]
                 .replace(/\\"/g, '"') // Convert \" back to "
                 .replace(/\\\\/g, '\\') // Convert \\ back to \
                 .replace(/\\n/g, '\n') // Convert escaped newlines back to actual newlines
@@ -221,7 +221,7 @@ export const dredgeMangledVerdict = (rawString) => {
         console.warn('🐊 The Fungal Eye found no prompt in the sludge.')
         return null
     } catch (err) {
-        console.error('❌ Fatal error dredging the mire:', err['message'])
+        console.error('❌ Fatal error dredging the mire:', err.message)
         debugger
         return null
     }
@@ -237,7 +237,7 @@ export default interface ServerBit {
 }
 
 // ----- SOURCE: ..\..\packages\000.server\00.server.unit\fce\server.interface.ts -----
-import ServerBit from './server.bit.js'
+import type ServerBit from './server.bit.js'
 
 export default interface Server {
     // idx:string;
@@ -246,8 +246,8 @@ export default interface Server {
 }
 
 // ----- SOURCE: ..\..\packages\000.server\00.server.unit\server.action.ts -----
-import { Action } from '../99.core/interface/action.interface.js'
-import ServerBit from './fce/server.bit.js'
+import type { Action } from '../99.core/interface/action.interface.js'
+import type ServerBit from './fce/server.bit.js'
 
 // server actions
 
@@ -296,7 +296,7 @@ export { intellectServer } from './buz/server.buzz.js'
 export { visionServer } from './buz/server.buzz.js'
 
 // ----- SOURCE: ..\..\packages\000.server\00.server.unit\server.model.ts -----
-import Server from './fce/server.interface.js'
+import type Server from './fce/server.interface.js'
 
 export class ServerModel implements Server {
     // Not used in this implementation, but keeping the class structure
@@ -336,7 +336,7 @@ import clone from 'clone-deep'
 import * as Act from './server.action.js'
 import { ServerModel } from './server.model.js'
 import * as Buzz from './server.buzzer.js'
-import State from '../99.core/state.js'
+import type State from '../99.core/state.js'
 
 export function reducer(
     model: ServerModel = new ServerModel(),
@@ -477,7 +477,7 @@ describe('server', () => {
 })
 
 // ----- SOURCE: ..\..\packages\000.server\00.server.unit\server.unit.ts -----
-import State from '../99.core/state.js'
+import type State from '../99.core/state.js'
 
 export default class ServerUnit {
     constructor(state: State) {}

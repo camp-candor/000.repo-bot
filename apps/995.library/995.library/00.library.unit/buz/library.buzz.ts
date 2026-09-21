@@ -470,3 +470,178 @@ export const launchLibrary = async (
 
     return cpy
 }
+
+export const flatLibrary = async (
+    cpy: LibraryModel,
+    bal: LibraryBit,
+    ste: State,
+) => {
+    const fs = require('fs-extra')
+    const path = require('path')
+
+    // Resolve repository root directory
+    const isRepoRoot = (dir: string) => {
+        try {
+            return (
+                fs.existsSync(path.join(dir, 'apps')) &&
+                fs.existsSync(path.join(dir, 'packages')) &&
+                fs.existsSync(path.join(dir, 'package.json'))
+            )
+        } catch {
+            return false
+        }
+    }
+
+    let repoRoot = process.cwd()
+    while (repoRoot && !isRepoRoot(repoRoot)) {
+        const parent = path.dirname(repoRoot)
+        if (parent === repoRoot) break
+        repoRoot = parent
+    }
+
+    if (!isRepoRoot(repoRoot)) {
+        let dir = typeof __dirname !== 'undefined' ? __dirname : process.cwd()
+        while (dir) {
+            if (isRepoRoot(dir)) {
+                repoRoot = dir
+                break
+            }
+            const parent = path.dirname(dir)
+            if (parent === dir) break
+            dir = parent
+        }
+    }
+
+    const timestamp = Date.now()
+    const outputDir = path.join(repoRoot, 'data', 'flat')
+    const outputFile = path.join(outputDir, `${timestamp}.txt`)
+
+    if (ste)
+        await ste.hunt(ActCns.UPDATE_CONSOLE, {
+            idx: 'cns00',
+            src: 'Starting Flat Library...',
+        })
+
+    const IGNORED_DIRS = new Set(['node_modules', 'dist', 'data', '.git'])
+    const CODE_EXTS = new Set(['.ts', '.tsx', '.js', '.cjs', '.mjs'])
+
+    async function getFilePaths(dir: string): Promise<string[]> {
+        let entries
+        try {
+            entries = await fs.readdir(dir, { withFileTypes: true })
+        } catch {
+            return []
+        }
+
+        const filePaths: string[] = []
+        for (const entry of entries) {
+            if (entry.isDirectory()) {
+                // Skip ignored directories, but allow any directory named "schema"
+                if (IGNORED_DIRS.has(entry.name) && entry.name !== 'schema') {
+                    continue
+                }
+                const subFiles = await getFilePaths(path.join(dir, entry.name))
+                filePaths.push(...subFiles)
+            } else if (entry.isFile()) {
+                // Exclude README.md
+                if (entry.name.toLowerCase() === 'readme.md') {
+                    continue
+                }
+                filePaths.push(path.join(dir, entry.name))
+            }
+        }
+
+        return filePaths
+    }
+
+    try {
+        const targetRoots = ['apps', 'packages'].map((folder) =>
+            path.join(repoRoot, folder),
+        )
+        const allScannedFiles: string[] = []
+
+        for (const targetRoot of targetRoots) {
+            if (!fs.existsSync(targetRoot)) continue
+            const subEntries = await fs.readdir(targetRoot, {
+                withFileTypes: true,
+            })
+            for (const entry of subEntries) {
+                if (!entry.isDirectory()) continue
+                if (IGNORED_DIRS.has(entry.name) && entry.name !== 'schema')
+                    continue
+                const subDir = path.join(targetRoot, entry.name)
+                const files = await getFilePaths(subDir)
+                allScannedFiles.push(...files)
+            }
+        }
+
+        // Filter for code files
+        const codeFiles = allScannedFiles.filter((file) => {
+            const ext = path.extname(file)
+            if (!CODE_EXTS.has(ext)) return false
+            // If it's a JS file and a corresponding TS file exists in the same folder, skip the compiled duplicate
+            if (ext === '.js') {
+                const tsSibling = file.slice(0, -3) + '.ts'
+                if (fs.existsSync(tsSibling)) return false
+            }
+            return true
+        })
+
+        // Sort files deterministically
+        codeFiles.sort((a, b) => a.localeCompare(b))
+
+        if (ste) {
+            await ste.hunt(ActCns.UPDATE_CONSOLE, {
+                idx: 'cns00',
+                src: `Found ${codeFiles.length} code files to flatten.`,
+            })
+        }
+
+        // Read content of all files
+        const fileContents = await Promise.all(
+            codeFiles.map(async (file) => {
+                const content = await fs.readFile(file, 'utf8')
+                const relativePath = path
+                    .relative(repoRoot, file)
+                    .replace(/\\/g, '/')
+                return `// ----- SOURCE: ${relativePath} -----\n${content}`
+            }),
+        )
+
+        const combinedData = fileContents.join('\n\n')
+
+        await fs.outputFile(outputFile, combinedData)
+
+        const relOutput = path
+            .relative(repoRoot, outputFile)
+            .replace(/\\/g, '/')
+        if (ste) {
+            await ste.hunt(ActCns.UPDATE_CONSOLE, {
+                idx: 'cns00',
+                src: `Wrote flattened library to: ${relOutput}`,
+            })
+        }
+
+        if (bal && bal.slv != null) {
+            bal.slv({
+                libBit: {
+                    idx: 'flat-library',
+                    src: relOutput,
+                    val: codeFiles.length,
+                },
+            })
+        }
+    } catch (err: any) {
+        if (ste) {
+            await ste.hunt(ActCns.UPDATE_CONSOLE, {
+                idx: 'cns00',
+                src: `Error flattening library: ${err.message}`,
+            })
+        }
+        if (bal && bal.slv != null) {
+            bal.slv({ libBit: { idx: 'flat-library-error', src: err.message } })
+        }
+    }
+
+    return cpy
+}

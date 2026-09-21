@@ -1,5 +1,5 @@
-import { Action } from '../99.core/interface/action.interface'
-import PivotBit from './fce/pivot.bit'
+import type { Action } from '../99.core/interface/action.interface'
+import type PivotBit from './fce/pivot.bit'
 
 // Pivot actions
 

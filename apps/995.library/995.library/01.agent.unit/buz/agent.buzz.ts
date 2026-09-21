@@ -1,7 +1,7 @@
 import axios from 'axios'
-import { AgentModel } from '../agent.model'
-import AgentBit from '../fce/agent.bit'
-import State from '../../99.core/state'
+import type { AgentModel } from '../agent.model'
+import type AgentBit from '../fce/agent.bit'
+import type State from '../../99.core/state'
 
 export const initAgent = (cpy: AgentModel, bal: AgentBit, ste: State) => {
     return cpy

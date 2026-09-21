@@ -2,7 +2,7 @@ import clone from 'clone-deep'
 import * as Act from './ollama.action'
 import { OllamaModel } from './ollama.model'
 import * as Buzz from './ollama.buzzer'
-import State from '../99.core/state'
+import type State from '../99.core/state'
 
 export function reducer(
     model: OllamaModel = new OllamaModel(),

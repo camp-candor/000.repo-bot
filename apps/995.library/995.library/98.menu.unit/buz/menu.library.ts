@@ -56,6 +56,7 @@ export const libraryMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
         ActAct.UPDATE_ACTION.split(']')[1],
         ActUnt.CREATE_UNIT.split(']')[1],
         ActUnt.FLATTEN_UNIT.split(']')[1],
+        ActLib.FLAT_LIBRARY.split(']')[1],
         ActLib.PROGRESS_LIBRARY.split(']')[1],
         ActLib.UPDATE_LIBRARY.split(']')[1],
         ActLib.LIST_LIBRARY.split(']')[1],
@@ -72,6 +73,8 @@ export const libraryMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
             '-Create a new unit\nwith a specified verb.',
         [ActUnt.FLATTEN_UNIT.split(']')[1]]:
             '-Flatten a unit into\nits constituent files.',
+        [ActLib.FLAT_LIBRARY.split(']')[1]]:
+            '-Flatten library code\ninto data/flat.',
         [ActLib.UPDATE_LIBRARY.split(']')[1]]:
             '-Regenerate the library\nwiring manifest (BEE.ts).',
         [ActLib.LIST_LIBRARY.split(']')[1]]:
@@ -412,6 +415,20 @@ export const libraryMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
             })
 
             bit = await ste.hunt(ActMnu.PRINT_MENU, updateBit)
+            break
+
+        case ActLib.FLAT_LIBRARY.split(']')[1]:
+            await ste.hunt(ActCns.UPDATE_CONSOLE, {
+                idx: 'cns00',
+                src: 'Flattening library... Please wait.',
+            })
+            bit = await ste.hunt(ActLib.FLAT_LIBRARY, {})
+            await ste.hunt(ActCns.UPDATE_CONSOLE, {
+                idx: 'cns00',
+                src:
+                    'Library flattened to ' + (bit?.libBit?.src || 'data/flat'),
+            })
+            bit = await ste.hunt(ActMnu.PRINT_MENU, bit)
             break
 
         case ActUnt.CREATE_UNIT.split(']')[1]:
