@@ -330,70 +330,118 @@ export const updateMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
     return cpy
 }
 
+const formatPayload = (rawText: string) => {
+    const trimmed = rawText.trim()
+    if (!trimmed) return '   [EMPTY RESPONSE BODY - ISOLATE IDLE]'
+    try {
+        const parsed = JSON.parse(trimmed)
+        return JSON.stringify(parsed, null, 2)
+            .split('\n')
+            .map((line) => `   ${line}`)
+            .join('\n')
+    } catch {
+        return trimmed
+            .split('\n')
+            .map((line) => `   ${line}`)
+            .join('\n')
+    }
+}
+
 const testRoute = async (route: string, ste: State, baseUrl: string) => {
     const cleanBase = baseUrl.replace(/\/$/, '')
     const url = `${cleanBase}${route}`
+
     await global.LIBRARY.hunt(UPDATE_CONSOLE, {
         idx: 'cns00',
-        src: `Fetching: ${url}`,
+        src: `>> [DISPATCH] -> ${url}`,
     })
+
+    const start = Date.now()
     try {
         const res = await fetch(url)
+        const duration = Date.now() - start
         const text = await res.text()
+
+        const statusTag = res.ok
+            ? `[HTTP ${res.status} OK]`
+            : `[HTTP ${res.status} FAIL]`
+
         await global.LIBRARY.hunt(UPDATE_CONSOLE, {
             idx: 'cns00',
-            src: `Response (${res.status}):\n${text || '[Empty Body]'}`,
+            src: '>> ==================================================',
+        })
+        await global.LIBRARY.hunt(UPDATE_CONSOLE, {
+            idx: 'cns00',
+            src: `>> ${statusTag} :: ${duration}ms RTT :: EDGE REACHED`,
+        })
+        await global.LIBRARY.hunt(UPDATE_CONSOLE, {
+            idx: 'cns00',
+            src: '>> --------------------------------------------------',
+        })
+        await global.LIBRARY.hunt(UPDATE_CONSOLE, {
+            idx: 'cns00',
+            src: formatPayload(text),
+        })
+        await global.LIBRARY.hunt(UPDATE_CONSOLE, {
+            idx: 'cns00',
+            src: '>> ==================================================',
         })
     } catch (err: any) {
+        const duration = Date.now() - start
         await global.LIBRARY.hunt(UPDATE_CONSOLE, {
             idx: 'cns00',
-            src: `Error:\n${err.message}`,
+            src: `>> [CONN_ERROR] (${duration}ms): ${err.message}`,
         })
     }
     await new Promise((resolve) => setTimeout(resolve, 3000))
 }
 
 const testAiRoute = async (route: string, ste: State, baseUrl: string) => {
-    const prompts = [
-        'Roll a d20',
-        'Roll 3 d6',
-        'Flip a coin',
-        'Tell me a short joke',
-    ]
-
-    const gridBit = await global.LIBRARY.hunt(UPDATE_GRID, {
-        x: 0,
-        y: 4,
-        xSpan: 4,
-        ySpan: 8,
-    })
-    const choiceBit = await global.LIBRARY.hunt(OPEN_CHOICE, {
-        dat: { clr0: Color.BLACK, clr1: Color.YELLOW },
-        src: Align.VERTICAL,
-        lst: prompts,
-        net: gridBit.grdBit.dat,
-    })
-
-    const prompt = choiceBit.chcBit.src
     const cleanBase = baseUrl.replace(/\/$/, '')
+    const prompt = 'ping'
     const url = `${cleanBase}${route}?prompt=${encodeURIComponent(prompt)}`
 
     await global.LIBRARY.hunt(UPDATE_CONSOLE, {
         idx: 'cns00',
-        src: `Fetching: ${url}`,
+        src: `>> [ORACLE PROBE] -> ${url}`,
     })
+
+    const start = Date.now()
     try {
         const res = await fetch(url)
+        const duration = Date.now() - start
         const text = await res.text()
+
+        const statusTag = res.ok
+            ? `[ORACLE ${res.status} OK]`
+            : `[ORACLE ${res.status} FAIL]`
+
         await global.LIBRARY.hunt(UPDATE_CONSOLE, {
             idx: 'cns00',
-            src: `Response (${res.status}):\n${text || '[Empty Body]'}`,
+            src: '>> ==================================================',
+        })
+        await global.LIBRARY.hunt(UPDATE_CONSOLE, {
+            idx: 'cns00',
+            src: `>> ${statusTag} :: ${duration}ms RTT :: GATEWAY INFERENCE`,
+        })
+        await global.LIBRARY.hunt(UPDATE_CONSOLE, {
+            idx: 'cns00',
+            src: '>> --------------------------------------------------',
+        })
+        await global.LIBRARY.hunt(UPDATE_CONSOLE, {
+            idx: 'cns00',
+            src: formatPayload(text),
+        })
+        await global.LIBRARY.hunt(UPDATE_CONSOLE, {
+            idx: 'cns00',
+            src: '>> ==================================================',
         })
     } catch (err: any) {
+        const duration = Date.now() - start
         await global.LIBRARY.hunt(UPDATE_CONSOLE, {
             idx: 'cns00',
-            src: `Error:\n${err.message}`,
+            src: `>> [GATEWAY_ERROR] (${duration}ms): ${err.message}`,
         })
     }
-    await new Promise((resolve) => setTimeout(resolve, 5000))
+    await new Promise((resolve) => setTimeout(resolve, 3000))
 }
