@@ -1,23 +1,18 @@
 /* eslint-disable */
+import { spawn } from 'child_process'
+import path from 'path'
 import * as ActMnu from '../menu.action.js'
-//import * as ActAgt from '../../00.agent.unit/agent.action.js';
 import * as ActOlm from '../../00.agent.unit/agent.action.js'
 
 import type { MenuModel } from '../menu.model.js'
 import type MenuBit from '../fce/menu.bit.js'
 import type State from '../../99.core/state.js'
 
-import * as Grid from '../../val/grid.js'
 import * as Align from '../../val/align.js'
 import * as Color from '../../val/console-color.js'
 
-import * as SHAPE from '../../val/shape.js'
-import * as FOCUS from '../../val/focus.js'
-
-let bit, lst, dex, idx, dat, src, val
-let rootSlv
-
-let agent, AGENT, CLICKUP
+let bit: any
+let rootSlv: any
 
 const UPDATE_GRID = '[Grid action] Update Grid'
 const WRITE_CONSOLE = '[Write action] Write Console'
@@ -47,30 +42,125 @@ export const initMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
     })
     bit = await global.LIBRARY.hunt(UPDATE_CONSOLE, {
         idx: 'cns00',
-        src: 'agent MENU',
+        src: 'AGENT MENU',
     })
-
     bit = await global.LIBRARY.hunt(UPDATE_CONSOLE, {
         idx: 'cns00',
         src: '-----------',
     })
 
     await updateMenu(cpy, bal, ste)
+    return cpy
+}
 
+export const toggleTargetMode = async (
+    cpy: MenuModel,
+    bal: MenuBit,
+    ste: State,
+) => {
+    const LOCAL_URL = 'http://127.0.0.1:8787'
+    const LIVE_URL =
+        process.env.WORKER_URL || 'https://worker-agent.berad4000.workers.dev'
+
+    if (cpy.targetMode === 'LIVE') {
+        await global.LIBRARY.hunt(UPDATE_CONSOLE, {
+            idx: 'cns00',
+            src: '⏳ Spawning local Cloudflare Worker on port 8787...',
+        })
+
+        const workerDir = path.resolve(process.cwd(), 'apps/worker')
+        const cmd = process.platform === 'win32' ? 'npx.cmd' : 'npx'
+        const child = spawn(
+            cmd,
+            ['wrangler', 'dev', '--port', '8787', '--ip', '127.0.0.1'],
+            {
+                cwd: workerDir,
+                stdio: 'pipe',
+                shell: process.platform === 'win32',
+            },
+        )
+
+        cpy.localProcess = child
+
+        let ready = false
+        for (let attempt = 1; attempt <= 12; attempt++) {
+            await new Promise((resolve) => setTimeout(resolve, 1000))
+            try {
+                const res = await fetch(`${LOCAL_URL}/health`)
+                if (res.status === 200) {
+                    ready = true
+                    break
+                }
+            } catch (e) {
+                // Waiting for local bundler
+            }
+        }
+
+        if (ready) {
+            cpy.targetMode = 'LOCAL'
+            cpy.activeBaseUrl = LOCAL_URL
+            ;(global as any).agentBaseUrl = LOCAL_URL
+            await global.LIBRARY.hunt(UPDATE_CONSOLE, {
+                idx: 'cns00',
+                src: `🟢 TARGET SWITCHED: LOCAL (${LOCAL_URL}) [ACTIVE]`,
+            })
+        } else {
+            if (child) child.kill()
+            cpy.localProcess = null
+            cpy.targetMode = 'LIVE'
+            cpy.activeBaseUrl = LIVE_URL
+            ;(global as any).agentBaseUrl = LIVE_URL
+            await global.LIBRARY.hunt(UPDATE_CONSOLE, {
+                idx: 'cns00',
+                src: '🔴 FAILED to start local worker. Reverting to LIVE.',
+            })
+        }
+    } else {
+        if (cpy.localProcess) {
+            try {
+                if (process.platform === 'win32') {
+                    spawn('taskkill', [
+                        '/pid',
+                        cpy.localProcess.pid.toString(),
+                        '/f',
+                        '/t',
+                    ])
+                } else {
+                    cpy.localProcess.kill('SIGTERM')
+                }
+            } catch (e) {}
+            cpy.localProcess = null
+        }
+
+        cpy.targetMode = 'LIVE'
+        cpy.activeBaseUrl = LIVE_URL
+        ;(global as any).agentBaseUrl = LIVE_URL
+        await global.LIBRARY.hunt(UPDATE_CONSOLE, {
+            idx: 'cns00',
+            src: `🌐 TARGET SWITCHED: LIVE (${LIVE_URL}) [ACTIVE]`,
+        })
+    }
+
+    if (bal?.slv)
+        bal.slv({
+            mnuBit: { idx: 'toggle-target-mode', dat: cpy.targetMode },
+        })
     return cpy
 }
 
 export const updateMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
-    lst = [
+    const toggleLabel =
+        cpy.targetMode === 'LIVE'
+            ? '🎯 TARGET: [LIVE] -> Switch to LOCAL'
+            : '🎯 TARGET: [LOCAL] -> Switch to LIVE'
+
+    const lst = [
+        toggleLabel,
         ActOlm.UPDATE_agent.split(']')[1],
         ActOlm.TEST_agent.split(']')[1],
         ActOlm.LIST_agent.split(']')[1],
-        ActOlm.CONNECT_agent.split(']')[1],
-        ActOlm.DISCONNECT_agent.split(']')[1],
         'GET / (Health Check)',
-        'GET /warm (Warm sessions)',
         'GET /oracle (The Oracle)',
-        'GET /kimi (Moonshot Kimi)',
         'ROOT MENU',
     ]
 
@@ -80,14 +170,24 @@ export const updateMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
         xSpan: 4,
         ySpan: 8,
     })
-    bit = await global.LIBRARY.hunt(OPEN_CHOICE, {
-        dat: { clr0: Color.BLACK, clr1: Color.YELLOW },
+
+    const choiceBit = await global.LIBRARY.hunt(OPEN_CHOICE, {
+        dat: {
+            clr0: Color.BLACK,
+            clr1: cpy.targetMode === 'LOCAL' ? Color.GREEN : Color.YELLOW,
+        },
         src: Align.VERTICAL,
         lst,
         net: bit.grdBit.dat,
     })
 
-    src = bit.chcBit.src
+    const src = choiceBit.chcBit.src
+
+    if (src === toggleLabel) {
+        await ste.hunt(ActMnu.TOGGLE_TARGET_MODE, {})
+        setTimeout(() => updateMenu(cpy, bal, ste), 300)
+        return cpy
+    }
 
     switch (src) {
         case ActOlm.UPDATE_agent.split(']')[1]:
@@ -106,105 +206,34 @@ export const updateMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
 
         case ActOlm.LIST_agent.split(']')[1]:
             bit = await ste.hunt(ActOlm.LIST_agent, {})
-            lst = bit.olmBit.lst
+            const modelList = bit.olmBit.lst
 
-            if (lst.length === 0) {
-                bit = await global.LIBRARY.hunt(UPDATE_CONSOLE, {
+            if (modelList.length === 0) {
+                await global.LIBRARY.hunt(UPDATE_CONSOLE, {
                     idx: 'cns00',
                     src: 'No agent Models Found',
                 })
             } else {
-                bit = await global.LIBRARY.hunt(UPDATE_CONSOLE, {
+                await global.LIBRARY.hunt(UPDATE_CONSOLE, {
                     idx: 'cns00',
                     src: 'Listing agent Models...',
                 })
-                lst.forEach((a: string) =>
+                modelList.forEach((a: string) =>
                     global.LIBRARY.hunt(UPDATE_CONSOLE, {
                         idx: 'cns00',
                         src: a,
                     }),
                 )
             }
-
             await new Promise((resolve) => setTimeout(resolve, 3000))
             break
 
-        case ActOlm.CONNECT_agent.split(']')[1]:
-            bit = await global.LIBRARY.hunt(UPDATE_GRID, {
-                x: 0,
-                y: 4,
-                xSpan: 4,
-                ySpan: 8,
-            })
-            bit = await global.LIBRARY.hunt(OPEN_CHOICE, {
-                dat: { clr0: Color.BLACK, clr1: Color.YELLOW },
-                src: Align.VERTICAL,
-                lst: ['LOCAL', 'REMOTE'],
-                net: bit.grdBit.dat,
-            })
-
-            if (bit.chcBit.src === 'LOCAL') {
-                bit = await global.LIBRARY.hunt(UPDATE_CONSOLE, {
-                    idx: 'cns00',
-                    src: 'Starting Local agent...',
-                })
-
-                const { spawn } = await import('child_process')
-                const path = await import('path')
-
-                if ((global as any).localagentProcess) {
-                    ;(global as any).localagentProcess.kill()
-                }
-
-                const workerPath = path.resolve('./apps/worker')
-                ;(global as any).localagentProcess = spawn(
-                    'npm.cmd',
-                    ['run', 'dev'],
-                    { cwd: workerPath, shell: true },
-                )
-
-                process.on('exit', () => {
-                    if ((global as any).localagentProcess)
-                        (global as any).localagentProcess.kill()
-                })
-
-                await new Promise((resolve) => setTimeout(resolve, 3000))
-                bit = await global.LIBRARY.hunt(UPDATE_CONSOLE, {
-                    idx: 'cns00',
-                    src: 'Connecting to Local agent...',
-                })
-                bit = await ste.hunt(ActOlm.CONNECT_agent, { src: 'LOCAL' })
-            } else if (bit.chcBit.src === 'REMOTE') {
-                bit = await global.LIBRARY.hunt(UPDATE_CONSOLE, {
-                    idx: 'cns00',
-                    src: 'Connecting to Remote agent...',
-                })
-                bit = await ste.hunt(ActOlm.CONNECT_agent, { src: 'REMOTE' })
-            }
-            break
-
-        case ActOlm.DISCONNECT_agent.split(']')[1]:
-            bit = await global.LIBRARY.hunt(UPDATE_CONSOLE, {
-                idx: 'cns00',
-                src: 'Disconnecting from agent...',
-            })
-            bit = await ste.hunt(ActOlm.DISCONNECT_agent, {})
-            break
-
         case 'GET / (Health Check)':
-            await testRoute('/', ste)
-            break
-
-        case 'GET /warm (Warm sessions)':
-            await testRoute('/warm', ste)
+            await testRoute('/', ste, cpy.activeBaseUrl)
             break
 
         case 'GET /oracle (The Oracle)':
-            await testAiRoute('/oracle', ste)
-            break
-
-        case 'GET /kimi (Moonshot Kimi)':
-            await testAiRoute('/kimi', ste)
+            await testAiRoute('/oracle', ste, cpy.activeBaseUrl)
             break
 
         case 'ROOT MENU':
@@ -223,14 +252,8 @@ export const updateMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
     return cpy
 }
 
-const patch = (ste, type, bale) => ste.dispatch({ type, bale })
-
-const testRoute = async (route: string, ste: State) => {
-    const baseUrl =
-        (global as any).agentBaseUrl ||
-        'https://worker-agent.berad4000.workers.dev'
+const testRoute = async (route: string, ste: State, baseUrl: string) => {
     const url = `${baseUrl}${route}`
-
     await global.LIBRARY.hunt(UPDATE_CONSOLE, {
         idx: 'cns00',
         src: `Fetching: ${url}`,
@@ -251,7 +274,7 @@ const testRoute = async (route: string, ste: State) => {
     await new Promise((resolve) => setTimeout(resolve, 3000))
 }
 
-const testAiRoute = async (route: string, ste: State) => {
+const testAiRoute = async (route: string, ste: State, baseUrl: string) => {
     const prompts = [
         'Roll a d20',
         'Roll 3 d6',
@@ -273,9 +296,6 @@ const testAiRoute = async (route: string, ste: State) => {
     })
 
     const prompt = choiceBit.chcBit.src
-    const baseUrl =
-        (global as any).agentBaseUrl ||
-        'https://worker-agent.berad4000.workers.dev'
     const url = `${baseUrl}${route}?prompt=${encodeURIComponent(prompt)}`
 
     await global.LIBRARY.hunt(UPDATE_CONSOLE, {

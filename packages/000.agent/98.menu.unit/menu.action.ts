@@ -145,6 +145,12 @@ export class GraphicsmagicMenu implements Action {
     constructor(public bale: MenuBit) {}
 }
 
+export const TOGGLE_TARGET_MODE = '[Menu action] Toggle Target Mode'
+export class ToggleTargetMode implements Action {
+    readonly type = TOGGLE_TARGET_MODE
+    constructor(public bale?: MenuBit) {}
+}
+
 export type Actions =
     | InitMenu
     | ClickupMenu
@@ -170,3 +176,4 @@ export type Actions =
     | AgentMenu
     | JulesMenu
     | GraphicsmagicMenu
+    | ToggleTargetMode
