@@ -4,7 +4,7 @@ import fs from 'fs'
 import path from 'path'
 import dotenv from 'dotenv'
 import * as ActMnu from '../menu.action.js'
-import * as ActOlm from '../../00.agent.unit/agent.action.js'
+import * as ActOlm from '../../00.repobot.unit/repobot.action.js'
 
 import type { MenuModel } from '../menu.model.js'
 import type MenuBit from '../fce/menu.bit.js'
@@ -84,7 +84,7 @@ export const initMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
     if (bal.slv != null) rootSlv = bal.slv
 
     if (!cpy.activeBaseUrl) cpy.activeBaseUrl = getLiveUrl()
-    ;(global as any).agentBaseUrl = cpy.activeBaseUrl
+    ;(global as any).repobotBaseUrl = cpy.activeBaseUrl
 
     bit = await global.LIBRARY.hunt(UPDATE_GRID, {
         x: 4,
@@ -104,7 +104,7 @@ export const initMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
     })
     bit = await global.LIBRARY.hunt(UPDATE_CONSOLE, {
         idx: 'cns00',
-        src: 'AGENT MENU',
+        src: 'REPOBOT MENU',
     })
     bit = await global.LIBRARY.hunt(UPDATE_CONSOLE, {
         idx: 'cns00',
@@ -176,7 +176,7 @@ export const toggleTargetMode = async (
         if (ready) {
             cpy.targetMode = 'LOCAL'
             cpy.activeBaseUrl = LOCAL_URL
-            ;(global as any).agentBaseUrl = LOCAL_URL
+            ;(global as any).repobotBaseUrl = LOCAL_URL
             await global.LIBRARY.hunt(UPDATE_CONSOLE, {
                 idx: 'cns00',
                 src: `>> [ONLINE] Local worker is online on [${LOCAL_URL}](${LOCAL_URL})\n>> Ready to receive requests locally.`,
@@ -200,7 +200,7 @@ export const toggleTargetMode = async (
             cpy.localProcess = null
             cpy.targetMode = 'LIVE'
             cpy.activeBaseUrl = LIVE_URL
-            ;(global as any).agentBaseUrl = LIVE_URL
+            ;(global as any).repobotBaseUrl = LIVE_URL
             await global.LIBRARY.hunt(UPDATE_CONSOLE, {
                 idx: 'cns00',
                 src: '>> [FAILED] Local worker timed out after 15s. Reverting to LIVE.',
@@ -226,7 +226,7 @@ export const toggleTargetMode = async (
 
         cpy.targetMode = 'LIVE'
         cpy.activeBaseUrl = LIVE_URL
-        ;(global as any).agentBaseUrl = LIVE_URL
+        ;(global as any).repobotBaseUrl = LIVE_URL
         await global.LIBRARY.hunt(UPDATE_CONSOLE, {
             idx: 'cns00',
             src: `>> [SWITCHED] Target set to LIVE (${LIVE_URL})`,
@@ -247,9 +247,9 @@ export const updateMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
             : 'TARGET: [LOCAL] -> Switch to LIVE'
 
     const lst = [
-        ActOlm.UPDATE_agent.split(']')[1],
-        ActOlm.TEST_agent.split(']')[1],
-        ActOlm.LIST_agent.split(']')[1],
+        ActOlm.UPDATE_REPOBOT.split(']')[1],
+        ActOlm.TEST_REPOBOT.split(']')[1],
+        ActOlm.LIST_REPOBOT.split(']')[1],
         'GET / (Health Check)',
         'GET /oracle (The Oracle)',
         'ROOT MENU',
@@ -282,33 +282,33 @@ export const updateMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
     }
 
     switch (src) {
-        case ActOlm.UPDATE_agent.split(']')[1]:
-            bit = await ste.hunt(ActOlm.UPDATE_agent, {
-                content: 'agent Menu Selected',
+        case ActOlm.UPDATE_REPOBOT.split(']')[1]:
+            bit = await ste.hunt(ActOlm.UPDATE_REPOBOT, {
+                content: 'repobot Menu Selected',
             })
             bit = await global.LIBRARY.hunt(PRINT_MENU, bit)
             break
 
-        case ActOlm.TEST_agent.split(']')[1]:
-            bit = await ste.hunt(ActOlm.TEST_agent, {
-                content: 'agent Menu Selected',
+        case ActOlm.TEST_REPOBOT.split(']')[1]:
+            bit = await ste.hunt(ActOlm.TEST_REPOBOT, {
+                content: 'repobot Menu Selected',
             })
             bit = await global.LIBRARY.hunt(PRINT_MENU, bit)
             break
 
-        case ActOlm.LIST_agent.split(']')[1]:
-            bit = await ste.hunt(ActOlm.LIST_agent, {})
+        case ActOlm.LIST_REPOBOT.split(']')[1]:
+            bit = await ste.hunt(ActOlm.LIST_REPOBOT, {})
             const modelList = bit.olmBit.lst
 
             if (modelList.length === 0) {
                 await global.LIBRARY.hunt(UPDATE_CONSOLE, {
                     idx: 'cns00',
-                    src: 'No agent Models Found',
+                    src: 'No repobot Models Found',
                 })
             } else {
                 await global.LIBRARY.hunt(UPDATE_CONSOLE, {
                     idx: 'cns00',
-                    src: 'Listing agent Models...',
+                    src: 'Listing repobot Models...',
                 })
                 modelList.forEach((a: string) =>
                     global.LIBRARY.hunt(UPDATE_CONSOLE, {

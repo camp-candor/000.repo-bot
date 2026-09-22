@@ -35,23 +35,29 @@
 │   │   ├── src/             # Hono router + pi-agent-cf orchestration + Durable Objects
 │   │   └── test/            # Vitest worker pool unit tests & audit suites
 │   └── 995.library/         # [IMMUTABLE] Terminal Runner Harness (@camp_candor/995.library)
-│       ├── run.ts           # Bootstraps Blessed Curses UI & loads packages/000.agent
+│       ├── run.ts           # Bootstraps Blessed Curses UI & loads packages/000.agent & packages/821.repobot
 │       └── test/            # AVA 6 unit tests for base library
 └── packages/
-    └── 000.agent/           # Core Agent Domain & State Unit (@camp_candor/000.agent)
-        ├── BEE.ts           # Agent unit registration & central wiring
-        ├── 00.agent.unit/   # Agent core actions, reducers, WS connections
-        ├── 98.menu.unit/    # Agent Menu Screen, Sub-routes, Local/Live Switchboard
+    ├── 000.agent/           # Core Agent Domain & State Unit (@camp_candor/000.agent)
+    │   ├── BEE.ts           # Agent unit registration & central wiring
+    │   ├── 00.agent.unit/   # Agent core actions, reducers, WS connections
+    │   ├── 98.menu.unit/    # Agent Menu Screen, Sub-routes, Local/Live Switchboard
+    │   └── act/             # Action barrel re-exports
+    └── 821.repobot/         # Repobot Domain & State Unit (@camp_candor/821.repobot)
+        ├── BEE.ts           # Repobot unit registration & central wiring
+        ├── 00.repobot.unit/ # Repobot core actions, reducers, WS connections
+        ├── 98.menu.unit/    # Repobot Menu Screen, Sub-routes, Local/Live Switchboard
         └── act/             # Action barrel re-exports
 ```
 
 ### 2.1 Workspace Roles & Modification Permissions
 
-| Workspace            | Package Name               | Modifiable? | Primary Role & Tech Stack                                              |
-| -------------------- | -------------------------- | ----------- | ---------------------------------------------------------------------- |
-| `apps/worker`        | `@camp_candor/agent`       | **YES**     | Cloudflare Worker AI Control Plane (Hono, Durable Objects, Workers AI) |
-| `packages/000.agent` | `@camp_candor/000.agent`   | **YES**     | Agent Redux/Buzzer Units, Menu Screens, Process Spawning, State Store  |
-| `apps/995.library`   | `@camp_candor/995.library` | **NEVER**   | Static Blessed UI layout primitives, Grid, and Base Runner             |
+| Workspace              | Package Name               | Modifiable? | Primary Role & Tech Stack                                               |
+| ---------------------- | -------------------------- | ----------- | ----------------------------------------------------------------------- |
+| `apps/worker`          | `@camp_candor/agent`       | **YES**     | Cloudflare Worker AI Control Plane (Hono, Durable Objects, Workers AI)  |
+| `packages/000.agent`   | `@camp_candor/000.agent`   | **YES**     | Agent Redux/Buzzer Units, Menu Screens, Process Spawning, State Store   |
+| `packages/821.repobot` | `@camp_candor/821.repobot` | **YES**     | Repobot Redux/Buzzer Units, Menu Screens, Process Spawning, State Store |
+| `apps/995.library`     | `@camp_candor/995.library` | **NEVER**   | Static Blessed UI layout primitives, Grid, and Base Runner              |
 
 ---
 

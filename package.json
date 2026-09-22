@@ -28,6 +28,7 @@
         "test:worker": "npm run test --workspace=@camp_candor/agent",
         "test:sower": "npm run test --workspace=@camp_candor/995.library",
         "test:agent": "npm run test --workspace=@camp_candor/000.agent",
+        "test:repobot": "npm run test --workspace=@camp_candor/821.repobot",
         "test:audit": "npm run test:audit --workspace=@camp_candor/agent",
         "audit:local": "npm run test:audit:local --workspace=@camp_candor/agent",
         "audit:staging": "npm run test:audit:staging --workspace=@camp_candor/agent",

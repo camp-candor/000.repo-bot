@@ -29,6 +29,10 @@ const init = async () => {
         import.meta.dirname,
         '../../packages/dist/000.agent',
     )
+    const rbtPath = path.resolve(
+        import.meta.dirname,
+        '../../packages/dist/821.repobot',
+    )
 
     try {
         const LIBRARY = require(path.join(libPath, 'hunt'))
@@ -78,6 +82,34 @@ const init = async () => {
                 },
             })
 
+            // Register REPOBOT MENU into the Blessed Menu registry
+            try {
+                const REPOBOT = require(path.join(rbtPath, 'hunt'))
+                global.REPOBOT = REPOBOT.default || REPOBOT
+
+                const MENU_ACTION_REPOBOT = require(
+                    path.join(rbtPath, '98.menu.unit/menu.action'),
+                )
+
+                await LIBRARY.hunt(MENU_ACTION_LIBRARY.ROUTE_MENU, {
+                    idx: 'REPOBOT MENU',
+                    src: 'Open the Repobot menu\nto manage repobots.',
+                    fnc: async () => {
+                        await new Promise<void>((resolve) => {
+                            global.REPOBOT.hunt(MENU_ACTION_REPOBOT.INIT_MENU, {
+                                slv: resolve,
+                            })
+                        })
+                        await LIBRARY.hunt(MENU_ACTION_LIBRARY.OPEN_MENU, {
+                            src: '',
+                        })
+                    },
+                })
+            } catch (err) {
+                console.error(`exec error loading repobot: ${err}`)
+                throw err
+            }
+
             await LIBRARY.hunt(MENU_ACTION_LIBRARY.OPEN_MENU, { src: '' })
         } catch (err) {
             console.error(`exec error loading agent: ${err}`)
@@ -89,12 +121,12 @@ const init = async () => {
     }
 }
 
-// 3. Main Execution Flow: Build both library and agent packages
+// 3. Main Execution Flow: Build library, agent, and repobot packages
 const main = async () => {
     try {
         console.log('🔨 Building TypeScript...')
         var { stdout, stderr } = await exec(
-            'tsc -b 995.library ../../packages/000.agent',
+            'tsc -b 995.library ../../packages/000.agent ../../packages/821.repobot',
             { cwd: import.meta.dirname },
         )
 

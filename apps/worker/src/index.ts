@@ -6,6 +6,8 @@ import {
     createEphemeralBranchTool,
     createWriteRepoFileTool,
     createPullRequestTool,
+    createInspectRepoChecksTool,
+    fetchRepoChecks,
 } from './tools.js'
 
 export * from './tools.js'
@@ -47,6 +49,7 @@ GOVERNING RULES:
 2. WORKSPACE ISOLATION: Never commit directly to 'main'. Always provision an ephemeral branch prefixed with 'spec/' using 'create_ephemeral_branch'.
 3. BOUNDED MUTATION: Only write files explicitly requested. Always read receipts from tools before narrating outcomes.
 4. ZERO VIBE TOLERANCE: Output concrete commit hashes, branch refs, and PR URLs. Do not invent fictional repositories or pretend actions succeeded without a tool receipt.
+5. REPO CI INSPECTION: When requested to inspect repository CI check runs or test outcomes, use 'inspect_repo_checks'. Return the structured JSON matching commit details and checks without markdown fluff.
     `.trim()
     },
     model: cfModel,
@@ -55,6 +58,7 @@ GOVERNING RULES:
         createEphemeralBranchTool(env),
         createWriteRepoFileTool(env),
         createPullRequestTool(env),
+        createInspectRepoChecksTool(env),
     ],
     getApiKey: (provider, env) => {
         if (provider === 'openai') return env.CLOUDFLARE_API_TOKEN
@@ -77,6 +81,32 @@ app.get('/health', async (c) => {
         hasAccountId: Boolean(c.env.CLOUDFLARE_ACCOUNT_ID),
         aiGateway: c.env.CLOUDFLARE_AI_GATEWAY || 'repo-bot-gateway',
     })
+})
+
+app.get('/repobot/inspect', async (c) => {
+    try {
+        const owner = c.req.query('owner') || 'camp-candor'
+        const repo = c.req.query('repo') || '000.repo-bot'
+        const data = await fetchRepoChecks(owner, repo, c.env)
+        return c.json(data)
+    } catch (error: any) {
+        return c.json({ error: error.message }, 500)
+    }
+})
+
+app.post('/repobot/inspect', async (c) => {
+    try {
+        let body: any = {}
+        try {
+            body = await c.req.json()
+        } catch {}
+        const owner = body.owner || c.req.query('owner') || 'camp-candor'
+        const repo = body.repo || c.req.query('repo') || '000.repo-bot'
+        const data = await fetchRepoChecks(owner, repo, c.env)
+        return c.json(data)
+    } catch (error: any) {
+        return c.json({ error: error.message }, 500)
+    }
 })
 
 app.get('/oracle', async (c) => {

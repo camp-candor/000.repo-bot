@@ -1,0 +1,25 @@
+{
+    "name": "@camp_candor/821.repobot",
+    "version": "0.0.1",
+    "private": true,
+    "type": "module",
+    "main": "BEE.ts",
+    "exports": {
+        ".": {
+            "types": "./BEE.ts",
+            "import": "./BEE.ts",
+            "require": "./BEE.ts",
+            "default": "./BEE.ts"
+        },
+        "./hunt": {
+            "types": "./hunt.ts",
+            "import": "./hunt.ts",
+            "require": "./hunt.ts",
+            "default": "./hunt.ts"
+        },
+        "./*": "./*"
+    },
+    "scripts": {
+        "test": "vitest run"
+    }
+}

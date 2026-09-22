@@ -4,10 +4,12 @@ import {
     createEphemeralBranchTool,
     createWriteRepoFileTool,
     createPullRequestTool,
+    createInspectRepoChecksTool,
     GetCommitShaParams,
     CreateEphemeralBranchParams,
     WriteRepoFileParams,
     CreatePullRequestParams,
+    InspectRepoChecksParams,
     type Env,
 } from '../../src/tools.js'
 
@@ -45,6 +47,7 @@ describe('Deterministic Git Tools (apps/worker)', () => {
             expect(CreateEphemeralBranchParams.additionalProperties).toBe(false)
             expect(WriteRepoFileParams.additionalProperties).toBe(false)
             expect(CreatePullRequestParams.additionalProperties).toBe(false)
+            expect(InspectRepoChecksParams.additionalProperties).toBe(false)
         })
     })
 
@@ -218,6 +221,128 @@ describe('Deterministic Git Tools (apps/worker)', () => {
             expect(receipt.html_url).toBe(
                 'https://github.com/camp-candor/000.repo-bot/pull/42',
             )
+        })
+    })
+
+    describe('inspect_repo_checks', () => {
+        it('queries latest commit and check-runs, computing all_passed: true when all checks succeed', async () => {
+            const mockCommit = {
+                sha: 'abc123commit',
+                commit: {
+                    message: 'feat: add repobot',
+                    author: {
+                        name: 'Brad Henderson',
+                        date: '2026-09-21T21:00:00Z',
+                    },
+                },
+            }
+
+            const mockCheckRuns = {
+                total_count: 2,
+                check_runs: [
+                    {
+                        name: 'ci/test',
+                        status: 'completed',
+                        conclusion: 'success',
+                        details_url: 'https://github.com/ci/1',
+                    },
+                    {
+                        name: 'ci/lint',
+                        status: 'completed',
+                        conclusion: 'success',
+                        details_url: 'https://github.com/ci/2',
+                    },
+                ],
+            }
+
+            globalThis.fetch = vi.fn().mockImplementation((url: string) => {
+                if (url.includes('/commits?per_page=1')) {
+                    return Promise.resolve({
+                        ok: true,
+                        json: async () => [mockCommit],
+                    })
+                }
+                if (url.includes('/check-runs')) {
+                    return Promise.resolve({
+                        ok: true,
+                        json: async () => mockCheckRuns,
+                    })
+                }
+                return Promise.reject(new Error(`Unexpected url: ${url}`))
+            })
+
+            const tool = createInspectRepoChecksTool(mockEnv)
+            const result = await tool.execute('call_inspect_1', {
+                owner: 'camp-candor',
+                repo: '000.repo-bot',
+            })
+
+            expect(result.details.commit).toEqual({
+                sha: 'abc123commit',
+                message: 'feat: add repobot',
+                author: 'Brad Henderson',
+                timestamp: '2026-09-21T21:00:00Z',
+            })
+            expect(result.details.checks.all_passed).toBe(true)
+            expect(result.details.checks.total_count).toBe(2)
+            expect(result.details.checks.status).toBe('completed')
+            expect(result.details.checks.runs).toHaveLength(2)
+        })
+
+        it('computes all_passed: false and status: in_progress when a run is still running', async () => {
+            const mockCommit = {
+                sha: 'def456commit',
+                commit: {
+                    message: 'test: ongoing run',
+                    author: {
+                        name: 'Developer',
+                        date: '2026-09-21T21:05:00Z',
+                    },
+                },
+            }
+
+            const mockCheckRuns = {
+                total_count: 2,
+                check_runs: [
+                    {
+                        name: 'ci/test',
+                        status: 'completed',
+                        conclusion: 'success',
+                        details_url: 'https://github.com/ci/1',
+                    },
+                    {
+                        name: 'ci/build',
+                        status: 'in_progress',
+                        conclusion: null,
+                        details_url: 'https://github.com/ci/2',
+                    },
+                ],
+            }
+
+            globalThis.fetch = vi.fn().mockImplementation((url: string) => {
+                if (url.includes('/commits?per_page=1')) {
+                    return Promise.resolve({
+                        ok: true,
+                        json: async () => [mockCommit],
+                    })
+                }
+                if (url.includes('/check-runs')) {
+                    return Promise.resolve({
+                        ok: true,
+                        json: async () => mockCheckRuns,
+                    })
+                }
+                return Promise.reject(new Error(`Unexpected url: ${url}`))
+            })
+
+            const tool = createInspectRepoChecksTool(mockEnv)
+            const result = await tool.execute('call_inspect_2', {
+                owner: 'camp-candor',
+                repo: '000.repo-bot',
+            })
+
+            expect(result.details.checks.all_passed).toBe(false)
+            expect(result.details.checks.status).toBe('in_progress')
         })
     })
 })

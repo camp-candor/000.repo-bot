@@ -21,16 +21,28 @@ export async function githubRequest(
     options: RequestInit = {},
 ) {
     const url = `https://api.github.com${endpoint}`
+    const token =
+        env.GITHUB_TOKEN ||
+        (typeof process !== 'undefined' ? process.env?.GITHUB_TOKEN : undefined)
+
+    if (!token) {
+        throw new Error(
+            'Missing GITHUB_TOKEN. Ensure GITHUB_TOKEN is set in .env',
+        )
+    }
+
+    const headers: Record<string, string> = {
+        'Accept': 'application/vnd.github+json',
+        'Authorization': `Bearer ${token}`,
+        'X-GitHub-Api-Version': '2022-11-28',
+        'User-Agent': 'repo-bot-edge-isolate',
+        'Content-Type': 'application/json',
+        ...((options.headers as Record<string, string>) || {}),
+    }
+
     const response = await fetch(url, {
         ...options,
-        headers: {
-            'Accept': 'application/vnd.github+json',
-            'Authorization': `Bearer ${env.GITHUB_TOKEN}`,
-            'X-GitHub-Api-Version': '2022-11-28',
-            'User-Agent': 'repo-bot-edge-isolate',
-            'Content-Type': 'application/json',
-            ...(options.headers || {}),
-        },
+        headers,
     })
 
     const data = await response.json()
@@ -317,6 +329,119 @@ export const createPullRequestTool = (
             return {
                 content: [{ type: 'text', text: receipt }],
                 details: { pr_number: data.number, url: data.html_url },
+            }
+        } catch (err: any) {
+            return {
+                content: [
+                    {
+                        type: 'text',
+                        text: JSON.stringify({
+                            error: err.message,
+                            status: 'FAILED',
+                        }),
+                    },
+                ],
+                details: { error: err.message },
+            }
+        }
+    },
+})
+
+// TOOL 5: Inspect Repo Checks & CI Outcomes
+export const InspectRepoChecksParams = Type.Object(
+    {
+        owner: Type.String({
+            description: 'GitHub organization or username',
+            default: 'camp-candor',
+        }),
+        repo: Type.String({
+            description: 'Repository name',
+            default: '000.repo-bot',
+        }),
+    },
+    { additionalProperties: false },
+)
+
+export async function fetchRepoChecks(owner: string, repo: string, env: Env) {
+    // 1. Query GET /repos/{owner}/{repo}/commits?per_page=1 to get the latest commit SHA and message.
+    const commitsData: any = await githubRequest(
+        `/repos/${owner}/${repo}/commits?per_page=1`,
+        env,
+    )
+    if (!Array.isArray(commitsData) || commitsData.length === 0) {
+        throw new Error(`No commits found for ${owner}/${repo}`)
+    }
+    const latestCommit = commitsData[0]
+    const sha = latestCommit.sha
+    const message = latestCommit.commit?.message || ''
+    const author =
+        latestCommit.commit?.author?.name ||
+        latestCommit.author?.login ||
+        'Unknown'
+    const timestamp =
+        latestCommit.commit?.author?.date || new Date().toISOString()
+
+    // 2. Query GET /repos/{owner}/{repo}/commits/{sha}/check-runs to evaluate test outcomes.
+    const checkRunsData: any = await githubRequest(
+        `/repos/${owner}/${repo}/commits/${sha}/check-runs`,
+        env,
+    )
+
+    const checkRuns: any[] = checkRunsData.check_runs || []
+    const totalCount = checkRunsData.total_count ?? checkRuns.length
+
+    // 3. Compute all_passed as true ONLY if every check run has status === "completed" and conclusion === "success".
+    const allPassed =
+        checkRuns.length > 0 &&
+        checkRuns.every(
+            (run: any) =>
+                run.status === 'completed' && run.conclusion === 'success',
+        )
+
+    let status: 'completed' | 'in_progress' | 'queued' = 'completed'
+    if (checkRuns.some((run: any) => run.status === 'queued')) {
+        status = 'queued'
+    } else if (checkRuns.some((run: any) => run.status === 'in_progress')) {
+        status = 'in_progress'
+    }
+
+    const runs = checkRuns.map((run: any) => ({
+        name: run.name || '',
+        status: run.status || '',
+        conclusion: run.conclusion ?? null,
+        details_url: run.details_url || run.html_url || '',
+    }))
+
+    return {
+        commit: {
+            sha,
+            message,
+            author,
+            timestamp,
+        },
+        checks: {
+            all_passed: allPassed,
+            total_count: totalCount,
+            status,
+            runs,
+        },
+    }
+}
+
+export const createInspectRepoChecksTool = (
+    env: Env,
+): AgentTool<typeof InspectRepoChecksParams> => ({
+    name: 'inspect_repo_checks',
+    label: 'Inspect Repo Checks',
+    description:
+        'Inspects the GitHub repository for the latest commit and evaluates CI check-runs outcomes.',
+    parameters: InspectRepoChecksParams,
+    execute: async (_id: any, args: Static<typeof InspectRepoChecksParams>) => {
+        try {
+            const data = await fetchRepoChecks(args.owner, args.repo, env)
+            return {
+                content: [{ type: 'text', text: JSON.stringify(data) }],
+                details: data,
             }
         } catch (err: any) {
             return {
