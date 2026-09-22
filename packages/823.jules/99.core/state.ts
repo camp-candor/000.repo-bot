@@ -1,9 +1,6 @@
-import { BehaviorSubject } from 'rx-lite'
-import { Subject } from 'rx-lite'
-import { Action } from './interface/action.interface.js'
-
-import UnitModel from '../BEE.js'
-import * as Effect from '../BEE.js'
+import { BehaviorSubject, Subject } from 'rx-lite'
+import type { Action } from './interface/action.interface.js'
+import UnitModel, * as Effect from '../BEE.js'
 
 export default class State extends BehaviorSubject<any> {
     public hunt: any
@@ -24,13 +21,16 @@ export default class State extends BehaviorSubject<any> {
     }
 
     reducedApp(nextState: any, key: any) {
-        for (var k in Effect.reducer) Effect.reducer[k](nextState[k], key, this)
+        for (const k in Effect.reducer) {
+            if (Effect.reducer[k]) {
+                Effect.reducer[k](nextState[k], key, this)
+            }
+        }
         return nextState
     }
 
     dispatch(value: Action) {
-        var result = this.dispatcher.onNext(value)
-        return result
+        return this.dispatcher.onNext(value)
     }
 
     pat(value: Action) {

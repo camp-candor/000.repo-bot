@@ -2,7 +2,7 @@ import clone from 'clone-deep'
 import * as Act from './menu.action.js'
 import { MenuModel } from './menu.model.js'
 import * as Buzz from './menu.buzzer.js'
-import State from '../99.core/state.js'
+import type State from '../99.core/state.js'
 
 export function reducer(
     model: MenuModel = new MenuModel(),
@@ -10,15 +10,10 @@ export function reducer(
     state?: State,
 ) {
     switch (act.type) {
-        case Act.UPDATE_MENU:
-            return Buzz.updateMenu(clone(model), act.bale, state)
-
         case Act.INIT_MENU:
             return Buzz.initMenu(clone(model), act.bale, state)
-
-        case Act.TOGGLE_TARGET_MODE:
-            return Buzz.toggleTargetMode(clone(model), act.bale, state)
-
+        case Act.UPDATE_MENU:
+            return Buzz.updateMenu(clone(model), act.bale, state)
         default:
             return model
     }

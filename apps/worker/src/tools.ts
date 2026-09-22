@@ -12,6 +12,7 @@ export interface Env extends AgentEnv {
     CLOUDFLARE_AI_GATEWAY_TOKEN?: string // Gateway universal / authenticated token (cfut_...)
     GITHUB_TOKEN: string // Token loaded from .env
     GITHUB_DEFAULT_OWNER?: string
+    JULES_API_KEY?: string // Bounded key for Jules cloud VM sessions
     AI: any // Cloudflare Workers AI binding
 }
 

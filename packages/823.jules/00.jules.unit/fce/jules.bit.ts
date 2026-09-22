@@ -1,4 +1,4 @@
-export default interface julesBit {
+export default interface JulesBit {
     idx: string
     val?: number
     dat?: any
