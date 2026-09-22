@@ -33,6 +33,9 @@ import * as ActSow from '../../act/sower.action'
 
 import * as PVT from '../../val/pivot'
 
+const FS = require('fs-extra')
+const path = require('path')
+
 var bit, lst, dex, idx, dat, src
 
 var opened = false
@@ -135,8 +138,6 @@ export const libraryMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
             })
             src = bit.putBit.src
 
-            var FS = require('fs-extra')
-
             bit = await ste.hunt(ActGer.LORE_GEARS, { src, dat: { fs: FS } })
             bit = await ste.hunt(ActMnu.PRINT_MENU, bit)
             bit = await ste.hunt(ActMnu.UPDATE_MENU)
@@ -157,8 +158,6 @@ export const libraryMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
                 net: bit.grdBit.dat,
             })
             src = bit.putBit.src
-
-            var FS = require('fs-extra')
 
             bit = await ste.hunt(ActGer.CREATE_GEARS, { src, dat: { fs: FS } })
             bit = await ste.hunt(ActMnu.PRINT_MENU, bit)
@@ -275,7 +274,6 @@ export const libraryMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
             if (pivotSelection)
                 pivotSelection = pivotSelection.replace(/[[\]]/g, '')
 
-            const path = require('path')
             const parentDir = process.cwd()
             src = path.resolve(parentDir, pivotSelection)
 
@@ -353,7 +351,26 @@ export const libraryMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
             break
 
         case ActUnt.FLATTEN_UNIT.split(']')[1]:
-            lst = ['MINDTRUST_SOWER', 'MINDTRUST_SCRIBE']
+            const isRepoRoot = (dir: string) => {
+                try {
+                    return (
+                        FS.existsSync(path.join(dir, 'apps')) &&
+                        FS.existsSync(path.join(dir, 'packages')) &&
+                        FS.existsSync(path.join(dir, 'package.json'))
+                    )
+                } catch {
+                    return false
+                }
+            }
+
+            let repoRoot = process.cwd()
+            while (repoRoot && !isRepoRoot(repoRoot)) {
+                const parent = path.dirname(repoRoot)
+                if (parent === repoRoot) break
+                repoRoot = parent
+            }
+
+            lst = ['apps', 'packages']
             bit = await ste.hunt(ActGrd.UPDATE_GRID, {
                 x: 0,
                 y: 4,
@@ -368,50 +385,92 @@ export const libraryMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
             })
 
             src = bit.chcBit.src
-            src = process.env[src]
-            var root = src
+            if (!src) break
+            const targetFolder = src.replace(/[[\]]/g, '').trim()
+            const targetPath = path.join(repoRoot, targetFolder)
 
-            bit = await ste.hunt(ActLib.LIST_LIBRARY, { src })
-            lst = bit.libBit.lst
+            const IGNORE_MENU_DIRS = new Set([
+                'node_modules',
+                'dist',
+                'data',
+                '.git',
+            ])
+            let childDirs: string[] = []
 
-            bit = await ste.hunt(ActGrd.UPDATE_GRID, {
-                x: 0,
-                y: 4,
-                xSpan: 4,
-                ySpan: 12,
-            })
-            bit = await ste.hunt(ActChc.OPEN_CHOICE, {
-                dat: { clr0: Color.BLACK, clr1: Color.YELLOW },
-                src: Align.VERTICAL,
-                lst,
-                net: bit.grdBit.dat,
-            })
-            src = bit.chcBit.src
-            if (src) src = src.replace(/[[\]]/g, '')
-            src = '../../' + src
-            bit = await ste.hunt(ActUnt.LIST_UNIT, { src })
-            lst = bit.untBit.lst
+            try {
+                if (FS.existsSync(targetPath)) {
+                    const entries = FS.readdirSync(targetPath, {
+                        withFileTypes: true,
+                    })
+                    for (const entry of entries) {
+                        if (
+                            entry.isDirectory() &&
+                            !IGNORE_MENU_DIRS.has(entry.name)
+                        ) {
+                            childDirs.push(entry.name)
+                        }
+                    }
+                }
+            } catch (e) {
+                // ignore read error
+            }
 
-            bit = await ste.hunt(ActGrd.UPDATE_GRID, {
-                x: 0,
-                y: 4,
-                xSpan: 4,
-                ySpan: 12,
-            })
-            bit = await ste.hunt(ActChc.OPEN_CHOICE, {
-                dat: { clr0: Color.BLACK, clr1: Color.YELLOW },
-                src: Align.VERTICAL,
-                lst,
-                net: bit.grdBit.dat,
-            })
-            idx = bit.chcBit.src
+            childDirs.sort((a, b) => a.localeCompare(b))
 
-            src = root + '/' + src
+            if (childDirs.length === 0) {
+                await ste.hunt(ActCns.UPDATE_CONSOLE, {
+                    idx: 'cns00',
+                    src: `No directories found in ${targetFolder}`,
+                })
+                break
+            }
+
+            let childSelection = ''
+            dex = 0
+            while (childSelection === '') {
+                const items = childDirs.slice(dex, dex + 10)
+                const list = [...items]
+                if (childDirs.length > 10) list.push('MORE')
+
+                bit = await ste.hunt(ActGrd.UPDATE_GRID, {
+                    x: 0,
+                    y: 4,
+                    xSpan: 4,
+                    ySpan: 12,
+                })
+                bit = await ste.hunt(ActChc.OPEN_CHOICE, {
+                    dat: { clr0: Color.BLACK, clr1: Color.YELLOW },
+                    src: Align.VERTICAL,
+                    lst: list,
+                    net: bit.grdBit.dat,
+                })
+
+                src = bit.chcBit.src
+                if (src === 'MORE') {
+                    dex = dex + 10 >= childDirs.length ? 0 : dex + 10
+                    await ste.hunt(ActTrm.CLEAR_TERMINAL, {})
+                } else {
+                    childSelection = src
+                }
+            }
+
+            if (!childSelection) break
+            const selectedDir = childSelection.replace(/[[\]]/g, '').trim()
+            const selectedFullPath = path.join(targetPath, selectedDir)
+
+            await ste.hunt(ActCns.UPDATE_CONSOLE, {
+                idx: 'cns00',
+                src: `Flattening ${targetFolder}/${selectedDir}... Please wait.`,
+            })
 
             var updateBit = await ste.hunt(ActUnt.FLATTEN_UNIT, {
-                idx,
-                src,
-                dat,
+                idx: selectedDir,
+                src: selectedFullPath,
+            })
+
+            await ste.hunt(ActCns.UPDATE_CONSOLE, {
+                idx: 'cns00',
+                src: `Flattened to ${updateBit?.untBit?.src || selectedDir}`,
             })
 
             bit = await ste.hunt(ActMnu.PRINT_MENU, updateBit)

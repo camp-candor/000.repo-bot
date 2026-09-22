@@ -9,81 +9,181 @@ export const initUnit = (cpy: UnitModel, _bal: UnitBit, _ste: State) => {
     return cpy
 }
 
-export const flattenUnit = (cpy: UnitModel, bal: UnitBit, _ste: State) => {
+export const flattenUnit = async (cpy: UnitModel, bal: UnitBit, ste: State) => {
     const fs = require('fs-extra')
     const path = require('path')
 
-    // CONFIGURATION
-    const SOURCE_DIR = bal.src // The directory to scan
-    const OUTPUT_FILE = './data/unit/' + bal.idx + '.ts' // Where to save the single file
-
-    /**
-     * Recursively gets all files in a directory
-     */
-    async function getFilePaths(dir) {
-        const files = await fs.readdir(dir)
-
-        // Resolve all files to absolute paths or paths relative to execution
-        const filePaths = files.map((file) => path.join(dir, file))
-
-        // Map over paths: if directory -> recurse, if file -> return path
-        const statPromises = filePaths.map(async (filePath) => {
-            const stat = await fs.stat(filePath)
-            if (stat.isDirectory()) {
-                return getFilePaths(filePath)
-            } else {
-                return filePath
-            }
-        })
-
-        // Wait for all recursions to finish and flatten the arrays
-        return (await Promise.all(statPromises)).flat()
-    }
-
-    /**
-     * Main execution function
-     */
-    async function combineTsFiles() {
+    // Resolve repository root directory
+    const isRepoRoot = (dir: string) => {
         try {
-            console.log(`Scanning directory: ${SOURCE_DIR}...`)
-
-            // 1. Get all files recursively
-            const allFiles = await getFilePaths(SOURCE_DIR)
-
-            // 2. Filter for only .ts files
-            const tsFiles = allFiles.filter(
-                (file) => path.extname(file) === '.ts',
+            return (
+                fs.existsSync(path.join(dir, 'apps')) &&
+                fs.existsSync(path.join(dir, 'packages')) &&
+                fs.existsSync(path.join(dir, 'package.json'))
             )
-
-            console.log(`Found ${tsFiles.length} TS files.`)
-
-            // 3. Read content of all files
-            const fileContents = await Promise.all(
-                tsFiles.map(async (file) => {
-                    const content = await fs.readFile(file, 'utf8')
-                    // Optional: Add a header so you know which file this code came from
-                    return `// ----- SOURCE: ${file} -----\n${content}`
-                }),
-            )
-
-            // 4. Combine into a single string
-            const combinedData = fileContents.join('\n\n')
-
-            // 5. Write to disk
-            // fs.outputFile is an fs-extra specific method.
-            // It automatically creates the parent directories if they don't exist.
-            await fs.outputFile(OUTPUT_FILE, combinedData)
-
-            console.log(`Successfully wrote combined file to: ${OUTPUT_FILE}`)
-
-            bal.slv({ untBit: { idx: 'flatten-unit', val: 0 } })
-        } catch (err) {
-            console.error('Error combining files:', err)
+        } catch {
+            return false
         }
     }
 
-    // Run the script
-    combineTsFiles()
+    let repoRoot = process.cwd()
+    while (repoRoot && !isRepoRoot(repoRoot)) {
+        const parent = path.dirname(repoRoot)
+        if (parent === repoRoot) break
+        repoRoot = parent
+    }
+
+    let sourceDir = bal.src
+    if (!sourceDir && bal.idx) {
+        if (fs.existsSync(path.join(repoRoot, 'apps', bal.idx))) {
+            sourceDir = path.join(repoRoot, 'apps', bal.idx)
+        } else if (fs.existsSync(path.join(repoRoot, 'packages', bal.idx))) {
+            sourceDir = path.join(repoRoot, 'packages', bal.idx)
+        } else {
+            sourceDir = path.resolve(repoRoot, bal.idx)
+        }
+    } else if (sourceDir && !path.isAbsolute(sourceDir)) {
+        sourceDir = path.resolve(repoRoot, sourceDir)
+    }
+
+    const unitName = bal.idx || path.basename(sourceDir || 'unit')
+    const fileName = unitName.endsWith('.txt') ? unitName : `${unitName}.txt`
+    const outputDir = path.join(repoRoot, 'data', 'unit')
+    const outputFile = path.join(outputDir, fileName)
+
+    const IGNORED_DIRS = new Set([
+        'node_modules',
+        'dist',
+        'data',
+        '.git',
+        '.wrangler',
+    ])
+    const CODE_EXTS = new Set([
+        '.ts',
+        '.tsx',
+        '.js',
+        '.jsx',
+        '.cjs',
+        '.mjs',
+        '.json',
+        '.jsonc',
+        '.toml',
+        '.yml',
+        '.yaml',
+        '.md',
+        '.txt',
+        '.html',
+        '.css',
+    ])
+    const ALLOWED_FILES = new Set([
+        '.gitignore',
+        'package.json',
+        'AGENTS.md',
+        'AGENT_INSTRUCTIONS.md',
+    ])
+
+    async function getFilePaths(dir: string): Promise<string[]> {
+        let entries
+        try {
+            entries = await fs.readdir(dir, { withFileTypes: true })
+        } catch {
+            return []
+        }
+
+        const filePaths: string[] = []
+        for (const entry of entries) {
+            if (entry.isDirectory()) {
+                if (IGNORED_DIRS.has(entry.name)) {
+                    continue
+                }
+                const subFiles = await getFilePaths(path.join(dir, entry.name))
+                filePaths.push(...subFiles)
+            } else if (entry.isFile()) {
+                filePaths.push(path.join(dir, entry.name))
+            }
+        }
+        return filePaths
+    }
+
+    try {
+        if (ste) {
+            await ste.hunt(ActCns.UPDATE_CONSOLE, {
+                idx: 'cns00',
+                src: `Scanning directory: ${sourceDir}...`,
+            })
+        }
+
+        const allFiles = await getFilePaths(sourceDir)
+
+        const codeFiles = allFiles.filter((file) => {
+            const ext = path.extname(file).toLowerCase()
+            const filename = path.basename(file)
+
+            const isAllowedFile =
+                ALLOWED_FILES.has(filename) || filename.startsWith('tsconfig')
+
+            if (!CODE_EXTS.has(ext) && !isAllowedFile) return false
+            if (ext === '.js') {
+                const tsSibling = file.slice(0, -3) + '.ts'
+                if (fs.existsSync(tsSibling)) return false
+            }
+            return true
+        })
+
+        codeFiles.sort((a, b) => a.localeCompare(b))
+
+        if (ste) {
+            await ste.hunt(ActCns.UPDATE_CONSOLE, {
+                idx: 'cns00',
+                src: `Found ${codeFiles.length} files to flatten.`,
+            })
+        }
+
+        const fileContents = await Promise.all(
+            codeFiles.map(async (file) => {
+                const content = await fs.readFile(file, 'utf8')
+                const relativePath = path
+                    .relative(repoRoot, file)
+                    .replace(/\\/g, '/')
+                return `// ----- SOURCE: ${relativePath} -----\n${content}`
+            }),
+        )
+
+        const combinedData = fileContents.join('\n\n')
+        await fs.outputFile(outputFile, combinedData)
+
+        const relOutput = path
+            .relative(repoRoot, outputFile)
+            .replace(/\\/g, '/')
+
+        if (ste) {
+            await ste.hunt(ActCns.UPDATE_CONSOLE, {
+                idx: 'cns00',
+                src: `Wrote flattened unit to: ${relOutput}`,
+            })
+        }
+
+        if (bal && bal.slv != null) {
+            bal.slv({
+                untBit: {
+                    idx: 'flatten-unit',
+                    src: relOutput,
+                    val: codeFiles.length,
+                },
+            })
+        }
+    } catch (err) {
+        console.error('Error combining files:', err)
+        if (bal && bal.slv != null) {
+            bal.slv({
+                untBit: {
+                    idx: 'flatten-unit-err',
+                    src: err instanceof Error ? err.message : String(err),
+                    val: -1,
+                },
+            })
+        }
+    }
 
     return cpy
 }
