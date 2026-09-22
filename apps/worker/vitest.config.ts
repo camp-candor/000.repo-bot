@@ -4,10 +4,6 @@ import { resolve } from 'path'
 export default defineWorkersConfig({
     resolve: {
         alias: {
-            'ajv': resolve(
-                __dirname,
-                '../../node_modules/@funtuantw/pi-agent-cf/stubs/ajv.js',
-            ),
             '@camp_candor/types': resolve(
                 __dirname,
                 '../../packages/types/src/index.ts',

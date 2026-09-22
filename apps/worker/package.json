@@ -14,7 +14,6 @@
     },
     "dependencies": {
         "@clerk/backend": "3.0.1",
-        "@funtuantw/pi-agent-cf": "latest",
         "@sinclair/typebox": "latest",
         "hono": "4.12.9"
     },

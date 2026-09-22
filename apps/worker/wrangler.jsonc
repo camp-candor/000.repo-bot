@@ -13,8 +13,8 @@
     "durable_objects": {
         "bindings": [
             {
-                "name": "AGENT_SESSION",
-                "class_name": "AgentSessionDO",
+                "name": "REPO_BOT_DO",
+                "class_name": "RepoBotDO",
             },
         ],
     },
@@ -23,12 +23,12 @@
             "tag": "v1",
             "new_sqlite_classes": ["AgentSessionDO"],
         },
+        {
+            "tag": "v2",
+            "deleted_classes": ["AgentSessionDO"],
+            "new_sqlite_classes": ["RepoBotDO"],
+        },
     ],
-    "alias": {
-        "ajv": "../../node_modules/@funtuantw/pi-agent-cf/stubs/ajv.js",
-    },
-    // STAGING ENVIRONMENT
-    // 🔴 FIX: You must explicitly list ALL bindings here too.
     "env": {
         "staging": {
             "name": "repo-bot-00",
@@ -38,8 +38,8 @@
             "durable_objects": {
                 "bindings": [
                     {
-                        "name": "AGENT_SESSION",
-                        "class_name": "AgentSessionDO",
+                        "name": "REPO_BOT_DO",
+                        "class_name": "RepoBotDO",
                     },
                 ],
             },
@@ -47,6 +47,11 @@
                 {
                     "tag": "v1",
                     "new_sqlite_classes": ["AgentSessionDO"],
+                },
+                {
+                    "tag": "v2",
+                    "deleted_classes": ["AgentSessionDO"],
+                    "new_sqlite_classes": ["RepoBotDO"],
                 },
             ],
         },
