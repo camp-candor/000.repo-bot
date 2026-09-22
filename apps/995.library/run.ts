@@ -33,6 +33,14 @@ const init = async () => {
         import.meta.dirname,
         '../../packages/dist/821.repobot',
     )
+    const cfPath = path.resolve(
+        import.meta.dirname,
+        '../../packages/dist/822.cloudflare',
+    )
+    const jlsPath = path.resolve(
+        import.meta.dirname,
+        '../../packages/dist/823.jules',
+    )
 
     try {
         const LIBRARY = require(path.join(libPath, 'hunt'))
@@ -110,6 +118,65 @@ const init = async () => {
                 throw err
             }
 
+            // Register CLOUDFLARE MENU into the Blessed Menu registry
+            try {
+                const CLOUDFLARE = require(path.join(cfPath, 'hunt'))
+                global.CLOUDFLARE = CLOUDFLARE.default || CLOUDFLARE
+
+                const MENU_ACTION_CLOUDFLARE = require(
+                    path.join(cfPath, '98.menu.unit/menu.action'),
+                )
+
+                await LIBRARY.hunt(MENU_ACTION_LIBRARY.ROUTE_MENU, {
+                    idx: 'CLOUDFLARE MENU',
+                    src: 'Open the Cloudflare menu\nto manage cloudflare.',
+                    fnc: async () => {
+                        await new Promise<void>((resolve) => {
+                            global.CLOUDFLARE.hunt(
+                                MENU_ACTION_CLOUDFLARE.INIT_MENU,
+                                {
+                                    slv: resolve,
+                                },
+                            )
+                        })
+                        await LIBRARY.hunt(MENU_ACTION_LIBRARY.OPEN_MENU, {
+                            src: '',
+                        })
+                    },
+                })
+            } catch (err) {
+                console.error(`exec error loading cloudflare: ${err}`)
+                throw err
+            }
+
+            // Register JULES MENU into the Blessed Menu registry
+            try {
+                const JULES = require(path.join(jlsPath, 'hunt'))
+                global.JULES = JULES.default || JULES
+
+                const MENU_ACTION_JULES = require(
+                    path.join(jlsPath, '98.menu.unit/menu.action'),
+                )
+
+                await LIBRARY.hunt(MENU_ACTION_LIBRARY.ROUTE_MENU, {
+                    idx: 'JULES MENU',
+                    src: 'Open the Jules menu\nto manage jules.',
+                    fnc: async () => {
+                        await new Promise<void>((resolve) => {
+                            global.JULES.hunt(MENU_ACTION_JULES.INIT_MENU, {
+                                slv: resolve,
+                            })
+                        })
+                        await LIBRARY.hunt(MENU_ACTION_LIBRARY.OPEN_MENU, {
+                            src: '',
+                        })
+                    },
+                })
+            } catch (err) {
+                console.error(`exec error loading jules: ${err}`)
+                throw err
+            }
+
             await LIBRARY.hunt(MENU_ACTION_LIBRARY.OPEN_MENU, { src: '' })
         } catch (err) {
             console.error(`exec error loading agent: ${err}`)
@@ -121,12 +188,12 @@ const init = async () => {
     }
 }
 
-// 3. Main Execution Flow: Build library, agent, and repobot packages
+// 3. Main Execution Flow: Build library, agent, repobot, cloudflare, and jules packages
 const main = async () => {
     try {
         console.log('🔨 Building TypeScript...')
         var { stdout, stderr } = await exec(
-            'tsc -b 995.library ../../packages/000.agent ../../packages/821.repobot',
+            'tsc -b 995.library ../../packages/000.agent ../../packages/821.repobot ../../packages/822.cloudflare ../../packages/823.jules',
             { cwd: import.meta.dirname },
         )
 
