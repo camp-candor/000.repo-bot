@@ -41,6 +41,10 @@ const init = async () => {
         import.meta.dirname,
         '../../packages/dist/823.jules',
     )
+    const ghPath = path.resolve(
+        import.meta.dirname,
+        '../../packages/dist/132.github',
+    )
 
     try {
         const LIBRARY = require(path.join(libPath, 'hunt'))
@@ -177,6 +181,34 @@ const init = async () => {
                 throw err
             }
 
+            // Register GITHUB MENU into the Blessed Menu registry
+            try {
+                const GITHUB = require(path.join(ghPath, 'hunt'))
+                global.GITHUB = GITHUB.default || GITHUB
+
+                const MENU_ACTION_GITHUB = require(
+                    path.join(ghPath, '98.menu.unit/menu.action'),
+                )
+
+                await LIBRARY.hunt(MENU_ACTION_LIBRARY.ROUTE_MENU, {
+                    idx: 'GITHUB MENU',
+                    src: 'Open the Github menu\nto manage github.',
+                    fnc: async () => {
+                        await new Promise<void>((resolve) => {
+                            global.GITHUB.hunt(MENU_ACTION_GITHUB.INIT_MENU, {
+                                slv: resolve,
+                            })
+                        })
+                        await LIBRARY.hunt(MENU_ACTION_LIBRARY.OPEN_MENU, {
+                            src: '',
+                        })
+                    },
+                })
+            } catch (err) {
+                console.error(`exec error loading github: ${err}`)
+                throw err
+            }
+
             await LIBRARY.hunt(MENU_ACTION_LIBRARY.OPEN_MENU, { src: '' })
         } catch (err) {
             console.error(`exec error loading agent: ${err}`)
@@ -188,12 +220,12 @@ const init = async () => {
     }
 }
 
-// 3. Main Execution Flow: Build library, agent, repobot, cloudflare, and jules packages
+// 3. Main Execution Flow: Build library, agent, repobot, cloudflare, jules, and github packages
 const main = async () => {
     try {
         console.log('🔨 Building TypeScript...')
         var { stdout, stderr } = await exec(
-            'tsc -b 995.library ../../packages/000.agent ../../packages/821.repobot ../../packages/822.cloudflare ../../packages/823.jules',
+            'tsc -b 995.library ../../packages/000.agent ../../packages/821.repobot ../../packages/822.cloudflare ../../packages/823.jules ../../packages/132.github',
             { cwd: import.meta.dirname },
         )
 

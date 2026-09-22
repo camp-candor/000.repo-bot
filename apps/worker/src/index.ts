@@ -89,7 +89,7 @@ app.get('/oracle', async (c) => {
     }
 })
 
-// Clean REST mounts replacing @funtuantw/pi-agent-cf
+// Clean REST mounts
 app.post('/api/commit-message', generateCommitMessage)
 app.post('/api/jules/dispatch', dispatchJulesJob)
 app.get('/api/jules/session/:id', getJulesSession)

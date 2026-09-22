@@ -80,7 +80,7 @@ export const initMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
         })
         bit = await ste.hunt(ActCns.UPDATE_CONSOLE, {
             idx: 'cns00',
-            src: `RUNNER V${pkg.version}`,
+            src: `REPO-BOT V${pkg.version}`,
         })
         bit = await ste.hunt(ActCns.UPDATE_CONSOLE, {
             idx: 'cns00',
