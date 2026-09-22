@@ -1,61 +1,69 @@
-import { type Context } from 'hono'
-import { type Env } from './tools.js'
+import type { Context } from 'hono'
+import { getGatewaySlug, type Env } from './tools.js'
 
-export const CONVENTIONAL_COMMIT_REGEX =
-    /^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\([a-z0-9-_.]+\))?: .{1,100}$/i
+const CONVENTIONAL_REGEX =
+    /^(feat|fix|chore|docs|refactor|test)(\([a-z0-9_-]+\))?:\s[^\n\r]{1,72}$/
 
-export async function generateCommitMessage(c: Context<{ Bindings: Env }>) {
-    try {
-        const body = await c.req
-            .json<{ diff?: string; hint?: string }>()
-            .catch(() => ({}) as any)
-        const diff = body.diff || ''
-        const hint = body.hint || 'apply updates'
+export const generateCommitMessage = async (c: Context<{ Bindings: Env }>) => {
+    const body = await c.req
+        .json<{
+            task_id?: string
+            scope?: string
+            diff_summary?: string
+        }>()
+        .catch(() => null)
 
-        if (!diff) {
-            return c.json({ error: 'Diff is required' }, 400)
-        }
-
-        if (!c.env.AI) {
-            return c.json({ commitMessage: `chore(repo): ${hint}` })
-        }
-
-        const prompt = `Analyze this git diff and write a single Conventional Commit message (e.g. feat(scope): desc).
-No markdown, no quotes, no explanations, no trailing punctuation. Exactly one line.
-Hint: ${hint}
-
-Diff:
-${diff.slice(0, 4000)}`
-
-        const response: any = await c.env.AI.run(
-            '@cf/meta/llama-3.2-3b-instruct',
-            {
-                messages: [{ role: 'user', content: prompt }],
-            },
-        )
-
-        const rawText =
-            typeof response?.response === 'string'
-                ? response.response
-                : typeof response === 'string'
-                  ? response
-                  : ''
-
-        const firstLine = rawText
-            .trim()
-            .replace(/^["'`]|["'`]$/g, '')
-            .split('\n')[0]
-            .trim()
-
-        const commitMessage = CONVENTIONAL_COMMIT_REGEX.test(firstLine)
-            ? firstLine
-            : 'chore(scope): apply updates'
-
-        return c.json({ commitMessage })
-    } catch (error: any) {
-        return c.json({
-            commitMessage: 'chore(scope): apply updates',
-            warning: error.message,
-        })
+    if (!body || !body.diff_summary) {
+        return c.json({ error: 'diff_summary is required' }, 400)
     }
+
+    const gatewaySlug = getGatewaySlug(c.env)
+    const systemPrompt = `You are an automated Git commit message generator adhering strictly to Conventional Commits.
+Format: <type>(<scope>): <short imperative description>
+Types: feat, fix, chore, docs, refactor, test.
+Rules:
+- Max 72 characters.
+- Imperative mood (e.g., "add", "fix", "update", NOT "added", "fixing").
+- No punctuation at the end.
+- Output ONLY the raw commit message string. Zero markdown, zero formatting, zero quotes.`
+
+    const userContent = `Task: ${body.task_id || 'N/A'}
+Scope: ${body.scope || 'core'}
+Context/Diff:
+${body.diff_summary}`
+
+    try {
+        if (c.env.AI) {
+            const response: any = await c.env.AI.run(
+                '@cf/meta/llama-3.2-3b-instruct',
+                {
+                    messages: [
+                        { role: 'system', content: systemPrompt },
+                        { role: 'user', content: userContent },
+                    ],
+                },
+                {
+                    gateway: {
+                        id: gatewaySlug,
+                        skipCache: false,
+                        cacheTtl: 3600,
+                    },
+                },
+            )
+
+            const raw = (response.response || '')
+                .trim()
+                .replace(/^["']|["']$/g, '')
+            if (CONVENTIONAL_REGEX.test(raw)) {
+                return c.json({ commit_message: raw })
+            }
+        }
+    } catch (err: any) {
+        console.error('Commit generator inference failed:', err.message)
+    }
+
+    const safeScope = body.scope ? `(${body.scope})` : ''
+    return c.json({
+        commit_message: `chore${safeScope}: apply updates for ${body.task_id || 'untracked task'}`,
+    })
 }
