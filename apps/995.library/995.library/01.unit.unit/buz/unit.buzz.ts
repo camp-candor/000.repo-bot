@@ -4,6 +4,20 @@ import type { UnitModel } from '../unit.model'
 import type UnitBit from '../fce/unit.bit'
 import type State from '../../99.core/state'
 
+const isRepoRoot = (dir: string) => {
+    const fs = require('fs')
+    const path = require('path')
+    try {
+        return (
+            fs.existsSync(path.join(dir, 'apps')) &&
+            fs.existsSync(path.join(dir, 'packages')) &&
+            fs.existsSync(path.join(dir, 'package.json'))
+        )
+    } catch {
+        return false
+    }
+}
+
 export const initUnit = (cpy: UnitModel, _bal: UnitBit, _ste: State) => {
     debugger
     return cpy
@@ -12,19 +26,6 @@ export const initUnit = (cpy: UnitModel, _bal: UnitBit, _ste: State) => {
 export const flattenUnit = async (cpy: UnitModel, bal: UnitBit, ste: State) => {
     const fs = require('fs-extra')
     const path = require('path')
-
-    // Resolve repository root directory
-    const isRepoRoot = (dir: string) => {
-        try {
-            return (
-                fs.existsSync(path.join(dir, 'apps')) &&
-                fs.existsSync(path.join(dir, 'packages')) &&
-                fs.existsSync(path.join(dir, 'package.json'))
-            )
-        } catch {
-            return false
-        }
-    }
 
     let repoRoot = process.cwd()
     while (repoRoot && !isRepoRoot(repoRoot)) {
@@ -93,9 +94,7 @@ export const flattenUnit = async (cpy: UnitModel, bal: UnitBit, ste: State) => {
         const filePaths: string[] = []
         for (const entry of entries) {
             if (entry.isDirectory()) {
-                if (IGNORED_DIRS.has(entry.name)) {
-                    continue
-                }
+                if (IGNORED_DIRS.has(entry.name)) continue
                 const subFiles = await getFilePaths(path.join(dir, entry.name))
                 filePaths.push(...subFiles)
             } else if (entry.isFile()) {
@@ -121,7 +120,6 @@ export const flattenUnit = async (cpy: UnitModel, bal: UnitBit, ste: State) => {
 
             const isAllowedFile =
                 ALLOWED_FILES.has(filename) || filename.startsWith('tsconfig')
-
             if (!CODE_EXTS.has(ext) && !isAllowedFile) return false
             if (ext === '.js') {
                 const tsSibling = file.slice(0, -3) + '.ts'
@@ -192,40 +190,77 @@ export const createUnit = (cpy: UnitModel, bal: UnitBit, ste: State) => {
     if (bal.idx == null) bal.idx = 'alligator'
 
     const FS = require('fs-extra')
+    const path = require('path')
     const doT = require('dot')
-    const _S = require('string')
 
-    const title = '00.' + bal.idx
-
-    const loc = './data/redux/00.sim.unit/'
-
-    //cpy effect redux data in project data
-    FS.copySync('./data/00.sim.unit', './data/redux/00.sim.unit')
-
-    const num = title.split('.')[0]
-    let nom = title.split('.')[1]
-
-    ste.hunt(ActCns.UPDATE_CONSOLE, { idx: 'cns00', src: 'nom ' + nom })
-
-    const file = loc
-    const list = FS.readdirSync(file)
-
-    const out = []
-    list.forEach((a, b) => {
-        list[b] = file + '/' + a
-
-        if (FS.lstatSync(list[b]).isDirectory()) {
-            const directory = list[b]
-            const listB = FS.readdirSync(directory)
-            listB.forEach((c) => out.push(directory + '/' + c))
-        } else {
-            out.push(list[b])
+    // 1. Resolve Repository Root
+    const isRepoRoot = (dir: string) => {
+        try {
+            return (
+                FS.existsSync(path.join(dir, 'apps')) &&
+                FS.existsSync(path.join(dir, 'packages')) &&
+                FS.existsSync(path.join(dir, 'package.json'))
+            )
+        } catch {
+            return false
         }
-    })
+    }
 
-    if (nom == null) nom = 'beeing'
+    let repoRoot = process.cwd()
+    while (repoRoot && !isRepoRoot(repoRoot)) {
+        const parent = path.dirname(repoRoot)
+        if (parent === repoRoot) break
+        repoRoot = parent
+    }
 
-    function capitalizeFirstLetter(string) {
+    if (!isRepoRoot(repoRoot)) {
+        let dir = typeof __dirname !== 'undefined' ? __dirname : process.cwd()
+        while (dir) {
+            if (isRepoRoot(dir)) {
+                repoRoot = dir
+                break
+            }
+            const parent = path.dirname(dir)
+            if (parent === dir) break
+            dir = parent
+        }
+    }
+
+    // 2. Discover Template Directory
+    const templateCandidates = [
+        path.join(repoRoot, 'data', '00.sim.unit'),
+        path.join(repoRoot, 'apps', '995.library', 'data', '00.sim.unit'),
+        path.resolve(process.cwd(), 'data', '00.sim.unit'),
+    ]
+
+    const templateDir = templateCandidates.find((dir) => FS.existsSync(dir))
+
+    if (!templateDir) {
+        const errorMsg = 'Template directory data/00.sim.unit not found'
+        if (ste) {
+            ste.hunt(ActCns.UPDATE_CONSOLE, {
+                idx: 'cns00',
+                src: `ERROR: ${errorMsg}`,
+            })
+        }
+        if (bal.slv != null) {
+            bal.slv({
+                untBit: {
+                    idx: 'create-unit-error',
+                    src: errorMsg,
+                },
+            })
+        }
+        return cpy
+    }
+
+    // 3. Define Unit Identifiers & Target Directory
+    const num = '00'
+    const nom = bal.idx.toLowerCase()
+    const unitFolder = `${num}.${nom}.unit`
+    const targetUnitDir = path.join(repoRoot, 'data', 'unit', unitFolder)
+
+    function capitalizeFirstLetter(string: string) {
         return string.charAt(0).toUpperCase() + string.slice(1)
     }
 
@@ -251,48 +286,77 @@ export const createUnit = (cpy: UnitModel, bal: UnitBit, ste: State) => {
         updateTitle: 'Update ' + capitalizeFirstLetter(nom),
     }
 
-    out.forEach((a) => {
-        let neo = a.replace('sim', gel.nom)
-        neo = neo.replace('.sim', '.' + gel.nom)
-
-        //console.log("neo " + neo);
-
-        const lineList = FS.readFileSync(a).toString().split('\n')
-
-        lineList.forEach((a, b) => {
-            //console.log("line " + a);
-            const doTCompiled = doT.template(a)
-            const outLine = doTCompiled(gel)
-            lineList[b] = outLine
-        })
-
-        lineList.forEach((a) => {
-            //console.log("line : " + a);
-        })
-
-        let finFin = neo.replace('sim', gel.nom)
-        //console.log("what you got for a fin fin " + finFin);
-
-        finFin = finFin.replace('../data/redux/', '../data/redux/unit/')
-
-        finFin = finFin.replace('00', num)
-
-        finFin = finFin.replace('.txt', '.ts')
-
-        const finFile = lineList.join('\n')
-
-        FS.ensureFileSync(finFin)
-        FS.writeFileSync(finFin, finFile)
-
+    if (ste) {
         ste.hunt(ActCns.UPDATE_CONSOLE, {
             idx: 'cns00',
-            src: 'writing ' + finFin,
+            src: `Scaffolding unit [${unitFolder}] into: ${path.relative(repoRoot, targetUnitDir)}`,
         })
+    }
+
+    // 4. Collect Template Files Recursively
+    function getTemplateFiles(dir: string): string[] {
+        const entries = FS.readdirSync(dir, { withFileTypes: true })
+        let files: string[] = []
+        for (const entry of entries) {
+            const fullPath = path.join(dir, entry.name)
+            if (entry.isDirectory()) {
+                files = files.concat(getTemplateFiles(fullPath))
+            } else if (entry.isFile()) {
+                files.push(fullPath)
+            }
+        }
+        return files
+    }
+
+    const templateFiles = getTemplateFiles(templateDir)
+
+    // 5. Compile and Output to root data/unit/00.<nom>.unit/
+    templateFiles.forEach((filePath: string) => {
+        const relFromTemplate = path.relative(templateDir, filePath)
+
+        let destRel = relFromTemplate.replace(/sim/g, gel.nom)
+        if (destRel.endsWith('.txt')) {
+            destRel = destRel.slice(0, -4) + '.ts'
+        }
+
+        const destFile = path.join(targetUnitDir, destRel)
+        const rawLines = FS.readFileSync(filePath, 'utf8').split('\n')
+
+        const compiledLines = rawLines.map((line: string) => {
+            try {
+                return doT.template(line)(gel)
+            } catch {
+                return line
+            }
+        })
+
+        const finContent = compiledLines.join('\n')
+
+        FS.ensureFileSync(destFile)
+        FS.writeFileSync(destFile, finContent, 'utf8')
+
+        if (ste) {
+            ste.hunt(ActCns.UPDATE_CONSOLE, {
+                idx: 'cns00',
+                src: `writing ${path.relative(repoRoot, destFile)}`,
+            })
+        }
     })
 
+    const relativeResult = path
+        .relative(repoRoot, targetUnitDir)
+        .replace(/\\/g, '/')
+
     setTimeout(() => {
-        if (bal.slv != null)
-            bal.slv({ untBit: { idx: 'create-unit', dat: { idx: bal.idx } } })
+        if (bal.slv != null) {
+            bal.slv({
+                untBit: {
+                    idx: 'create-unit',
+                    src: relativeResult,
+                    dat: { idx: bal.idx, path: targetUnitDir },
+                },
+            })
+        }
     }, 2111)
 
     return cpy
@@ -302,9 +366,13 @@ export const containUnit = (cpy: UnitModel, bal: UnitBit, ste: State) => {
     const fs = require('fs')
     const path = require('path')
 
-    const resultList = []
-    // Use process.cwd() to restrict scanning to the current repository (995.library)
-    const parentDir = process.cwd()
+    const resultList: string[] = []
+    let parentDir = process.cwd()
+    while (parentDir && !isRepoRoot(parentDir)) {
+        const parent = path.dirname(parentDir)
+        if (parent === parentDir) break
+        parentDir = parent
+    }
     const IGNORE = new Set([
         'node_modules',
         '.git',
@@ -315,8 +383,8 @@ export const containUnit = (cpy: UnitModel, bal: UnitBit, ste: State) => {
         'vision',
     ])
 
-    function scanForUnits(dir, depth = 0) {
-        if (depth > 3) return false // Limit depth to prevent freezes
+    function scanForUnits(dir: string, depth = 0): boolean {
+        if (depth > 3) return false
         try {
             const entries = fs.readdirSync(dir, { withFileTypes: true })
             for (const entry of entries) {
@@ -327,13 +395,13 @@ export const containUnit = (cpy: UnitModel, bal: UnitBit, ste: State) => {
                 if (scanForUnits(path.join(dir, entry.name), depth + 1))
                     return true
             }
-        } catch (e) {
-            // Ignore directory read errors
+        } catch {
+            // Ignore read errors
         }
         return false
     }
 
-    function hasDirectUnits(dir: string) {
+    function hasDirectUnits(dir: string): boolean {
         try {
             const entries = fs.readdirSync(dir, { withFileTypes: true })
             for (const entry of entries) {
@@ -344,14 +412,14 @@ export const containUnit = (cpy: UnitModel, bal: UnitBit, ste: State) => {
                     return true
                 }
             }
-        } catch (e) {
+        } catch {
             // Ignore read errors
         }
         return false
     }
 
-    function findPivots(dir, results, depth = 0) {
-        if (depth > 3) return // Limit depth to prevent freezes
+    function findPivots(dir: string, results: string[], depth = 0) {
+        if (depth > 3) return
         try {
             const entries = fs.readdirSync(dir, { withFileTypes: true })
             for (const entry of entries) {
@@ -372,8 +440,8 @@ export const containUnit = (cpy: UnitModel, bal: UnitBit, ste: State) => {
 
                 findPivots(targetPath, results, depth + 1)
             }
-        } catch (e) {
-            // Ignore directory read errors
+        } catch {
+            // Ignore read errors
         }
     }
 
@@ -387,16 +455,18 @@ export const containUnit = (cpy: UnitModel, bal: UnitBit, ste: State) => {
             if (IGNORE.has(entry.name)) continue
 
             const projectPath = path.join(parentDir, entry.name)
-            ste.hunt(ActCns.UPDATE_CONSOLE, {
-                idx: 'cns00',
-                src: 'Scanning project: ' + entry.name,
-            })
+            if (ste) {
+                ste.hunt(ActCns.UPDATE_CONSOLE, {
+                    idx: 'cns00',
+                    src: 'Scanning project: ' + entry.name,
+                })
+            }
 
             if (scanForUnits(projectPath)) {
                 findPivots(projectPath, resultList)
             }
         }
-    } catch (err) {
+    } catch (err: any) {
         console.error(`Error in containUnit: ${err.message}`)
     }
 
@@ -412,18 +482,20 @@ export const testUnit = (cpy: UnitModel, _bal: UnitBit, _ste: State) => {
 export const updateUnit = async (cpy: UnitModel, bal: UnitBit, ste: State) => {
     const FS = require('fs-extra')
     const path = require('path')
+    const doT = require('dot')
 
     let bit
 
-    // Extract the unit name from the full path (e.g., '../../000.example/000.example/01.tick.unit' -> '01.tick.unit')
     const unitBasename = path.basename(bal.idx)
     const root = unitBasename.split('.')[1] || ''
 
     if (!root) {
-        ste.hunt(ActCns.UPDATE_CONSOLE, {
-            idx: 'cns00',
-            src: `ERROR: Could not extract root from ${bal.idx}`,
-        })
+        if (ste) {
+            ste.hunt(ActCns.UPDATE_CONSOLE, {
+                idx: 'cns00',
+                src: `ERROR: Could not extract root from ${bal.idx}`,
+            })
+        }
         if (bal.slv != null)
             bal.slv({
                 untBit: {
@@ -431,39 +503,38 @@ export const updateUnit = async (cpy: UnitModel, bal: UnitBit, ste: State) => {
                     src: `Invalid unit path: ${bal.idx}`,
                 },
             })
-        return
+        return cpy
     }
 
     const rootUpper = root.charAt(0).toUpperCase() + root.slice(1)
     const nom = bal.dat
     const nomUpper = nom.charAt(0).toUpperCase() + nom.slice(1)
 
-    ste.hunt(ActCns.UPDATE_CONSOLE, {
-        idx: 'cns00',
-        src: `Target unit: ${root} (${rootUpper}) in ${unitBasename}`,
-    })
+    if (ste) {
+        ste.hunt(ActCns.UPDATE_CONSOLE, {
+            idx: 'cns00',
+            src: `Target unit: ${root} (${rootUpper}) in ${unitBasename}`,
+        })
+    }
 
     const buzzFile = path.resolve(bal.src, bal.idx, 'buz', root + '.buzz.ts')
     const buzzerFile = path.resolve(bal.src, bal.idx, root + '.buzzer.ts')
     const actionFile = path.resolve(bal.src, bal.idx, root + '.action.ts')
     const reduceFile = path.resolve(bal.src, bal.idx, root + '.reduce.ts')
 
-    ste.hunt(ActCns.UPDATE_CONSOLE, {
-        idx: 'cns00',
-        src: `Updating unit paths: ${buzzFile}`,
-    })
+    if (ste) {
+        ste.hunt(ActCns.UPDATE_CONSOLE, {
+            idx: 'cns00',
+            src: `Updating unit paths: ${buzzFile}`,
+        })
+    }
 
     const existBuzz = FS.existsSync(buzzFile)
     const existBuzzer = FS.existsSync(buzzerFile)
     const existAction = FS.existsSync(actionFile)
     const existReduce = FS.existsSync(reduceFile)
 
-    if (
-        existBuzz == false ||
-        existAction == false ||
-        existReduce == false ||
-        existBuzzer == false
-    ) {
+    if (!existBuzz || !existAction || !existReduce || !existBuzzer) {
         if (bal.slv != null)
             bal.slv({
                 untBit: {
@@ -471,16 +542,16 @@ export const updateUnit = async (cpy: UnitModel, bal: UnitBit, ste: State) => {
                     src: 'no exist on source file',
                 },
             })
-        return
+        return cpy
     }
+
     const listBuzz = FS.readFileSync(buzzFile).toString().split('\n')
     const listBuzzer = FS.readFileSync(buzzerFile).toString().split('\n')
     const listAction = FS.readFileSync(actionFile).toString().split('\n')
     const listReduce = FS.readFileSync(reduceFile).toString().split('\n')
-    const doT = require('dot')
-    const updateBuzz = (lst: string[]) => {
-        const out = []
 
+    const updateBuzz = (lst: string[]) => {
+        const out: string[] = []
         const buzNom = nom + rootUpper
         const cpyNom = rootUpper + 'Model'
         const balNom = rootUpper + 'Bit'
@@ -488,19 +559,15 @@ export const updateUnit = async (cpy: UnitModel, bal: UnitBit, ste: State) => {
         const gel = { buzNom, cpyNom, balNom }
 
         out.push('')
-
         lineList.forEach((a) => {
             const doTCompiled = doT.template(a)
-            const outLine = doTCompiled(gel)
-            out.push(outLine)
+            out.push(doTCompiled(gel))
         })
-
-        const result = lst.concat(out)
-
-        return { lst: result }
+        return { lst: lst.concat(out) }
     }
-    const updateActionUpper = (lst) => {
-        const out = []
+
+    const updateActionUpper = (lst: string[]) => {
+        const out: string[] = []
         let dex = 0
         lst.forEach((a, b) => {
             if (a.includes('export type Actions') == true) dex = b
@@ -511,15 +578,15 @@ export const updateUnit = async (cpy: UnitModel, bal: UnitBit, ste: State) => {
         const actTle = nomUpper + rootUpper
         const lineList = cpy.actTemplate.toString().split('\n')
         const gel = { actUpr, actMsg, actTle }
-        lineList.forEach((a, _b) => {
+        lineList.forEach((a) => {
             const doTCompiled = doT.template(a)
-            const outLine = doTCompiled(gel)
-            out.push(outLine)
+            out.push(doTCompiled(gel))
         })
         return { lst: out, val: dex }
     }
-    const updateActionLower = (lst) => {
-        const out = []
+
+    const updateActionLower = (lst: string[]) => {
+        const out: string[] = []
         let dex = 0
         lst.forEach((a, b) => {
             if (a.includes('export type Actions =') == true) dex = b
@@ -527,15 +594,15 @@ export const updateUnit = async (cpy: UnitModel, bal: UnitBit, ste: State) => {
         const actTle = nomUpper + rootUpper
         const lineList = cpy.actTemplateLower.toString().split('\n')
         const gel = { actTle }
-        lineList.forEach((a, _b) => {
+        lineList.forEach((a) => {
             const doTCompiled = doT.template(a)
-            const outLine = doTCompiled(gel)
-            out.push(outLine)
+            out.push(doTCompiled(gel))
         })
         return { lst: out, val: dex }
     }
-    const updateReduce = (lst) => {
-        const out = []
+
+    const updateReduce = (lst: string[]) => {
+        const out: string[] = []
         let dex = 0
         lst.forEach((a, b) => {
             if (a.includes('default') == true) dex = b
@@ -545,38 +612,36 @@ export const updateUnit = async (cpy: UnitModel, bal: UnitBit, ste: State) => {
         const actTle = nom + rootUpper
         const lineList = cpy.reduceTemplate.toString().split('\n')
         const gel = { actUpr, actTle }
-        lineList.forEach((a, _b) => {
+        lineList.forEach((a) => {
             const doTCompiled = doT.template(a)
-            const outLine = doTCompiled(gel)
-            out.push(outLine)
+            out.push(doTCompiled(gel))
         })
         return { lst: out, val: dex }
     }
-    const updateBuzzer = (lst) => {
-        const out = []
+
+    const updateBuzzer = (lst: string[]) => {
         const actTle = nom + rootUpper
         const lineList = cpy.buzzerTemplate.toString().split('\n')
         const gel = { actTle, root }
-        lineList.forEach((a, _b) => {
+        lineList.forEach((a) => {
             const doTCompiled = doT.template(a)
-            const outLine = doTCompiled(gel)
-            lst.push(outLine)
+            lst.push(doTCompiled(gel))
         })
         return { lst }
     }
+
     const buzzBit = updateBuzz(listBuzz)
     const buzzerBit = updateBuzzer(listBuzzer)
     const actionUpperBit = updateActionUpper(listAction)
     const actionLowerBit = updateActionLower(listAction)
     const reduceBit = updateReduce(listReduce)
-    // merge 'b' with 'a' at index 'i'
-    const merge = (a, b, i = 0) => {
+
+    const merge = (a: any[], b: any[], i = 0) => {
         return a.slice(0, i).concat(b, a.slice(i))
     }
+
     const resultBuzz = buzzBit.lst
-    const resultBuzzer = buzzerBit.lst.filter((e) => {
-        return e.length > 2
-    })
+    const resultBuzzer = buzzerBit.lst.filter((e) => e.length > 2)
     const resultReduce = merge(listReduce, reduceBit.lst, reduceBit.val)
     let resultActionUpper = merge(
         listAction,
@@ -589,39 +654,39 @@ export const updateUnit = async (cpy: UnitModel, bal: UnitBit, ste: State) => {
     lowerActionList.forEach((a, b) => {
         lowerActionList[b] = a.replace(';', '')
     })
-    lowerActionList = lowerActionList.filter((e) => {
-        if (e.length >= 2) return e
-    })
+    lowerActionList = lowerActionList.filter((e) => e.length >= 2)
     lowerActionList.push('| ' + nomUpper + rootUpper)
     lowerActionList.unshift(' ')
     resultActionUpper = resultActionUpper.slice(0, upperActionDex)
     const resultAction = resultActionUpper.concat(lowerActionList)
 
-    buzzFile
+    await FS.writeFile(buzzFile, resultBuzz.join('\n'))
+    if (ste)
+        ste.hunt(ActCns.UPDATE_CONSOLE, {
+            idx: 'cns00',
+            src: 'writing...' + buzzFile,
+        })
 
-    bit = await FS.writeFile(buzzFile, resultBuzz.join('\n'))
+    await FS.writeFile(buzzerFile, resultBuzzer.join('\n'))
+    if (ste)
+        ste.hunt(ActCns.UPDATE_CONSOLE, {
+            idx: 'cns00',
+            src: 'writing...' + buzzerFile,
+        })
 
-    ste.hunt(ActCns.UPDATE_CONSOLE, {
-        idx: 'cns00',
-        src: 'writing...' + buzzFile,
-    })
-    bit = await FS.writeFile(buzzerFile, resultBuzzer.join('\n'))
+    await FS.writeFile(reduceFile, resultReduce.join('\n'))
+    if (ste)
+        ste.hunt(ActCns.UPDATE_CONSOLE, {
+            idx: 'cns00',
+            src: 'writing...' + reduceFile,
+        })
 
-    ste.hunt(ActCns.UPDATE_CONSOLE, {
-        idx: 'cns00',
-        src: 'writing...' + buzzerFile,
-    })
-    bit = await FS.writeFile(reduceFile, resultReduce.join('\n'))
-    ste.hunt(ActCns.UPDATE_CONSOLE, {
-        idx: 'cns00',
-        src: 'writing...' + reduceFile,
-    })
-
-    bit = await FS.writeFile(actionFile, resultAction.join('\n'))
-    ste.hunt(ActCns.UPDATE_CONSOLE, {
-        idx: 'cns00',
-        src: 'writing...' + actionFile,
-    })
+    await FS.writeFile(actionFile, resultAction.join('\n'))
+    if (ste)
+        ste.hunt(ActCns.UPDATE_CONSOLE, {
+            idx: 'cns00',
+            src: 'writing...' + actionFile,
+        })
 
     setTimeout(() => {
         if (bal.slv != null)
@@ -635,9 +700,14 @@ export const listUnit = (cpy: UnitModel, bal: UnitBit, ste: State) => {
     const FS = require('fs-extra')
     const path = require('path')
 
-    const resultList = []
+    const resultList: string[] = []
     const targetDir = path.resolve(bal.src)
-    const parentDir = process.cwd()
+    let parentDir = process.cwd()
+    while (parentDir && !isRepoRoot(parentDir)) {
+        const parent = path.dirname(parentDir)
+        if (parent === parentDir) break
+        parentDir = parent
+    }
 
     try {
         if (FS.existsSync(targetDir)) {
@@ -645,7 +715,6 @@ export const listUnit = (cpy: UnitModel, bal: UnitBit, ste: State) => {
 
             for (const entry of entries) {
                 if (!entry.isDirectory()) continue
-                // Match 00.example.unit pattern
                 if (/^\d{2}\..+\.unit$/.test(entry.name)) {
                     const relativeDir = path
                         .relative(parentDir, targetDir)
@@ -656,16 +725,16 @@ export const listUnit = (cpy: UnitModel, bal: UnitBit, ste: State) => {
                 }
             }
         }
-    } catch (err) {
+    } catch (err: any) {
         console.error(`Error in listUnit: ${err.message}`)
     }
 
-    ste.hunt(ActCns.UPDATE_CONSOLE, {
-        idx: 'cns00',
-        src: `Listing units in ${bal.src}: found ${resultList.length}`,
-    })
-
-    resultList
+    if (ste) {
+        ste.hunt(ActCns.UPDATE_CONSOLE, {
+            idx: 'cns00',
+            src: `Listing units in ${bal.src}: found ${resultList.length}`,
+        })
+    }
 
     bal.slv({ untBit: { idx: 'list-unit', lst: resultList, src: bal.idx } })
     return cpy

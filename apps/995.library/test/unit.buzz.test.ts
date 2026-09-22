@@ -3,7 +3,10 @@ import sinon from 'sinon'
 import path from 'path'
 import fs from 'fs-extra'
 import { UnitModel } from '../995.library/01.unit.unit/unit.model'
-import { flattenUnit } from '../995.library/01.unit.unit/buz/unit.buzz'
+import {
+    flattenUnit,
+    createUnit,
+} from '../995.library/01.unit.unit/buz/unit.buzz'
 
 function makeBal(idx: string, src?: string) {
     return { idx, src, slv: sinon.fake() } as any
@@ -93,5 +96,70 @@ test.serial(
         // Teardown
         await fs.remove(absoluteOutputFile)
         await fs.remove(tempDir)
+    },
+)
+
+test.serial(
+    'createUnit — scaffolds templates into root data/unit/00.<nom>.unit',
+    async (t) => {
+        let repoRoot = process.cwd()
+        while (
+            repoRoot &&
+            !(
+                fs.existsSync(path.join(repoRoot, 'apps')) &&
+                fs.existsSync(path.join(repoRoot, 'packages'))
+            )
+        ) {
+            const parent = path.dirname(repoRoot)
+            if (parent === repoRoot) break
+            repoRoot = parent
+        }
+
+        const testVerb = 'weather'
+        const bal = makeBal(testVerb)
+
+        // Execute createUnit
+        createUnit(makeModel(), bal, ste)
+
+        // createUnit has a 2111ms delay
+        await new Promise((resolve) => setTimeout(resolve, 2500))
+
+        t.true(bal.slv.calledOnce, 'bal.slv should be called once')
+        const result = bal.slv.firstCall.args[0]
+        t.is(result.untBit.idx, 'create-unit')
+
+        const relativeOutputPath = result.untBit.src
+        t.true(
+            relativeOutputPath.startsWith('data/unit/00.weather.unit'),
+            `Expected data/unit/00.weather.unit, got: ${relativeOutputPath}`,
+        )
+
+        const targetDir = path.join(repoRoot, relativeOutputPath)
+        t.true(
+            fs.existsSync(targetDir),
+            'Target unit directory must exist on disk',
+        )
+
+        const expectedFiles = [
+            'weather.action.ts',
+            'weather.buzzer.ts',
+            'weather.model.ts',
+            'weather.reduce.ts',
+            'weather.unit.ts',
+            'buz/weather.buzz.ts',
+            'fce/weather.interface.ts',
+            'fce/weather.bit.ts',
+        ]
+
+        for (const relFile of expectedFiles) {
+            const fullFilePath = path.join(targetDir, relFile)
+            t.true(
+                fs.existsSync(fullFilePath),
+                `Missing expected scaffolded file: ${relFile}`,
+            )
+        }
+
+        // Teardown
+        await fs.remove(targetDir)
     },
 )

@@ -274,7 +274,19 @@ export const libraryMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
             if (pivotSelection)
                 pivotSelection = pivotSelection.replace(/[[\]]/g, '')
 
-            const parentDir = process.cwd()
+            let parentDir = process.cwd()
+            while (
+                parentDir &&
+                !(
+                    FS.existsSync(path.join(parentDir, 'apps')) &&
+                    FS.existsSync(path.join(parentDir, 'packages')) &&
+                    FS.existsSync(path.join(parentDir, 'package.json'))
+                )
+            ) {
+                const parent = path.dirname(parentDir)
+                if (parent === parentDir) break
+                parentDir = parent
+            }
             src = path.resolve(parentDir, pivotSelection)
 
             ste.hunt(ActCns.UPDATE_CONSOLE, {

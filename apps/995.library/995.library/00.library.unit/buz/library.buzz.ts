@@ -49,7 +49,24 @@ export const listLibrary = (cpy: LibraryModel, bal: LibraryBit, ste: State) => {
     const path = require('path')
 
     const resultList = []
-    const parentDir = process.cwd()
+    const isRepoRoot = (dir: string) => {
+        try {
+            return (
+                fs.existsSync(path.join(dir, 'apps')) &&
+                fs.existsSync(path.join(dir, 'packages')) &&
+                fs.existsSync(path.join(dir, 'package.json'))
+            )
+        } catch {
+            return false
+        }
+    }
+
+    let parentDir = process.cwd()
+    while (parentDir && !isRepoRoot(parentDir)) {
+        const parent = path.dirname(parentDir)
+        if (parent === parentDir) break
+        parentDir = parent
+    }
     const IGNORE = new Set([
         'node_modules',
         '.git',
