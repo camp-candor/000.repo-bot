@@ -8,8 +8,9 @@ import { Type, type Static } from '@sinclair/typebox'
 export interface Env extends AgentEnv {
     CLOUDFLARE_ACCOUNT_ID: string
     CLOUDFLARE_API_TOKEN: string
-    CLOUDFLARE_AI_GATEWAY: string // Gateway slug (e.g., "repo-bot-gateway")
-    GITHUB_TOKEN: string // Token loaded from .env / .dev.vars
+    CLOUDFLARE_AI_GATEWAY: string // Gateway slug (e.g., "default")
+    CLOUDFLARE_AI_GATEWAY_TOKEN?: string // Gateway universal / authenticated token (cfut_...)
+    GITHUB_TOKEN: string // Token loaded from .env
     GITHUB_DEFAULT_OWNER?: string
     AI: any // Cloudflare Workers AI binding
 }
@@ -459,3 +460,89 @@ export const createInspectRepoChecksTool = (
         }
     },
 })
+
+export const getGatewaySlug = (env: Env): string => {
+    if (
+        env.CLOUDFLARE_AI_GATEWAY &&
+        !env.CLOUDFLARE_AI_GATEWAY.startsWith('cfut_')
+    ) {
+        return env.CLOUDFLARE_AI_GATEWAY
+    }
+    return 'default'
+}
+
+export const getGatewayToken = (env: Env): string => {
+    if (env.CLOUDFLARE_AI_GATEWAY_TOKEN) {
+        return env.CLOUDFLARE_AI_GATEWAY_TOKEN
+    }
+    if (env.CLOUDFLARE_AI_GATEWAY?.startsWith('cfut_')) {
+        return env.CLOUDFLARE_AI_GATEWAY
+    }
+    return env.CLOUDFLARE_API_TOKEN || ''
+}
+
+export async function inspectRepoChecksViaAiGateway(
+    owner: string,
+    repo: string,
+    env: Env,
+) {
+    const rawToolData = await fetchRepoChecks(owner, repo, env)
+
+    const gatewaySlug = getGatewaySlug(env)
+    const token = getGatewayToken(env)
+    const gatewayUrl = `https://gateway.ai.cloudflare.com/v1/${env.CLOUDFLARE_ACCOUNT_ID}/${gatewaySlug}/workers-ai/v1/chat/completions`
+
+    const payload = {
+        model: '@cf/meta/llama-3.2-3b-instruct',
+        messages: [
+            {
+                role: 'system',
+                content:
+                    'You are repo-bot, the deterministic DevOps Control Plane and Git Mechanic. Return ONLY a valid JSON object without markdown explanation matching the exact structure: {"commit":{"sha":"<string>","message":"<string>","author":"<string>","timestamp":"<ISO 8601 string>"},"checks":{"all_passed":<boolean>,"total_count":<number>,"status":"<completed | in_progress | queued>","runs":[{"name":"<string>","status":"<string>","conclusion":"<string | null>","details_url":"<string>"}]}}',
+            },
+            {
+                role: 'user',
+                content: `Inspect GitHub repository CI checks for ${owner}/${repo}.`,
+            },
+            {
+                role: 'assistant',
+                content: `Running inspect_repo_checks tool for ${owner}/${repo}.`,
+            },
+            {
+                role: 'user',
+                content: `Tool receipt from inspect_repo_checks: ${JSON.stringify(rawToolData)}. Synthesize and return the final JSON payload. Output ONLY the JSON.`,
+            },
+        ],
+    }
+
+    const aiRes = await fetch(gatewayUrl, {
+        method: 'POST',
+        headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+    })
+
+    if (!aiRes.ok) {
+        const errorText = await aiRes.text()
+        throw new Error(
+            `Cloudflare AI Gateway error (${aiRes.status}): ${errorText}`,
+        )
+    }
+
+    const aiJson: any = await aiRes.json()
+    const content = aiJson.choices?.[0]?.message?.content || ''
+
+    try {
+        const cleaned = content.replace(/```json\s*|\s*```/g, '').trim()
+        const parsed = JSON.parse(cleaned)
+        if (parsed?.commit?.sha && parsed?.checks) {
+            return parsed
+        }
+    } catch {
+        // If formatting was non-strict, fall back to raw verified tool data
+    }
+
+    return rawToolData
+}

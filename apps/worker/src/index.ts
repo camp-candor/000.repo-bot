@@ -7,7 +7,9 @@ import {
     createWriteRepoFileTool,
     createPullRequestTool,
     createInspectRepoChecksTool,
-    fetchRepoChecks,
+    getGatewaySlug,
+    getGatewayToken,
+    inspectRepoChecksViaAiGateway,
 } from './tools.js'
 
 export * from './tools.js'
@@ -21,7 +23,7 @@ export * from './tools.js'
 // ----------------------------------------------------------------------------
 
 const cfModel: any = {
-    id: '@hf/nousresearch/hermes-2-pro-mistral-7b',
+    id: '@cf/meta/llama-3.2-3b-instruct',
     api: 'openai-completions',
     provider: 'openai',
     baseUrl: '', // Set dynamically via Cloudflare AI Gateway
@@ -37,7 +39,7 @@ const cfModel: any = {
 
 const dynamicWorker = createAgentWorker<Env>({
     systemPrompt: (env) => {
-        const gatewaySlug = env.CLOUDFLARE_AI_GATEWAY || 'repo-bot-gateway'
+        const gatewaySlug = getGatewaySlug(env)
         cfModel.baseUrl = `https://gateway.ai.cloudflare.com/v1/${env.CLOUDFLARE_ACCOUNT_ID}/${gatewaySlug}/workers-ai/v1`
 
         return `
@@ -61,7 +63,7 @@ GOVERNING RULES:
         createInspectRepoChecksTool(env),
     ],
     getApiKey: (provider, env) => {
-        if (provider === 'openai') return env.CLOUDFLARE_API_TOKEN
+        if (provider === 'openai') return getGatewayToken(env)
         return undefined
     },
 })
@@ -79,7 +81,7 @@ app.get('/health', async (c) => {
         status: 'healthy',
         hasGithubToken: Boolean(c.env.GITHUB_TOKEN),
         hasAccountId: Boolean(c.env.CLOUDFLARE_ACCOUNT_ID),
-        aiGateway: c.env.CLOUDFLARE_AI_GATEWAY || 'repo-bot-gateway',
+        aiGateway: getGatewaySlug(c.env),
     })
 })
 
@@ -87,7 +89,7 @@ app.get('/repobot/inspect', async (c) => {
     try {
         const owner = c.req.query('owner') || 'camp-candor'
         const repo = c.req.query('repo') || '000.repo-bot'
-        const data = await fetchRepoChecks(owner, repo, c.env)
+        const data = await inspectRepoChecksViaAiGateway(owner, repo, c.env)
         return c.json(data)
     } catch (error: any) {
         return c.json({ error: error.message }, 500)
@@ -102,7 +104,7 @@ app.post('/repobot/inspect', async (c) => {
         } catch {}
         const owner = body.owner || c.req.query('owner') || 'camp-candor'
         const repo = body.repo || c.req.query('repo') || '000.repo-bot'
-        const data = await fetchRepoChecks(owner, repo, c.env)
+        const data = await inspectRepoChecksViaAiGateway(owner, repo, c.env)
         return c.json(data)
     } catch (error: any) {
         return c.json({ error: error.message }, 500)
@@ -112,7 +114,7 @@ app.post('/repobot/inspect', async (c) => {
 app.get('/oracle', async (c) => {
     try {
         const prompt = c.req.query('prompt') || 'Inspect repository status'
-        const gatewayId = c.env.CLOUDFLARE_AI_GATEWAY || 'repo-bot-gateway'
+        const gatewayId = getGatewaySlug(c.env)
 
         if (!c.env.AI) {
             return c.text(

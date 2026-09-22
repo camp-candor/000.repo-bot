@@ -42,7 +42,7 @@ export const testRepobot = async (
             // @ts-ignore
             await global.LIBRARY.hunt('[Console action] Update Console', {
                 idx: 'cns00',
-                src: `>> [INSPECT] Querying AI Agent Worker at ${endpoint}...`,
+                src: `>> [AI GATEWAY] Querying AI Agent Worker via Cloudflare AI Gateway...`,
             })
         }
 
@@ -69,7 +69,7 @@ export const testRepobot = async (
             // @ts-ignore
             await global.LIBRARY.hunt('[Console action] Update Console', {
                 idx: 'cns00',
-                src: `>> [INSPECT RECEIPT] CI Status: ${inspectData?.checks?.all_passed ? 'ALL PASSED' : 'CHECKS PENDING/FAILED'}`,
+                src: `>> [AI GATEWAY RECEIPT] Status: ${inspectData?.checks?.all_passed ? 'ALL PASSED' : 'CHECKS PENDING/FAILED'}`,
             })
             // @ts-ignore
             await global.LIBRARY.hunt('[Console action] Update Console', {

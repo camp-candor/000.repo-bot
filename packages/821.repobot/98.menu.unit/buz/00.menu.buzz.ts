@@ -135,7 +135,15 @@ export const toggleTargetMode = async (
 
         const workerDir = resolveWorkerDir()
         const rootEnv = resolveRootEnv()
-        const args = ['wrangler', 'dev', '--port', '8787', '--ip', '127.0.0.1']
+        const args = [
+            'wrangler',
+            'dev',
+            '--port',
+            '8787',
+            '--ip',
+            '127.0.0.1',
+            '--local',
+        ]
         if (rootEnv) {
             args.push('--env-file', rootEnv)
         }
@@ -146,6 +154,11 @@ export const toggleTargetMode = async (
             stdio: 'pipe',
             shell: process.platform === 'win32',
             env: process.env,
+        })
+
+        let stderrData = ''
+        child.stderr?.on('data', (chunk) => {
+            stderrData += chunk.toString()
         })
 
         child.on('error', (err) => {
@@ -201,9 +214,12 @@ export const toggleTargetMode = async (
             cpy.targetMode = 'LIVE'
             cpy.activeBaseUrl = LIVE_URL
             ;(global as any).repobotBaseUrl = LIVE_URL
+            const errDetail = stderrData.trim()
+                ? `\n>> Details: ${stderrData.trim().slice(0, 300)}`
+                : ''
             await global.LIBRARY.hunt(UPDATE_CONSOLE, {
                 idx: 'cns00',
-                src: '>> [FAILED] Local worker timed out after 15s. Reverting to LIVE.',
+                src: `>> [FAILED] Local worker timed out after 15s. Reverting to LIVE.${errDetail}`,
             })
         }
     } else {
