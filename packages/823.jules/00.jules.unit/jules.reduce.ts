@@ -2,7 +2,7 @@ import clone from 'clone-deep'
 import * as Act from './jules.action.js'
 import { JulesModel } from './jules.model.js'
 import * as Buzz from './jules.buzzer.js'
-import State from '../99.core/state.js'
+import type State from '../99.core/state.js'
 
 export function reducer(
     model: JulesModel = new JulesModel(),
@@ -10,24 +10,14 @@ export function reducer(
     state?: State,
 ) {
     switch (act.type) {
-        case Act.UPDATE_JULES:
-            return Buzz.updateJules(clone(model), act.bale, state)
-
         case Act.INIT_JULES:
             return Buzz.initJules(clone(model), act.bale, state)
-
-        case Act.TEST_JULES:
-            return Buzz.testJules(clone(model), act.bale, state)
-
-        case Act.LIST_JULES:
-            return Buzz.listJules(clone(model), act.bale, state)
-
-        case Act.CONNECT_JULES:
-            return Buzz.connectJules(clone(model), act.bale, state)
-
-        case Act.DISCONNECT_JULES:
-            return Buzz.disconnectJules(clone(model), act.bale, state)
-
+        case Act.UPDATE_JULES:
+            return Buzz.updateJules(clone(model), act.bale, state)
+        case Act.DISPATCH_JULES_TASK:
+            return Buzz.dispatchJulesTask(clone(model), act.bale, state)
+        case Act.CHECK_JULES_STATUS:
+            return Buzz.checkJulesStatus(clone(model), act.bale, state)
         default:
             return model
     }

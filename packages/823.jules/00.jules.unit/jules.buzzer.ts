@@ -1,6 +1,4 @@
 export { initJules } from './buz/jules.buzz.js'
 export { updateJules } from './buz/jules.buzz.js'
-export { testJules } from './buz/jules.buzz.js'
-export { listJules } from './buz/jules.buzz.js'
-export { connectJules } from './buz/jules.buzz.js'
-export { disconnectJules } from './buz/jules.buzz.js'
+export { dispatchJulesTask } from './buz/jules.buzz.js'
+export { checkJulesStatus } from './buz/jules.buzz.js'

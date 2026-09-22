@@ -34,7 +34,10 @@ jobs:
                   # 2. Pipe GitHub runtime token to Cloudflare secret store
                   echo "$RUNTIME_GITHUB_TOKEN" | npx wrangler secret put GITHUB_TOKEN --env staging
 
-                  # 3. Deploy Worker and pass non-sensitive GITHUB_DEFAULT_OWNER via --var
+                  # 3. Pipe Jules API Key to Cloudflare secret store
+                  echo "${{ secrets.JULES_API_KEY }}" | npx wrangler secret put JULES_API_KEY --env staging
+
+                  # 4. Deploy Worker and pass non-sensitive GITHUB_DEFAULT_OWNER via --var
                   npx wrangler deploy --env staging --var GITHUB_DEFAULT_OWNER:"$DEFAULT_OWNER"
               env:
                   CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}

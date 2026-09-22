@@ -3,23 +3,19 @@
     "version": "0.0.1",
     "private": true,
     "type": "module",
-    "main": "BEE.ts",
-    "exports": {
-        ".": {
-            "types": "./BEE.ts",
-            "import": "./BEE.ts",
-            "require": "./BEE.ts",
-            "default": "./BEE.ts"
-        },
-        "./hunt": {
-            "types": "./hunt.ts",
-            "import": "./hunt.ts",
-            "require": "./hunt.ts",
-            "default": "./hunt.ts"
-        },
-        "./*": "./*"
-    },
+    "main": "./dist/hunt.js",
+    "types": "./dist/hunt.d.ts",
     "scripts": {
+        "build": "tsc",
         "test": "vitest run"
+    },
+    "dependencies": {
+        "clone-deep": "^4.0.1",
+        "rx-lite": "^4.0.8"
+    },
+    "devDependencies": {
+        "@types/rx-lite": "4.0.10",
+        "typescript": "^5.4.0",
+        "vitest": "3.2.4"
     }
 }

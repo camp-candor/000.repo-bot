@@ -1,5 +1,6 @@
 import { Hono } from 'hono'
 import { createAgentWorker } from '@funtuantw/pi-agent-cf'
+import { dispatchJulesJob, getJulesSession } from './jules.js'
 import {
     type Env,
     createGetCommitShaTool,
@@ -138,6 +139,37 @@ app.get('/oracle', async (c) => {
     } catch (error: any) {
         console.error('Oracle Error:', error)
         return c.text(`Error: ${error.message}`, 500)
+    }
+})
+
+app.post('/api/jules/dispatch', async (c) => {
+    try {
+        const body = await c.req.json()
+        const result = await dispatchJulesJob(
+            {
+                owner: body.owner || 'camp-candor',
+                repo: body.repo || '000.repo-bot',
+                taskId: body.taskId || 'TASK-01',
+                fileWhitelist: body.fileWhitelist || [
+                    'apps/worker/src/index.ts',
+                ],
+                prompt: body.prompt || '',
+            },
+            c.env,
+        )
+        return c.json(result)
+    } catch (err: any) {
+        return c.json({ error: err.message }, 500)
+    }
+})
+
+app.get('/api/jules/session/:id', async (c) => {
+    try {
+        const id = c.req.param('id')
+        const session = await getJulesSession(id, c.env)
+        return c.json(session)
+    } catch (err: any) {
+        return c.json({ error: err.message }, 500)
     }
 })
 

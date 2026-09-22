@@ -1,17 +1,17 @@
 {
-    "extends": "../../apps/995.library/tsconfig-base.json",
     "compilerOptions": {
-        "outDir": "../dist/823.jules",
+        "target": "ES2022",
+        "module": "NodeNext",
+        "moduleResolution": "NodeNext",
         "composite": true,
+        "declaration": true,
+        "sourceMap": true,
+        "outDir": "../dist/823.jules",
+        "rootDir": ".",
+        "strict": false,
         "skipLibCheck": true,
-        "noImplicitAny": false,
-        "strictNullChecks": false,
-        "noUnusedLocals": false,
-        "noUnusedParameters": false,
-        "esModuleInterop": true,
-        "allowSyntheticDefaultImports": true
+        "esModuleInterop": true
     },
     "include": ["**/*"],
-    "exclude": ["**/node_modules"],
-    "references": [{ "path": "../../apps/995.library/995.library" }]
+    "exclude": ["node_modules", "dist", "test"]
 }
