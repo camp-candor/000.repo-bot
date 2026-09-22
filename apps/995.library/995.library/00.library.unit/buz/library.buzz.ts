@@ -522,7 +522,13 @@ export const flatLibrary = async (
             src: 'Starting Flat Library...',
         })
 
-    const IGNORED_DIRS = new Set(['node_modules', 'dist', 'data', '.git'])
+    const IGNORED_DIRS = new Set([
+        'node_modules',
+        'dist',
+        'data',
+        '.git',
+        '.wrangler',
+    ])
     const CODE_EXTS = new Set([
         '.ts',
         '.tsx',

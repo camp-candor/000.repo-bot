@@ -65,6 +65,18 @@ test.serial(
             result.libBit.val > 0,
             'Should have flattened at least one code file',
         )
+        const wranglerSources = content
+            .split('\n')
+            .filter(
+                (line) =>
+                    line.startsWith('// ----- SOURCE:') &&
+                    line.includes('.wrangler'),
+            )
+        t.deepEqual(
+            wranglerSources,
+            [],
+            'Flattened content must not contain .wrangler source files',
+        )
 
         // Teardown: delete the generated test output file
         await fs.remove(absoluteOutputFile)
