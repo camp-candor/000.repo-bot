@@ -1,0 +1,65 @@
+name: repo-bot-quality-gauntlet
+
+on:
+    pull_request:
+        branches:
+            - 'main'
+            - 'spec/**'
+
+jobs:
+    gauntlet:
+        name: repo-bot/quality-gauntlet
+        runs-on: ubuntu-latest
+        timeout-minutes: 15
+        steps:
+            - name: Checkout Code
+              uses: actions/checkout@v4
+              with:
+                  ref: ${{ github.event.pull_request.head.sha }}
+                  fetch-depth: 2
+
+            - name: Setup Node.js & Toolchain
+              uses: actions/setup-node@v4
+              with:
+                  node-version: 20
+                  cache: 'npm'
+
+            - name: Install Dependencies
+              run: npm ci --ignore-scripts
+
+            - name: Level 0 - Types and Syntax Invariants
+              run: |
+                  npx tsc --noEmit
+
+            - name: Level 1 - Schema, Relational DFS Graph & Drift Seal
+              run: |
+                  if [ -f "packages/001.lore/src/compiler.ts" ]; then
+                    npx tsx packages/001.lore/src/compiler.ts
+                    git diff --exit-code compiled/
+                  else
+                    echo ":: Level 1 compiler skipped (no lore package present)"
+                  fi
+
+            - name: Level 2 - Somatic Capability SAT Solver
+              run: |
+                  if npm run | grep -q "test:somatic"; then
+                    npm run test:somatic
+                  else
+                    echo ":: Level 2 somatic solver skipped"
+                  fi
+
+            - name: Level 3 - Voice Bleed & Axiom Sweeps
+              run: |
+                  if npm run | grep -q "test:voice"; then
+                    npm run test:voice
+                  else
+                    echo ":: Level 3 voice suite skipped"
+                  fi
+
+            - name: Level 4 - Defect Escape Regression Battery
+              run: |
+                  if [ -d "tests/escapes" ]; then
+                    npx vitest run tests/escapes/
+                  else
+                    echo ":: Level 4 escapes suite skipped (tests/escapes directory empty)"
+                  fi

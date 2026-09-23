@@ -1,5 +1,6 @@
 import type { Context } from 'hono'
 import { githubRequest, type Env } from './tools.js'
+import { handleCheckRunEvent } from './qualityResult.js'
 
 export interface GitHubPullRequestFile {
     filename: string
@@ -439,6 +440,10 @@ export const handleGitHubWebhook = async (c: Context<{ Bindings: Env }>) => {
         }
 
         // 3. Process Pull Request Events
+        if (event === 'check_run') {
+            return await handleCheckRunEvent(c, payload)
+        }
+
         if (event === 'pull_request') {
             const action = payload.action
             const pr = payload.pull_request

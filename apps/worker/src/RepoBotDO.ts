@@ -9,6 +9,17 @@ export interface WatchedRepo {
     addedAt: string
 }
 
+export interface FSMContext {
+    taskId: string
+    state: string
+    auditedHeadSha: string | null
+    scopeCheckPassed: boolean
+    isHighRiskPath: boolean
+    attempts: number
+    leaseEpoch: number
+    updatedAt: number
+}
+
 export function parseRepoIdentifier(
     rawInput: string,
 ): { owner: string; repo: string; id: string; url: string } | null {
@@ -136,6 +147,119 @@ export class RepoBotDO extends DurableObject {
                 }),
                 {
                     status: removed ? 200 : 404,
+                    headers: { 'Content-Type': 'application/json' },
+                },
+            )
+        }
+
+        // 4. GET /fsm/context — Retrieve current task context
+        if (request.method === 'GET' && path === '/fsm/context') {
+            const context =
+                (await this.ctx.storage.get<FSMContext>('fsm_context')) || null
+            return new Response(JSON.stringify(context), {
+                headers: { 'Content-Type': 'application/json' },
+            })
+        }
+
+        // 5. POST /fsm/context — Initialize or update task context
+        if (request.method === 'POST' && path === '/fsm/context') {
+            const update: Partial<FSMContext> = (await request
+                .json()
+                .catch(() => ({}))) as Partial<FSMContext>
+            const current = (await this.ctx.storage.get<FSMContext>(
+                'fsm_context',
+            )) || {
+                taskId: update.taskId || 'UNKNOWN',
+                state: 'VERIFYING',
+                auditedHeadSha: null,
+                scopeCheckPassed: false,
+                isHighRiskPath: false,
+                attempts: 0,
+                leaseEpoch: 1,
+                updatedAt: Date.now(),
+            }
+
+            const merged: FSMContext = {
+                ...current,
+                ...update,
+                updatedAt: Date.now(),
+            }
+
+            await this.ctx.storage.put('fsm_context', merged)
+            return new Response(
+                JSON.stringify({ action: 'CONTEXT_UPDATED', context: merged }),
+                {
+                    headers: { 'Content-Type': 'application/json' },
+                },
+            )
+        }
+
+        // 6. POST /fsm/transition — Process quality event transitions
+        if (request.method === 'POST' && path === '/fsm/transition') {
+            const body: any = await request.json().catch(() => null)
+            const context = (await this.ctx.storage.get<FSMContext>(
+                'fsm_context',
+            )) || {
+                taskId: body?.taskId || 'UNKNOWN',
+                state: 'VERIFYING',
+                auditedHeadSha: body?.headSha,
+                scopeCheckPassed: true,
+                isHighRiskPath: false,
+                attempts: 0,
+                leaseEpoch: 1,
+                updatedAt: Date.now(),
+            }
+
+            // Stale Head SHA Guard
+            if (
+                context.auditedHeadSha &&
+                body?.headSha &&
+                context.auditedHeadSha !== body.headSha
+            ) {
+                return new Response(
+                    JSON.stringify({
+                        error: 'STALE_SHA_REJECTED',
+                        expected: context.auditedHeadSha,
+                        received: body.headSha,
+                    }),
+                    {
+                        status: 409,
+                        headers: { 'Content-Type': 'application/json' },
+                    },
+                )
+            }
+
+            let nextState = context.state
+
+            if (body?.type === 'QUALITY_PASS') {
+                if (!context.isHighRiskPath && context.scopeCheckPassed) {
+                    nextState = 'MERGING'
+                } else if (context.isHighRiskPath) {
+                    nextState = 'AWAITING_APPROVAL'
+                }
+            } else if (body?.type === 'QUALITY_FAIL_RETRY') {
+                const nextAttempts = context.attempts + 1
+                if (nextAttempts < 3) {
+                    nextState = 'RETRYING'
+                    context.attempts = nextAttempts
+                    context.leaseEpoch += 1
+                } else {
+                    nextState = 'ROLLING_BACK'
+                }
+            }
+
+            context.state = nextState
+            context.updatedAt = Date.now()
+            await this.ctx.storage.put('fsm_context', context)
+
+            return new Response(
+                JSON.stringify({
+                    action: 'STATE_TRANSITIONED',
+                    previousState: context.state,
+                    state: nextState,
+                    context,
+                }),
+                {
                     headers: { 'Content-Type': 'application/json' },
                 },
             )
