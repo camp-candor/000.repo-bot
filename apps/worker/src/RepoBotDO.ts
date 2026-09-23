@@ -163,6 +163,9 @@ export class RepoBotDO extends DurableObject {
 
         // 5. POST /fsm/context — Initialize or update task context
         if (request.method === 'POST' && path === '/fsm/context') {
+            const update: Partial<FSMContext> = (await request
+                .json()
+                .catch(() => ({}))) as Partial<FSMContext>
             const update: any = await request.json().catch(() => ({}))
             const current = (await this.ctx.storage.get<FSMContext>(
                 'fsm_context',
