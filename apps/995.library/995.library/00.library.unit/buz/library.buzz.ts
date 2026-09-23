@@ -158,8 +158,6 @@ export const updateLibrary = async (
     const path = require('path')
 
     let title = '995.library'
-    const file = './data/redux/BEE.txt'
-    const fileFin = './data/redux/BEE.ts'
 
     title = bal.src
     if (title) title = title.replace(/[\[\]]/g, '')
@@ -168,7 +166,83 @@ export const updateLibrary = async (
         return string.charAt(0).toUpperCase() + string.slice(1)
     }
 
-    const targetDir = path.resolve(title)
+    const isRepoRoot = (dir: string) => {
+        try {
+            return (
+                FS.existsSync(path.join(dir, 'apps')) &&
+                FS.existsSync(path.join(dir, 'packages')) &&
+                FS.existsSync(path.join(dir, 'package.json'))
+            )
+        } catch {
+            return false
+        }
+    }
+
+    let repoRoot = process.cwd()
+    while (repoRoot && !isRepoRoot(repoRoot)) {
+        const parent = path.dirname(repoRoot)
+        if (parent === repoRoot) break
+        repoRoot = parent
+    }
+
+    let targetDir = path.resolve(title)
+    if (!FS.existsSync(targetDir) && isRepoRoot(repoRoot)) {
+        const rootTarget = path.resolve(repoRoot, title)
+        if (FS.existsSync(rootTarget)) {
+            targetDir = rootTarget
+        } else {
+            const pkgTarget = path.resolve(repoRoot, 'packages', title)
+            if (FS.existsSync(pkgTarget)) {
+                targetDir = pkgTarget
+            } else {
+                const appTarget = path.resolve(repoRoot, 'apps', title)
+                if (FS.existsSync(appTarget)) {
+                    targetDir = appTarget
+                }
+            }
+        }
+    }
+
+    let file = path.resolve(process.cwd(), './data/redux/BEE.txt')
+    if (!FS.existsSync(file) && isRepoRoot(repoRoot)) {
+        file = path.resolve(repoRoot, 'apps/995.library/data/redux/BEE.txt')
+    }
+
+    let fileFin = path.resolve(process.cwd(), './data/redux/BEE.ts')
+    if (!FS.existsSync(path.dirname(fileFin)) && isRepoRoot(repoRoot)) {
+        fileFin = path.resolve(repoRoot, 'apps/995.library/data/redux/BEE.ts')
+    }
+
+    if (!FS.existsSync(targetDir)) {
+        await ste.hunt(ActCns.UPDATE_CONSOLE, {
+            idx: 'cns00',
+            src: 'Error: Target directory not found: ' + targetDir,
+        })
+        if (bal.slv != null)
+            bal.slv({
+                libBit: {
+                    idx: 'update-library-err',
+                    dat: 'Directory not found: ' + targetDir,
+                },
+            })
+        return cpy
+    }
+
+    if (!FS.existsSync(file)) {
+        await ste.hunt(ActCns.UPDATE_CONSOLE, {
+            idx: 'cns00',
+            src: 'Error: Template BEE.txt not found at: ' + file,
+        })
+        if (bal.slv != null)
+            bal.slv({
+                libBit: {
+                    idx: 'update-library-err',
+                    dat: 'BEE.txt not found',
+                },
+            })
+        return cpy
+    }
+
     const list = FS.readdirSync(targetDir)
     const lineList = FS.readFileSync(file).toString().split('\n')
 
@@ -187,6 +261,8 @@ export const updateLibrary = async (
             const element = a.split('.')[1]
 
             const unitName = capitalizeFirstLetter(element)
+            const faceTypeName =
+                unitName === 'Model' ? 'ModelInterface' : unitName
 
             const unitImportSrc = './' + a + '/' + element + '.unit'
             const unitImportSte =
@@ -194,7 +270,7 @@ export const updateLibrary = async (
 
             const faceImportSrc = './' + a + '/fce/' + element + '.interface'
             const faceImportSte =
-                'import ' + unitName + ' from "' + faceImportSrc + '";'
+                'import ' + faceTypeName + ' from "' + faceImportSrc + '";'
 
             const modlImportSrc = './' + a + '/' + element + '.model'
             const modlImportSte =
@@ -210,7 +286,12 @@ export const updateLibrary = async (
 
             const reduced = element + ' : reduceFrom' + unitName + '.reducer'
             const model =
-                element + ' : ' + unitName + ' = new ' + unitName + 'Model();'
+                element +
+                ' : ' +
+                faceTypeName +
+                ' = new ' +
+                unitName +
+                'Model();'
 
             const item = {
                 model,
