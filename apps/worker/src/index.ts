@@ -158,9 +158,7 @@ app.post('/api/repos/inspect', async (c) => {
 app.post('/api/repos/health', async (c) => {
     const stub = getRepoBotStub(c.env)
     const res = await stub.fetch('http://do/repos')
-    const repos: WatchedRepo[] = (await res
-        .json()
-        .catch(() => [])) as WatchedRepo[]
+    const repos = (await res.json().catch(() => [])) as WatchedRepo[]
 
     if (!Array.isArray(repos) || repos.length === 0) {
         return c.json({
