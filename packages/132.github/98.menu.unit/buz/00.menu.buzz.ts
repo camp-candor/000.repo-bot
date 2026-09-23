@@ -1,6 +1,5 @@
-﻿/* eslint-disable */
+/* eslint-disable */
 import * as ActMnu from '../menu.action.js'
-//import * as ActAgt from '../../00.agent.unit/agent.action.js';
 import * as ActOlm from '../../00.github.unit/github.action.js'
 
 import type { MenuModel } from '../menu.model.js'
@@ -11,13 +10,8 @@ import * as Grid from '../../val/grid.js'
 import * as Align from '../../val/align.js'
 import * as Color from '../../val/console-color.js'
 
-import * as SHAPE from '../../val/shape.js'
-import * as FOCUS from '../../val/focus.js'
-
-let bit, lst, dex, idx, dat, src, val
-let rootSlv
-
-let SOWER, AGENT, CLICKUP, GITHUB
+let bit: any, lst: string[], src: string
+let rootSlv: any
 
 const UPDATE_GRID = '[Grid action] Update Grid'
 const WRITE_CONSOLE = '[Write action] Write Console'
@@ -38,7 +32,7 @@ export const initMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
     bit = await global.LIBRARY.hunt(WRITE_CONSOLE, {
         idx: 'cns00',
         src: '',
-        dat: { net: bit.grdBit.dat, src: 'alligaor0' },
+        dat: { net: bit.grdBit.dat, src: 'alligator0' },
     })
 
     bit = await global.LIBRARY.hunt(UPDATE_CONSOLE, {
@@ -49,24 +43,32 @@ export const initMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
         idx: 'cns00',
         src: 'GITHUB MENU',
     })
-
     bit = await global.LIBRARY.hunt(UPDATE_CONSOLE, {
         idx: 'cns00',
         src: '-----------',
     })
 
     await updateMenu(cpy, bal, ste)
-
     return cpy
 }
 
 export const updateMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
+    const SMOKE_TEST_LABEL = 'RUN WEBHOOK SMOKE TEST'
+
     lst = [
         ActOlm.UPDATE_GITHUB.split(']')[1],
-        ActOlm.TEST_GITHUB.split(']')[1],
+        SMOKE_TEST_LABEL,
         ActOlm.LIST_GITHUB.split(']')[1],
         'ROOT MENU',
     ]
+
+    const descriptions: Record<string, string> = {
+        [ActOlm.UPDATE_GITHUB.split(']')[1]]: 'Update GitHub configuration.',
+        [SMOKE_TEST_LABEL]:
+            'Fire negative (401) and positive (202)\nsynthetic signed PR webhook to isolate.',
+        [ActOlm.LIST_GITHUB.split(']')[1]]: 'List tracked GitHub repositories.',
+        'ROOT MENU': 'Return to the main runner menu.',
+    }
 
     bit = await global.LIBRARY.hunt(UPDATE_GRID, {
         x: 0,
@@ -75,7 +77,19 @@ export const updateMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
         ySpan: 8,
     })
     bit = await global.LIBRARY.hunt(OPEN_CHOICE, {
-        dat: { clr0: Color.BLACK, clr1: Color.YELLOW },
+        dat: {
+            clr0: Color.BLACK,
+            clr1: Color.YELLOW,
+            cb: (choice: string) => {
+                const text = descriptions[choice] || 'No description available.'
+                text.split('\n').forEach((line) =>
+                    global.LIBRARY.hunt(UPDATE_CONSOLE, {
+                        idx: 'cns00',
+                        src: line,
+                    }),
+                )
+            },
+        },
         src: Align.VERTICAL,
         lst,
         net: bit.grdBit.dat,
@@ -91,16 +105,17 @@ export const updateMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
             bit = await global.LIBRARY.hunt(PRINT_MENU, bit)
             break
 
+        case SMOKE_TEST_LABEL:
         case ActOlm.TEST_GITHUB.split(']')[1]:
             bit = await ste.hunt(ActOlm.TEST_GITHUB, {
-                content: 'Github Menu Selected',
+                content: 'Smoke Test Dispatched',
             })
-            bit = await global.LIBRARY.hunt(PRINT_MENU, bit)
+            await new Promise((resolve) => setTimeout(resolve, 2500))
             break
 
         case ActOlm.LIST_GITHUB.split(']')[1]:
             bit = await ste.hunt(ActOlm.LIST_GITHUB, {})
-            lst = bit.gthBit.lst
+            lst = bit.gthBit?.lst || []
 
             if (lst.length === 0) {
                 bit = await global.LIBRARY.hunt(UPDATE_CONSOLE, {
@@ -119,7 +134,6 @@ export const updateMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
                     }),
                 )
             }
-
             await new Promise((resolve) => setTimeout(resolve, 3000))
             break
 
@@ -138,5 +152,3 @@ export const updateMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
 
     return cpy
 }
-
-const patch = (ste, type, bale) => ste.dispatch({ type, bale })
