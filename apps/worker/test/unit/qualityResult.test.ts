@@ -60,6 +60,7 @@ describe('FEAT-02: Quality Gauntlet Ingestion Engine', () => {
 
             const res = await handleCheckRunEvent(ctx, payload)
             expect((res as any).status).toBe(200)
+            expect(res.status).toBe(200)
             expect((res as any).body.status).toBe('IGNORED_CHECK_RUN')
         })
 
@@ -76,6 +77,7 @@ describe('FEAT-02: Quality Gauntlet Ingestion Engine', () => {
 
             const res = await handleCheckRunEvent(ctx, payload)
             expect((res as any).status).toBe(200)
+            expect(res.status).toBe(200)
             expect((res as any).body.status).toBe('IN_PROGRESS_WAITING')
         })
 
@@ -108,6 +110,7 @@ describe('FEAT-02: Quality Gauntlet Ingestion Engine', () => {
 
             const res = await handleCheckRunEvent(ctx, payload)
             expect((res as any).status).toBe(200)
+            expect(res.status).toBe(200)
             expect((res as any).body.fsmEvent).toBe('QUALITY_PASS')
             expect(mockDoFetch).toHaveBeenCalledTimes(1)
         })
@@ -141,6 +144,7 @@ describe('FEAT-02: Quality Gauntlet Ingestion Engine', () => {
 
             const res = await handleCheckRunEvent(ctx, payload)
             expect((res as any).status).toBe(200)
+            expect(res.status).toBe(200)
             expect((res as any).body.fsmEvent).toBe('QUALITY_FAIL_RETRY')
             expect(mockDoFetch).toHaveBeenCalledTimes(1)
         })

@@ -166,6 +166,7 @@ export class RepoBotDO extends DurableObject {
             const update: Partial<FSMContext> = (await request
                 .json()
                 .catch(() => ({}))) as Partial<FSMContext>
+            const update: any = await request.json().catch(() => ({}))
             const current = (await this.ctx.storage.get<FSMContext>(
                 'fsm_context',
             )) || {
