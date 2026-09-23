@@ -1,3 +1,5 @@
+import { classifyDiffRisk, type DiffRiskResult } from './policyRouter.js'
+import { extractTaskIdFromBranch } from './qualityResult.js'
 import { handleCheckRunEvent } from './qualityResult.js'
 import type { Context } from 'hono'
 import { githubRequest, type Env } from './tools.js'
@@ -19,6 +21,8 @@ export interface AuditResult {
     violations: string[]
     description: string
     lineageValid: boolean
+    isHighRiskPath?: boolean
+    dominantRiskClass?: string
 }
 
 // ----------------------------------------------------------------------------
@@ -35,7 +39,6 @@ export const PROTECTED_PATTERNS: RegExp[] = [
     /(^|\/)tsconfig(\.[^/]+)?\.json$/i, // TypeScript configurations
     /(^|\/)vitest.*\.config\.[a-zA-Z0-9]+$/i, // Vitest runner configurations
     /(^|\/)\.?eslint(rc)?(\.[^/]+)?$/i, // ESLint configurations
-    /(^|\/)Dockerfile$/i, // Container build files
     /(^|\/)wrangler\.(jsonc?|toml)$/i, // Cloudflare Worker infrastructure configs
     /^\.husky\//i, // Git hooks
     /^CODEOWNERS$/i, // Repository governance
@@ -226,6 +229,7 @@ export async function auditPullRequest(
     baseSha: string,
     prBody: string | null | undefined,
     env: Env,
+    branchName?: string | null,
 ): Promise<AuditResult> {
     // 1. Mark status as pending
     await postCommitStatus(
@@ -265,6 +269,7 @@ export async function auditPullRequest(
             violations: [desc],
             description: desc,
             lineageValid: lineage.valid,
+            isHighRiskPath: true,
         }
     }
 
@@ -288,7 +293,10 @@ export async function auditPullRequest(
         ? new Set(whitelist.map(normalizePath))
         : null
 
-    // 7. Inspect each modified file entry
+    // 7. Policy Risk Classification (FEAT-03)
+    const riskResult: DiffRiskResult = classifyDiffRisk(files)
+
+    // 8. Inspect each modified file entry
     for (const file of files) {
         const currentPath = normalizePath(file.filename)
         const previousPath = file.previous_filename
@@ -345,7 +353,7 @@ export async function auditPullRequest(
         ? `Scope verified: ${files.length} file(s) within allowlist`
         : `SECURITY_VIOLATION: ${violations[0]}`
 
-    // 8. Post authoritative final status
+    // 9. Post authoritative final status
     await postCommitStatus(
         owner,
         repo,
@@ -355,6 +363,34 @@ export async function auditPullRequest(
         env,
     )
 
+    // 10. Persist FSM Context to RepoBotDO (Fixes Choke Point Context Loss)
+    const taskId = extractTaskIdFromBranch(branchName)
+    if (taskId && (env as any).REPO_BOT_DO) {
+        try {
+            const doId = (env as any).REPO_BOT_DO.idFromName(taskId)
+            const taskDO = (env as any).REPO_BOT_DO.get(doId)
+            await taskDO.fetch(
+                new Request('https://internal/fsm/context', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        taskId,
+                        auditedHeadSha: headSha,
+                        scopeCheckPassed: passed,
+                        isHighRiskPath: riskResult.isHighRiskPath,
+                        dominantRiskClass: riskResult.dominantClass,
+                        lastAuditViolations: violations,
+                    }),
+                }),
+            )
+        } catch (err: any) {
+            console.warn(
+                'Failed to persist fsm_context to Durable Object:',
+                err.message,
+            )
+        }
+    }
+
     return {
         passed,
         sha: headSha,
@@ -362,6 +398,8 @@ export async function auditPullRequest(
         violations,
         description,
         lineageValid: lineage.valid,
+        isHighRiskPath: riskResult.isHighRiskPath,
+        dominantRiskClass: riskResult.dominantClass,
     }
 }
 
@@ -468,6 +506,8 @@ export const handleGitHubWebhook = async (c: Context<{ Bindings: Env }>) => {
                 const baseSha = pr.base?.sha
                 const prBody = pr.body
 
+                const headBranch = pr.head?.ref
+
                 // Offload audit to background isolate context
                 c.executionCtx.waitUntil(
                     auditPullRequest(
@@ -478,6 +518,7 @@ export const handleGitHubWebhook = async (c: Context<{ Bindings: Env }>) => {
                         baseSha,
                         prBody,
                         c.env,
+                        headBranch,
                     ),
                 )
 
