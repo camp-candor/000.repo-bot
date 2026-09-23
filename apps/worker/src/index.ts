@@ -98,7 +98,7 @@ app.get('/api/jules/session/:id', getJulesSession)
 app.post('/webhooks/github', handleGitHubWebhook)
 
 // ----------------------------------------------------------------------------
-// 🛰️ EDGE WATCHLIST & FLEET CI HEALTH MONITOR ENDPOINTS
+// :: EDGE WATCHLIST & FLEET CI HEALTH MONITOR ENDPOINTS
 // ----------------------------------------------------------------------------
 
 // 1. List all watched repositories
