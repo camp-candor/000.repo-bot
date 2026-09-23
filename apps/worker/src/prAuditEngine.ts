@@ -1,3 +1,4 @@
+import { handleCheckRunEvent } from './qualityResult.js'
 import type { Context } from 'hono'
 import { githubRequest, type Env } from './tools.js'
 
@@ -436,6 +437,10 @@ export const handleGitHubWebhook = async (c: Context<{ Bindings: Env }>) => {
             payload = JSON.parse(bodyText)
         } catch {
             return c.json({ error: 'INVALID_JSON_PAYLOAD' }, 400)
+        }
+
+        if (event === 'check_run') {
+            return await handleCheckRunEvent(c, payload)
         }
 
         // 3. Process Pull Request Events
