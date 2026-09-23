@@ -6,6 +6,7 @@ import type { RepoBotDO } from './RepoBotDO.js'
 // ============================================================================
 
 export interface Env {
+    DB?: D1Database
     CLOUDFLARE_ACCOUNT_ID: string
     CLOUDFLARE_API_TOKEN: string
     CLOUDFLARE_AI_GATEWAY: string
