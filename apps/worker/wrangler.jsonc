@@ -5,45 +5,45 @@
     "compatibility_date": "2026-01-07",
     "compatibility_flags": ["nodejs_compat"],
     "observability": {
-        "enabled": true
+        "enabled": true,
     },
     "ai": {
-        "binding": "AI"
+        "binding": "AI",
     },
     "durable_objects": {
         "bindings": [
             {
                 "name": "REPO_BOT_DO",
-                "class_name": "RepoBotDO"
-            }
-        ]
+                "class_name": "RepoBotDO",
+            },
+        ],
     },
     "migrations": [
         {
             "tag": "v1",
-            "new_sqlite_classes": ["RepoBotDO"]
-        }
+            "new_sqlite_classes": ["RepoBotDO"],
+        },
     ],
     "env": {
         "staging": {
             "name": "repo-bot-00",
             "ai": {
-                "binding": "AI"
+                "binding": "AI",
             },
             "durable_objects": {
                 "bindings": [
                     {
                         "name": "REPO_BOT_DO",
-                        "class_name": "RepoBotDO"
-                    }
-                ]
+                        "class_name": "RepoBotDO",
+                    },
+                ],
             },
             "migrations": [
                 {
                     "tag": "v1",
-                    "new_sqlite_classes": ["RepoBotDO"]
-                }
-            ]
-        }
-    }
+                    "new_sqlite_classes": ["RepoBotDO"],
+                },
+            ],
+        },
+    },
 }
