@@ -1,7 +1,6 @@
 import { handleCheckRunEvent } from './qualityResult.js'
 import type { Context } from 'hono'
 import { githubRequest, type Env } from './tools.js'
-import { handleCheckRunEvent } from './qualityResult.js'
 
 export interface GitHubPullRequestFile {
     filename: string

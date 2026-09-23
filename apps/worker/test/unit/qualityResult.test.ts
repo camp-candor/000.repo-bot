@@ -3,6 +3,7 @@ import {
     extractTaskIdFromBranch,
     handleCheckRunEvent,
 } from '../../src/qualityResult.js'
+import { RepoBotDO } from '../../src/RepoBotDO.js'
 
 describe('FEAT-02: Quality Gauntlet Ingestion Engine', () => {
     beforeEach(() => {
@@ -34,12 +35,14 @@ describe('FEAT-02: Quality Gauntlet Ingestion Engine', () => {
         const createMockContext = (
             headers: Record<string, string>,
             mockDoFetch: any,
+            mockDb?: any,
         ) => {
             return {
                 req: {
                     header: (name: string) => headers[name.toLowerCase()],
                 },
                 env: {
+                    DB: mockDb,
                     REPO_BOT_DO: {
                         idFromName: vi.fn().mockReturnValue('mock-do-id'),
                         get: vi.fn().mockReturnValue({
@@ -147,6 +150,95 @@ describe('FEAT-02: Quality Gauntlet Ingestion Engine', () => {
             expect(res.status).toBe(200)
             expect((res as any).body.fsmEvent).toBe('QUALITY_FAIL_RETRY')
             expect(mockDoFetch).toHaveBeenCalledTimes(1)
+        })
+
+        it('drops duplicate deliveries when D1 changes is 0 (idempotency key deduplication)', async () => {
+            const mockDb = {
+                prepare: vi.fn().mockReturnValue({
+                    bind: vi.fn().mockReturnValue({
+                        run: vi.fn().mockResolvedValue({
+                            meta: { changes: 0 },
+                        }),
+                    }),
+                }),
+            }
+            const mockDoFetch = vi.fn()
+            const payload: any = {
+                action: 'completed',
+                check_run: {
+                    name: 'repo-bot/quality-gauntlet',
+                    status: 'completed',
+                    conclusion: 'success',
+                    head_sha: '2222222222222222222222222222222222222222',
+                    check_suite: { head_branch: 'spec/task-04.01-2222222' },
+                    output: { summary: 'All 5 tiers passed' },
+                },
+            }
+            const ctx = createMockContext(
+                { 'x-github-delivery': 'del-001' },
+                mockDoFetch,
+                mockDb,
+            )
+
+            const res = await handleCheckRunEvent(ctx, payload)
+            expect((res as any).status).toBe(200)
+            expect((res as any).body.status).toBe('DUPLICATE_CHECK_RUN_IGNORED')
+            expect((res as any).body.idempotencyKey).toBe(
+                'quality:del-001:task-04.01:2222222222222222222222222222222222222222:success',
+            )
+            expect(mockDoFetch).not.toHaveBeenCalled()
+        })
+    })
+
+    describe('3. Durable Object Stale Head SHA Guard', () => {
+        it('rejects state transition with 409 STALE_SHA_REJECTED when headSha mismatches auditedHeadSha', async () => {
+            const storageMap = new Map<string, any>()
+            const mockCtx: any = {
+                storage: {
+                    get: vi.fn(async (key: string) => storageMap.get(key)),
+                    put: vi.fn(async (key: string, val: any) => {
+                        storageMap.set(key, val)
+                    }),
+                },
+            }
+            const doInstance: any = Object.create(RepoBotDO.prototype)
+            doInstance.ctx = mockCtx
+            doInstance.env = {}
+
+            // 1. Initialize context with auditedHeadSha
+            const initRes = await doInstance.fetch(
+                new Request('https://internal/fsm/context', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        taskId: 'task-04.01',
+                        auditedHeadSha: 'expected-head-sha-12345',
+                        state: 'VERIFYING',
+                    }),
+                }),
+            )
+            expect(initRes.status).toBe(200)
+
+            // 2. Attempt transition with stale/mismatched headSha
+            const transitionRes = await doInstance.fetch(
+                new Request('https://internal/fsm/transition', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        type: 'QUALITY_PASS',
+                        taskId: 'task-04.01',
+                        headSha: 'stale-head-sha-99999',
+                    }),
+                }),
+            )
+
+            expect(transitionRes.status).toBe(409)
+            const body = await transitionRes.json()
+            expect(body).toEqual({
+                error: 'STALE_SHA_REJECTED',
+                expected: 'expected-head-sha-12345',
+                received: 'stale-head-sha-99999',
+            })
         })
     })
 })
