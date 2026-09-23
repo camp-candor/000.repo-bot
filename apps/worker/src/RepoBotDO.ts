@@ -18,6 +18,8 @@ export interface FSMContext {
     attempts: number
     leaseEpoch: number
     updatedAt: number
+    dominantRiskClass?: string
+    lastAuditViolations?: string[]
 }
 
 export function parseRepoIdentifier(
@@ -234,7 +236,7 @@ export class RepoBotDO extends DurableObject {
             if (body?.type === 'QUALITY_PASS') {
                 if (!context.isHighRiskPath && context.scopeCheckPassed) {
                     nextState = 'MERGING'
-                } else if (context.isHighRiskPath) {
+                } else if (context.isHighRiskPath && context.scopeCheckPassed) {
                     nextState = 'AWAITING_APPROVAL'
                 }
             } else if (body?.type === 'QUALITY_FAIL_RETRY') {

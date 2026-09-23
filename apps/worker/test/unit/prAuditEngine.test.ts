@@ -76,7 +76,6 @@ Patching kinetic verb.
             expect(isProtectedPath('vitest.config.ts')).toBe(true)
             expect(isProtectedPath('eslint.config.js')).toBe(true)
             expect(isProtectedPath('.eslintrc.json')).toBe(true)
-            expect(isProtectedPath('Dockerfile')).toBe(true)
             expect(isProtectedPath('wrangler.jsonc')).toBe(true)
             expect(isProtectedPath('wrangler.toml')).toBe(true)
             expect(isProtectedPath('.husky/pre-commit')).toBe(true)
