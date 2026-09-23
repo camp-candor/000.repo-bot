@@ -21,6 +21,11 @@
     "migrations": [
         {
             "tag": "v1",
+            "new_classes": ["RepoBotDO"],
+        },
+        {
+            "tag": "v2",
+            "deleted_classes": ["RepoBotDO"],
             "new_sqlite_classes": ["RepoBotDO"],
         },
     ],
@@ -41,6 +46,11 @@
             "migrations": [
                 {
                     "tag": "v1",
+                    "new_classes": ["RepoBotDO"],
+                },
+                {
+                    "tag": "v2",
+                    "deleted_classes": ["RepoBotDO"],
                     "new_sqlite_classes": ["RepoBotDO"],
                 },
             ],
