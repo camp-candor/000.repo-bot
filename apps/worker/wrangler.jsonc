@@ -21,6 +21,11 @@
     "migrations": [
         {
             "tag": "v1",
+            "new_sqlite_classes": ["AgentSessionDO"],
+        },
+        {
+            "tag": "v2",
+            "deleted_classes": ["AgentSessionDO"],
             "new_sqlite_classes": ["RepoBotDO"],
         },
     ],
@@ -41,6 +46,11 @@
             "migrations": [
                 {
                     "tag": "v1",
+                    "new_sqlite_classes": ["AgentSessionDO"],
+                },
+                {
+                    "tag": "v2",
+                    "deleted_classes": ["AgentSessionDO"],
                     "new_sqlite_classes": ["RepoBotDO"],
                 },
             ],
