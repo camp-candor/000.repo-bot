@@ -140,6 +140,7 @@ export async function checkLineageIntegrity(
         const endpoint = `/repos/${owner}/${repo}/compare/${baseSha}...${headSha}`
         const comparison: any = await githubRequest(endpoint, env)
 
+        // Status must strictly be 'ahead'
         if (comparison.status === 'ahead') {
             return { valid: true, status: comparison.status }
         }
