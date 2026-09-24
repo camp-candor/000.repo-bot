@@ -25,6 +25,18 @@ export function reducer(
         case Act.EXECUTE_MERGE:
             return Buzz.executeMerge(clone(model), act.bale, state)
 
+        case Act.TRIGGER_TASK_ROLLBACK:
+            return Buzz.triggerTaskRollback(clone(model), act.bale, state)
+
+        case Act.FETCH_RECENT_COMMITS:
+            return Buzz.fetchRecentCommits(clone(model), act.bale, state)
+
+        case Act.PREVIEW_COMMIT_DETAILS:
+            return Buzz.previewCommitDetails(clone(model), act.bale, state)
+
+        case Act.EXECUTE_HARD_RESET:
+            return Buzz.executeHardReset(clone(model), act.bale, state)
+
         case Act.LIST_GITHUB:
             return Buzz.listGithub(clone(model), act.bale, state)
 

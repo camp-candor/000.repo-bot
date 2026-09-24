@@ -64,7 +64,6 @@ export async function executeCompensatingSaga(
                 `>> [TIER-2 REVERT] Merge commit ${mergeCommitSha} detected. Initiating post-merge incident response...`,
             )
 
-            // 1. Post Tombstone Comment to PR (if PR exists)
             if (pullNumber > 0) {
                 try {
                     await githubRequest(
@@ -73,7 +72,11 @@ export async function executeCompensatingSaga(
                         {
                             method: 'POST',
                             body: JSON.stringify({
-                                body: `### :: [EMERGENCY] REPO-BOT POST-MERGE ROLLBACK\n**Status:** Trunk Regression Detected\n**Compromised Merge SHA:** \`${mergeCommitSha}\`\n**Reason:** ${reason}\n**Action:** Compensating saga triggered. Emergency alert dispatched.`,
+                                body: `### :: [EMERGENCY] REPO-BOT POST-MERGE ROLLBACK
+**Status:** Trunk Regression Detected
+**Compromised Merge SHA:** \`${mergeCommitSha}\`
+**Reason:** ${reason}
+**Action:** Compensating saga triggered. Emergency alert dispatched.`,
                             }),
                         },
                     )
@@ -84,7 +87,6 @@ export async function executeCompensatingSaga(
                 }
             }
 
-            // 2. Dispatch Slack Emergency Alert
             if (env.SLACK_BOT_TOKEN) {
                 const alertRes = await postSlackEmergencyAlert(
                     {
@@ -103,16 +105,18 @@ export async function executeCompensatingSaga(
                 emergencyAlertSent = alertRes.ok
             }
 
-            // 3. Freeze Slack Card In-Place (if ts exists)
             if (
                 params.slackChannelId &&
                 params.slackMessageTs &&
                 env.SLACK_BOT_TOKEN
             ) {
                 const cardText =
-                    `*:: POST-MERGE ROLLBACK TRIGGERED*\n` +
-                    `• Task: \`${taskId}\` | *Merge SHA:* \`${(mergeCommitSha || '').slice(0, 7)}\`\n` +
-                    `• Reason: \`${reason}\`\n` +
+                    `*:: POST-MERGE ROLLBACK TRIGGERED*
+` +
+                    `• Task: \`${taskId}\` | *Merge SHA:* \`${(mergeCommitSha || '').slice(0, 7)}\`
+` +
+                    `• Reason: \`${reason}\`
+` +
                     `• *Status: Critical trunk regression alert dispatched to #ops-bridge*`
 
                 slackUpdated = await updateSlackMessage(
@@ -169,7 +173,12 @@ export async function executeCompensatingSaga(
                 {
                     method: 'POST',
                     body: JSON.stringify({
-                        body: `### :: REPO-BOT SAGA TEARDOWN\n**Status:** PR Closed & Rejected\n**Reason:** ${reason}\n**Actor:** ${actor || 'repo-bot-watchdog'}\n**Audited Commit:** \`${headSha.slice(0, 7)}\`\n**Status:** Work archived non-destructively. Ephemeral ref deleted.`,
+                        body: `### :: REPO-BOT SAGA TEARDOWN
+**Status:** PR Closed & Rejected
+**Reason:** ${reason}
+**Actor:** ${actor || 'repo-bot-watchdog'}
+**Audited Commit:** \`${headSha.slice(0, 7)}\`
+**Status:** Work archived non-destructively. Ephemeral ref deleted.`,
                     }),
                 },
             )
@@ -218,10 +227,14 @@ export async function executeCompensatingSaga(
     if (params.slackChannelId && params.slackMessageTs && env.SLACK_BOT_TOKEN) {
         try {
             const rejectedCardText =
-                `*:: PR REJECTED & TORN DOWN*\n` +
-                `• Task: \`${taskId}\` | SHA: \`${headSha.slice(0, 7)}\`\n` +
-                `• Reason: \`${reason}\`\n` +
-                `• Actor: ${actor ? `<@${actor}>` : 'System Guard'}\n` +
+                `*:: PR REJECTED & TORN DOWN*
+` +
+                `• Task: \`${taskId}\` | SHA: \`${headSha.slice(0, 7)}\`
+` +
+                `• Reason: \`${reason}\`
+` +
+                `• Actor: ${actor ? `<@${actor}>` : 'System Guard'}
+` +
                 `• *Status: Work archived non-destructively. Ephemeral ref obliterated.*`
 
             slackUpdated = await updateSlackMessage(

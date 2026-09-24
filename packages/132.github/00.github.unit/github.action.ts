@@ -31,6 +31,30 @@ export class ExecuteMerge implements Action {
     constructor(public bale: GithubBit) {}
 }
 
+export const TRIGGER_TASK_ROLLBACK = '[Github action] Trigger Task Rollback'
+export class TriggerTaskRollback implements Action {
+    readonly type = TRIGGER_TASK_ROLLBACK
+    constructor(public bale: GithubBit) {}
+}
+
+export const FETCH_RECENT_COMMITS = '[Github action] Fetch Recent Commits'
+export class FetchRecentCommits implements Action {
+    readonly type = FETCH_RECENT_COMMITS
+    constructor(public bale: GithubBit) {}
+}
+
+export const PREVIEW_COMMIT_DETAILS = '[Github action] Preview Commit Details'
+export class PreviewCommitDetails implements Action {
+    readonly type = PREVIEW_COMMIT_DETAILS
+    constructor(public bale: GithubBit) {}
+}
+
+export const EXECUTE_HARD_RESET = '[Github action] Execute Hard Reset'
+export class ExecuteHardReset implements Action {
+    readonly type = EXECUTE_HARD_RESET
+    constructor(public bale: GithubBit) {}
+}
+
 export const LIST_GITHUB = '[List action] List Github'
 export class ListGithub implements Action {
     readonly type = LIST_GITHUB
@@ -43,4 +67,8 @@ export type Actions =
     | FetchMergeCandidates
     | InspectPrCas
     | ExecuteMerge
+    | TriggerTaskRollback
+    | FetchRecentCommits
+    | PreviewCommitDetails
+    | ExecuteHardReset
     | ListGithub
