@@ -37,6 +37,12 @@ export function reducer(
         case Act.EXECUTE_HARD_RESET:
             return Buzz.executeHardReset(clone(model), act.bale, state)
 
+        case Act.REGISTER_WATCHED_REPO:
+            return Buzz.registerWatchedRepo(clone(model), act.bale, state)
+
+        case Act.LIST_WATCHED_REPOS:
+            return Buzz.listWatchedRepos(clone(model), act.bale, state)
+
         case Act.LIST_GITHUB:
             return Buzz.listGithub(clone(model), act.bale, state)
 

@@ -68,6 +68,8 @@ export const initMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
 export const updateMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
     const lst = [
         'FLEET MERGE CONTROLLER (SELECT IN-FLIGHT PR)',
+        'REGISTER WATCHED REPOSITORY...',
+        'LIST WATCHED FLEET REPOSITORIES',
         'ABORT IN-FLIGHT TASK & TRIGGER SAGA (TEARDOWN)',
         'HARD RESET TO HISTORICAL COMMIT & FORCE SYNC...',
         'INSPECT CANDIDATE PR CAS STATUS',
@@ -79,6 +81,10 @@ export const updateMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
     const descriptions: Record<string, string> = {
         'FLEET MERGE CONTROLLER (SELECT IN-FLIGHT PR)':
             'Browse in-flight candidates from D1, inspect CAS integrity, and execute merge.',
+        'REGISTER WATCHED REPOSITORY...':
+            'Auto-provision GitHub webhook and register target repo in Edge Durable Object.',
+        'LIST WATCHED FLEET REPOSITORIES':
+            'Query and display all active repositories under edge surveillance.',
         'ABORT IN-FLIGHT TASK & TRIGGER SAGA (TEARDOWN)':
             'Break-glass trigger to tear down in-flight PR, obliterate spec branch, and freeze Slack card.',
         'HARD RESET TO HISTORICAL COMMIT & FORCE SYNC...':
@@ -118,6 +124,37 @@ export const updateMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
     const src = choiceBit.chcBit.src
 
     switch (src) {
+        case 'REGISTER WATCHED REPOSITORY...': {
+            const inputGrid = await global.LIBRARY.hunt(UPDATE_GRID, {
+                x: 0,
+                y: 4,
+                xSpan: 4,
+                ySpan: 4,
+            })
+            const inputBit = await global.LIBRARY.hunt(OPEN_INPUT, {
+                dat: { clr0: Color.BLACK, clr1: Color.CYAN },
+                src: Align.VERTICAL,
+                lst: [],
+                txt: 'Enter GitHub Repo URL or owner/repo slug:',
+                net: inputGrid.grdBit.dat,
+            })
+
+            const repoTarget = inputBit.putBit?.src?.trim()
+            if (repoTarget) {
+                await ste.hunt(ActGth.REGISTER_WATCHED_REPO, {
+                    src: repoTarget,
+                })
+                await new Promise((r) => setTimeout(r, 2500))
+            }
+            break
+        }
+
+        case 'LIST WATCHED FLEET REPOSITORIES': {
+            await ste.hunt(ActGth.LIST_WATCHED_REPOS, {})
+            await new Promise((r) => setTimeout(r, 2500))
+            break
+        }
+
         case 'ABORT IN-FLIGHT TASK & TRIGGER SAGA (TEARDOWN)': {
             const inputGrid = await global.LIBRARY.hunt(UPDATE_GRID, {
                 x: 0,
