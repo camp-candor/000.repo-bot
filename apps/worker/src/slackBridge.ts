@@ -231,3 +231,94 @@ export async function updateSlackMessage(
         return false
     }
 }
+
+export interface MergeAnnouncementParams {
+    taskId: string
+    pullNumber: number
+    mergeCommitSha: string
+    auditedHeadSha: string
+    targetBranch?: string
+    actor?: string
+    repo?: string
+    owner?: string
+}
+
+/**
+ * Distributes a standalone merge completion announcement to the #ops-bridge channel.
+ */
+export async function postSlackMergeAnnouncement(
+    params: MergeAnnouncementParams,
+    env: Env,
+): Promise<{ ok: boolean; ts?: string; error?: string }> {
+    const token = env.SLACK_BOT_TOKEN
+    const channel = env.SLACK_CHANNEL_ID || '#ops-bridge'
+
+    if (!token) {
+        console.warn(
+            'Slack merge announcement skipped: SLACK_BOT_TOKEN not configured',
+        )
+        return { ok: false, error: 'MISSING_SLACK_BOT_TOKEN' }
+    }
+
+    const shortMergeSha = params.mergeCommitSha.slice(0, 7)
+    const shortHeadSha = params.auditedHeadSha.slice(0, 7)
+    const targetBranch = params.targetBranch || 'main'
+    const actorText = params.actor
+        ? `<@${params.actor}>`
+        : 'Autonomous Fast-Track'
+    const repoSlug =
+        params.owner && params.repo
+            ? `${params.owner}/${params.repo}`
+            : '000.repo-bot'
+
+    const payload = {
+        channel,
+        text: `:: [RELEASE] PR #${params.pullNumber} (${params.taskId}) merged into ${targetBranch}`,
+        blocks: [
+            {
+                type: 'header',
+                text: {
+                    type: 'plain_text',
+                    text: `:: MERGE COMPLETE: ${params.taskId}`,
+                    emoji: false,
+                },
+            },
+            {
+                type: 'section',
+                text: {
+                    type: 'mrkdwn',
+                    text:
+                        `*Repository:* \`${repoSlug}\` | *PR:* <https://github.com/${repoSlug}/pull/${params.pullNumber}|#${params.pullNumber}>\n` +
+                        `*Audited Commit:* \`${shortHeadSha}\` ──► *Squash Merge SHA:* \`${shortMergeSha}\`\n` +
+                        `*Trunk Target:* \`${targetBranch}\` | *Author/Approver:* ${actorText}\n` +
+                        `*Status:* [OK] Ephemeral tracking branch obliterated. Trunk invariants satisfied.`,
+                },
+            },
+        ],
+    }
+
+    try {
+        const res = await fetch('https://slack.com/api/chat.postMessage', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json; charset=utf-8',
+            },
+            body: JSON.stringify(payload),
+        })
+
+        const data: any = await res.json()
+        if (!data.ok) {
+            console.error('Slack broadcast failed:', data.error)
+            return { ok: false, error: data.error }
+        }
+
+        return { ok: true, ts: data.ts }
+    } catch (err: any) {
+        console.error(
+            'Network error dispatching Slack merge broadcast:',
+            err.message,
+        )
+        return { ok: false, error: err.message }
+    }
+}

@@ -1,5 +1,7 @@
 import { DurableObject } from 'cloudflare:workers'
+
 import { dispatchSlackApprovalCard, updateSlackMessage } from './slackBridge.js'
+import { executeShaPinnedMerge } from './mergeExecutor.js'
 import type { Env } from './tools.js'
 
 export interface WatchedRepo {
@@ -27,6 +29,7 @@ export interface FSMContext {
     updatedAt: number
     slackMessageTs?: string
     slackChannelId?: string
+    mergeCommitSha?: string
 }
 
 export function parseRepoIdentifier(
@@ -63,7 +66,6 @@ export class RepoBotDO extends DurableObject<Env> {
         const context = await this.ctx.storage.get<FSMContext>('fsm_context')
         if (!context) return
 
-        // If the task has sat in AWAITING_APPROVAL for > 24 hours, halt non-destructively
         if (context.state === 'AWAITING_APPROVAL') {
             context.state = 'HALTED'
             context.updatedAt = Date.now()
@@ -92,7 +94,7 @@ export class RepoBotDO extends DurableObject<Env> {
         const url = new URL(request.url)
         const path = url.pathname
 
-        // 1. GET /repos — List all registered repositories
+        // 1. GET /repos
         if (request.method === 'GET' && (path === '/repos' || path === '/')) {
             const repos =
                 (await this.ctx.storage.get<WatchedRepo[]>('watched_repos')) ||
@@ -102,7 +104,7 @@ export class RepoBotDO extends DurableObject<Env> {
             })
         }
 
-        // 2. POST /repos — Register a repository
+        // 2. POST /repos
         if (request.method === 'POST' && path === '/repos') {
             const body: any = await request.json().catch(() => null)
             const parsed = parseRepoIdentifier(body?.url || body?.repo || '')
@@ -150,7 +152,7 @@ export class RepoBotDO extends DurableObject<Env> {
             )
         }
 
-        // 3. DELETE /repos — Unregister a repository
+        // 3. DELETE /repos
         if (request.method === 'DELETE' && path === '/repos') {
             const body: any = await request.json().catch(() => null)
             const target =
@@ -193,7 +195,7 @@ export class RepoBotDO extends DurableObject<Env> {
             )
         }
 
-        // 4. GET /fsm/context — Retrieve current task context
+        // 4. GET /fsm/context
         if (request.method === 'GET' && path === '/fsm/context') {
             const context =
                 (await this.ctx.storage.get<FSMContext>('fsm_context')) || null
@@ -202,23 +204,29 @@ export class RepoBotDO extends DurableObject<Env> {
             })
         }
 
-        // 5. POST /fsm/context — Initialize or update task context
+        // 5. POST /fsm/context
         if (request.method === 'POST' && path === '/fsm/context') {
             const update: Partial<FSMContext> = (await request
                 .json()
                 .catch(() => ({}))) as Partial<FSMContext>
-            const current = (await this.ctx.storage.get<FSMContext>(
-                'fsm_context',
-            )) || {
-                taskId: update.taskId || 'UNKNOWN',
-                state: 'VERIFYING',
-                auditedHeadSha: null,
-                scopeCheckPassed: false,
-                isHighRiskPath: false,
-                attempts: 0,
-                leaseEpoch: 1,
-                updatedAt: Date.now(),
-            }
+            const current =
+                (await this.ctx.storage.get<FSMContext>('fsm_context')) ||
+                ({
+                    taskId: update.taskId || 'UNKNOWN',
+                    state: 'VERIFYING',
+                    owner: undefined,
+                    repo: undefined,
+                    pullNumber: undefined,
+                    auditedHeadSha: null,
+                    scopeCheckPassed: false,
+                    isHighRiskPath: false,
+                    attempts: 0,
+                    leaseEpoch: 1,
+                    updatedAt: Date.now(),
+                    slackMessageTs: undefined,
+                    slackChannelId: undefined,
+                    mergeCommitSha: undefined,
+                } as FSMContext)
 
             const merged: FSMContext = {
                 ...current,
@@ -235,26 +243,29 @@ export class RepoBotDO extends DurableObject<Env> {
             )
         }
 
-        // 6. POST /fsm/transition — Process quality and human approval transitions
+        // 6. POST /fsm/transition
         if (request.method === 'POST' && path === '/fsm/transition') {
             const body: any = await request.json().catch(() => null)
-            const context: FSMContext = (await this.ctx.storage.get<FSMContext>(
-                'fsm_context',
-            )) || {
-                taskId: body?.taskId || 'UNKNOWN',
-                state: 'VERIFYING',
-                owner: body?.owner,
-                repo: body?.repo,
-                pullNumber: body?.pullNumber,
-                auditedHeadSha: body?.headSha,
-                scopeCheckPassed: true,
-                isHighRiskPath: false,
-                attempts: 0,
-                leaseEpoch: 1,
-                updatedAt: Date.now(),
-            }
+            const context =
+                (await this.ctx.storage.get<FSMContext>('fsm_context')) ||
+                ({
+                    taskId: body?.taskId || 'UNKNOWN',
+                    state: 'VERIFYING',
+                    owner: body?.owner,
+                    repo: body?.repo,
+                    pullNumber: body?.pullNumber,
+                    auditedHeadSha: body?.headSha,
+                    scopeCheckPassed: true,
+                    isHighRiskPath: false,
+                    attempts: 0,
+                    leaseEpoch: 1,
+                    updatedAt: Date.now(),
+                    slackMessageTs: undefined,
+                    slackChannelId: undefined,
+                    mergeCommitSha: undefined,
+                } as FSMContext)
 
-            // Stale Head SHA Guard (bypassed on explicit PR_SYNCHRONIZE which updates the SHA)
+            // Stale Head SHA Guard
             if (
                 body?.type !== 'PR_SYNCHRONIZE' &&
                 context.auditedHeadSha &&
@@ -276,19 +287,19 @@ export class RepoBotDO extends DurableObject<Env> {
 
             const previousState = context.state
             let nextState = context.state
+            let shouldTriggerMerge = false
 
             // Event A: QUALITY_PASS
             if (body?.type === 'QUALITY_PASS') {
                 if (!context.isHighRiskPath && context.scopeCheckPassed) {
                     nextState = 'MERGING'
+                    shouldTriggerMerge = true
                 } else if (context.isHighRiskPath && context.scopeCheckPassed) {
                     nextState = 'AWAITING_APPROVAL'
-                    // Arm 24-hour expiration alarm
                     await this.ctx.storage.setAlarm(
                         Date.now() + 24 * 60 * 60 * 1000,
                     )
 
-                    // Dispatch Block Kit card to Slack
                     if (this.env.SLACK_BOT_TOKEN) {
                         const cardParams = {
                             taskId: context.taskId,
@@ -313,9 +324,7 @@ export class RepoBotDO extends DurableObject<Env> {
                                 if (res.ok && res.ts) {
                                     context.slackMessageTs = res.ts
                                     context.slackChannelId =
-                                        (this.env.SLACK_CHANNEL_ID || '')
-                                            .trim()
-                                            .replace(/^["']|["']$/g, '') ||
+                                        this.env.SLACK_CHANNEL_ID ||
                                         '#ops-bridge'
                                     await this.ctx.storage.put(
                                         'fsm_context',
@@ -340,21 +349,22 @@ export class RepoBotDO extends DurableObject<Env> {
                 }
             }
 
-            // Event C: HUMAN_APPROVED (from Slack bridge)
+            // Event C: HUMAN_APPROVED (Trigger merge from approval bridge)
             else if (body?.type === 'HUMAN_APPROVED') {
                 if (context.state === 'AWAITING_APPROVAL') {
                     nextState = 'MERGING'
+                    shouldTriggerMerge = true
                 }
             }
 
-            // Event D: HUMAN_REJECTED (from Slack bridge)
+            // Event D: HUMAN_REJECTED
             else if (body?.type === 'HUMAN_REJECTED') {
                 if (context.state === 'AWAITING_APPROVAL') {
                     nextState = 'ROLLING_BACK'
                 }
             }
 
-            // Event E: PR_SYNCHRONIZE (Head moved while pending approval)
+            // Event E: PR_SYNCHRONIZE
             else if (body?.type === 'PR_SYNCHRONIZE') {
                 if (
                     context.slackMessageTs &&
@@ -375,9 +385,55 @@ export class RepoBotDO extends DurableObject<Env> {
                 context.auditedHeadSha = body.headSha
             }
 
+            // Event F: MERGE_SUCCEEDED / MERGE_FAILED
+            else if (body?.type === 'MERGE_SUCCEEDED') {
+                nextState = 'MERGED'
+                context.mergeCommitSha = body.mergeCommitSha
+            } else if (body?.type === 'MERGE_FAILED') {
+                nextState = 'ROLLING_BACK'
+            }
+
             context.state = nextState
             context.updatedAt = Date.now()
             await this.ctx.storage.put('fsm_context', context)
+
+            // Trigger SHA-Pinned Merge Execution via Outbox
+            if (shouldTriggerMerge) {
+                const mergePayload = {
+                    taskId: context.taskId,
+                    owner: context.owner || body?.owner || 'camp-candor',
+                    repo: context.repo || body?.repo || '000.repo-bot',
+                    pullNumber: context.pullNumber || body?.pullNumber || 0,
+                    auditedHeadSha: context.auditedHeadSha || body.headSha,
+                    actor: body?.actor || 'repo-bot',
+                    slackMessageTs: context.slackMessageTs,
+                    slackChannelId: context.slackChannelId,
+                }
+
+                this.ctx.waitUntil(
+                    executeShaPinnedMerge(mergePayload, this.env).then(
+                        async (result) => {
+                            const updated =
+                                await this.ctx.storage.get<FSMContext>(
+                                    'fsm_context',
+                                )
+                            if (updated) {
+                                updated.state = result.success
+                                    ? 'MERGED'
+                                    : 'ROLLING_BACK'
+                                if (result.mergeCommitSha)
+                                    updated.mergeCommitSha =
+                                        result.mergeCommitSha
+                                updated.updatedAt = Date.now()
+                                await this.ctx.storage.put(
+                                    'fsm_context',
+                                    updated,
+                                )
+                            }
+                        },
+                    ),
+                )
+            }
 
             return new Response(
                 JSON.stringify({
@@ -386,9 +442,7 @@ export class RepoBotDO extends DurableObject<Env> {
                     state: nextState,
                     context,
                 }),
-                {
-                    headers: { 'Content-Type': 'application/json' },
-                },
+                { headers: { 'Content-Type': 'application/json' } },
             )
         }
 
