@@ -64,7 +64,6 @@ export async function executeCompensatingSaga(
                 `>> [TIER-2 REVERT] Merge commit ${mergeCommitSha} detected. Initiating post-merge incident response...`,
             )
 
-            // 1. Post Tombstone Comment to PR (if PR exists)
             if (pullNumber > 0) {
                 try {
                     await githubRequest(
@@ -84,7 +83,6 @@ export async function executeCompensatingSaga(
                 }
             }
 
-            // 2. Dispatch Slack Emergency Alert
             if (env.SLACK_BOT_TOKEN) {
                 const alertRes = await postSlackEmergencyAlert(
                     {
@@ -103,7 +101,6 @@ export async function executeCompensatingSaga(
                 emergencyAlertSent = alertRes.ok
             }
 
-            // 3. Freeze Slack Card In-Place (if ts exists)
             if (
                 params.slackChannelId &&
                 params.slackMessageTs &&

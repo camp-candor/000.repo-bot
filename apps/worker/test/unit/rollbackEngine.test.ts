@@ -21,7 +21,7 @@ describe('FEAT-06: Compensating Saga Rollback Engine', () => {
     it('Tier-1 Pre-Merge: closes PR, posts tombstone, obliterates spec branch, and mutates Slack card', async () => {
         const githubSpy = vi
             .spyOn(tools, 'githubRequest')
-            .mockImplementation(async (path, _env, opts) => {
+            .mockImplementation(async (path, env, opts) => {
                 if (path.includes('/pulls/42') && opts?.method === 'PATCH') {
                     return { state: 'closed' }
                 }
@@ -87,7 +87,7 @@ describe('FEAT-06: Compensating Saga Rollback Engine', () => {
                 repo: '000.repo-bot',
                 pullNumber: 42,
                 headSha: 'c7f4901b8e42f9a0d8431e21b7782a1290f12c34',
-                branchName: 'main', // Protected non-spec branch
+                branchName: 'main',
                 reason: 'Test safety violation',
             },
             mockEnv,
@@ -98,27 +98,18 @@ describe('FEAT-06: Compensating Saga Rollback Engine', () => {
     })
 
     it('Tier-2 Post-Merge: triggers emergency alert and post-merge comment when mergeCommitSha is present', async () => {
-        vi.spyOn(tools, 'githubRequest').mockImplementation(
-            async (path, _env, _opts) => {
-                if (path.includes('/issues/42/comments')) {
-                    return { id: 102 }
-                }
-                return {}
-            },
-        )
-
         let emergencyAlertPayload: any = null
         global.fetch = vi
             .fn()
             .mockImplementation(async (url: string, opts: any) => {
-                if (url.includes('slack.com/api/chat.postMessage')) {
+                if (url.includes('https://slack.com/api/chat.postMessage')) {
                     emergencyAlertPayload = JSON.parse(opts.body)
                     return {
                         ok: true,
                         json: async () => ({ ok: true, ts: '1790999.0001' }),
                     }
                 }
-                if (url.includes('slack.com/api/chat.update')) {
+                if (url.includes('https://slack.com/api/chat.update')) {
                     return { ok: true, json: async () => ({ ok: true }) }
                 }
                 return { ok: true, json: async () => ({}) }
@@ -149,7 +140,7 @@ describe('FEAT-06: Compensating Saga Rollback Engine', () => {
 
     it('Idempotency & Resilience: absorbs 404 branch deletion and 422 PR closed errors cleanly', async () => {
         vi.spyOn(tools, 'githubRequest').mockImplementation(
-            async (path, _env, _opts) => {
+            async (path, env, opts) => {
                 if (path.includes('/pulls/42')) {
                     throw new Error('HTTP 422: Pull request already closed')
                 }
