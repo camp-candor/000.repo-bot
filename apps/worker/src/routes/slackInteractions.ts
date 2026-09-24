@@ -76,9 +76,9 @@ export async function handleSlackInteraction(c: Context<{ Bindings: Env }>) {
     let actionData: {
         taskId: string
         headSha: string
-        owner: string
-        repo: string
-        pullNumber: number
+        owner?: string
+        repo?: string
+        pullNumber?: number
     }
     try {
         actionData = JSON.parse(action.value)
@@ -131,14 +131,23 @@ async function executeHumanDecision(
     actionData: {
         taskId: string
         headSha: string
-        owner: string
-        repo: string
-        pullNumber: number
+        owner?: string
+        repo?: string
+        pullNumber?: number
     },
     isApprove: boolean,
 ) {
-    const { taskId, headSha, owner, repo, pullNumber } = actionData
-    const userId = payload.user?.id
+    const taskId = actionData.taskId || 'UNKNOWN-TASK'
+    const headSha =
+        actionData.headSha || '0000000000000000000000000000000000000000'
+    const owner = actionData.owner || env.GITHUB_DEFAULT_OWNER || 'camp-candor'
+    const repo = actionData.repo || '000.repo-bot'
+    const pullNumber = actionData.pullNumber || 0
+    const userId = payload.user?.id || 'UNKNOWN_USER'
+
+    console.log(
+        `>> [SLACK INTERACTION] Actor: <@${userId}> | Task: ${taskId} | Action: ${isApprove ? 'APPROVE' : 'REJECT'}`,
+    )
 
     // A. Atomic Idempotency Check via D1
     if (env.DB) {
@@ -170,7 +179,7 @@ async function executeHumanDecision(
 
             if (insertRes.meta && insertRes.meta.changes === 0) {
                 console.warn(
-                    `Idempotency guard: ${taskId}@${headSha} was already decided.`,
+                    `:: IDEMPOTENCY: Decision for ${taskId}@${headSha} already recorded.`,
                 )
                 return
             }
@@ -182,24 +191,33 @@ async function executeHumanDecision(
         }
     }
 
-    // B. Dual-Authority: Submit Authenticated GitHub PR Review
-    try {
-        await githubRequest(
-            `/repos/${owner}/${repo}/pulls/${pullNumber}/reviews`,
-            env,
-            {
-                method: 'POST',
-                body: JSON.stringify({
-                    commit_id: headSha,
-                    event: isApprove ? 'APPROVE' : 'REQUEST_CHANGES',
-                    body: isApprove
-                        ? `[OK] Ratified by Lead Architect <@${userId}> via Repo-Bot Slack Bridge.`
-                        : `[FAIL] Rejected by Lead Architect <@${userId}> via Repo-Bot Slack Bridge. Rollback initiated.`,
-                }),
-            },
+    // B. Dual-Authority: Submit Authenticated GitHub PR Review (Skip safely if pullNumber <= 0)
+    if (pullNumber > 0) {
+        try {
+            await githubRequest(
+                `/repos/${owner}/${repo}/pulls/${pullNumber}/reviews`,
+                env,
+                {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        commit_id: headSha,
+                        event: isApprove ? 'APPROVE' : 'REQUEST_CHANGES',
+                        body: isApprove
+                            ? `[OK] Ratified by Lead Architect <@${userId}> via Repo-Bot Slack Bridge.`
+                            : `[FAIL] Rejected by Lead Architect <@${userId}> via Repo-Bot Slack Bridge. Rollback initiated.`,
+                    }),
+                },
+            )
+            console.log(
+                `>> [GITHUB REVIEW] Submitted ${isApprove ? 'APPROVE' : 'REQUEST_CHANGES'} to PR #${pullNumber}`,
+            )
+        } catch (err: any) {
+            console.error('Failed to submit GitHub PR review:', err.message)
+        }
+    } else {
+        console.log(
+            `>> [SIMULATED TEST] Skipping GitHub PR review (pullNumber = ${pullNumber})`,
         )
-    } catch (err: any) {
-        console.error('Failed to submit GitHub PR review:', err.message)
     }
 
     // C. Forward Decision to Durable Object FSM
@@ -228,23 +246,26 @@ async function executeHumanDecision(
                     'DO state transition failed:',
                     await fsmRes.text(),
                 )
+            } else {
+                console.log(`>> [DO TRANSITION] Status: ${fsmRes.status}`)
             }
         } catch (err: any) {
             console.error('Failed to contact RepoBotDO:', err.message)
         }
     }
 
-    // D. Update Original Slack Message
+    // D. Update Original Slack Message in Place
     if (payload.channel?.id && payload.message?.ts) {
         const updateText = isApprove
             ? `*:: PR APPROVED & RATIFIED*\nTask: \`${taskId}\` | SHA: \`${headSha.slice(0, 7)}\`\nApprover: <@${userId}> | Status: Advancing to MERGING`
             : `*:: PR REJECTED*\nTask: \`${taskId}\` | SHA: \`${headSha.slice(0, 7)}\`\nDecider: <@${userId}> | Status: Rolling back ephemeral branch`
 
-        await updateSlackMessage(
+        const updated = await updateSlackMessage(
             payload.channel.id,
             payload.message.ts,
             updateText,
             env,
         )
+        console.log(`>> [SLACK CARD UPDATE] Success: ${updated}`)
     }
 }
