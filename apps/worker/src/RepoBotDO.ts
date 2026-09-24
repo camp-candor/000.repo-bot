@@ -1,3 +1,7 @@
+import {
+    executeCompensatingSaga,
+    type RollbackParams,
+} from './rollbackEngine.js'
 import { DurableObject } from 'cloudflare:workers'
 
 import { dispatchSlackApprovalCard, updateSlackMessage } from './slackBridge.js'
@@ -285,9 +289,12 @@ export class RepoBotDO extends DurableObject<Env> {
                 )
             }
 
-            const previousState = context.state
+            const _previousState = context.state
             let nextState = context.state
             let shouldTriggerMerge = false
+            let shouldTriggerRollback = false
+            let rollbackReason =
+                body?.reason || body?.type || 'UNSPECIFIED_FAILURE'
 
             // Event A: QUALITY_PASS
             if (body?.type === 'QUALITY_PASS') {
@@ -346,6 +353,9 @@ export class RepoBotDO extends DurableObject<Env> {
                     context.leaseEpoch += 1
                 } else {
                     nextState = 'ROLLING_BACK'
+                    shouldTriggerRollback = true
+                    rollbackReason =
+                        'QUALITY_GAUNTLET_EXHAUSTED (3/3 attempts failed)'
                 }
             }
 
@@ -361,6 +371,8 @@ export class RepoBotDO extends DurableObject<Env> {
             else if (body?.type === 'HUMAN_REJECTED') {
                 if (context.state === 'AWAITING_APPROVAL') {
                     nextState = 'ROLLING_BACK'
+                    shouldTriggerRollback = true
+                    rollbackReason = `HUMAN_REJECTED by ${body?.actor || 'Lead Architect'}`
                 }
             }
 
@@ -391,6 +403,16 @@ export class RepoBotDO extends DurableObject<Env> {
                 context.mergeCommitSha = body.mergeCommitSha
             } else if (body?.type === 'MERGE_FAILED') {
                 nextState = 'ROLLING_BACK'
+                shouldTriggerRollback = true
+                rollbackReason = body?.error || 'CAS_MERGE_EXECUTION_FAILED'
+            }
+
+            // Event G: POST_MERGE_REGRESSION (Tier-2 Revert Trigger)
+            else if (body?.type === 'POST_MERGE_REGRESSION') {
+                nextState = 'ROLLING_BACK'
+                shouldTriggerRollback = true
+                rollbackReason =
+                    body?.reason || 'POST_MERGE_CANARY_HEALTH_FAILURE'
             }
 
             context.state = nextState
@@ -418,12 +440,48 @@ export class RepoBotDO extends DurableObject<Env> {
                                     'fsm_context',
                                 )
                             if (updated) {
-                                updated.state = result.success
-                                    ? 'MERGED'
-                                    : 'ROLLING_BACK'
-                                if (result.mergeCommitSha)
-                                    updated.mergeCommitSha =
-                                        result.mergeCommitSha
+                                if (result.success) {
+                                    updated.state = 'MERGED'
+                                    if (result.mergeCommitSha)
+                                        updated.mergeCommitSha =
+                                            result.mergeCommitSha
+                                } else {
+                                    updated.state = 'ROLLING_BACK'
+                                    // Trigger compensating saga for failed merge
+                                    const rollbackPayload: RollbackParams = {
+                                        taskId: updated.taskId,
+                                        owner: updated.owner || 'camp-candor',
+                                        repo: updated.repo || '000.repo-bot',
+                                        pullNumber: updated.pullNumber || 0,
+                                        headSha:
+                                            updated.auditedHeadSha || '0000000',
+                                        branchName: `spec/${updated.taskId.toLowerCase()}`,
+                                        reason:
+                                            result.error || 'CAS_MERGE_FAILED',
+                                        actor: 'repo-bot',
+                                        slackMessageTs: updated.slackMessageTs,
+                                        slackChannelId: updated.slackChannelId,
+                                    }
+                                    this.ctx.waitUntil(
+                                        executeCompensatingSaga(
+                                            rollbackPayload,
+                                            this.env,
+                                        ).then(async () => {
+                                            const freshUpdated =
+                                                await this.ctx.storage.get<FSMContext>(
+                                                    'fsm_context',
+                                                )
+                                            if (freshUpdated) {
+                                                freshUpdated.state =
+                                                    'ROLLED_BACK'
+                                                await this.ctx.storage.put(
+                                                    'fsm_context',
+                                                    freshUpdated,
+                                                )
+                                            }
+                                        }),
+                                    )
+                                }
                                 updated.updatedAt = Date.now()
                                 await this.ctx.storage.put(
                                     'fsm_context',
@@ -435,10 +493,53 @@ export class RepoBotDO extends DurableObject<Env> {
                 )
             }
 
+            // Trigger Compensating Saga Rollback via Outbox
+            if (shouldTriggerRollback) {
+                // Disarm watchdog alarm
+                await this.ctx.storage.deleteAlarm()
+
+                const rollbackPayload: RollbackParams = {
+                    taskId: context.taskId,
+                    owner: context.owner || body?.owner || 'camp-candor',
+                    repo: context.repo || body?.repo || '000.repo-bot',
+                    pullNumber: context.pullNumber || body?.pullNumber || 0,
+                    headSha:
+                        context.auditedHeadSha || body?.headSha || '0000000',
+                    branchName: `spec/${context.taskId.toLowerCase()}`,
+                    reason: rollbackReason,
+                    actor: body?.actor || 'repo-bot',
+                    slackMessageTs: context.slackMessageTs,
+                    slackChannelId: context.slackChannelId,
+                    mergeCommitSha: context.mergeCommitSha,
+                }
+
+                this.ctx.waitUntil(
+                    executeCompensatingSaga(rollbackPayload, this.env).then(
+                        async (sagaRes) => {
+                            const updated =
+                                await this.ctx.storage.get<FSMContext>(
+                                    'fsm_context',
+                                )
+                            if (updated) {
+                                updated.state = 'ROLLED_BACK'
+                                updated.updatedAt = Date.now()
+                                await this.ctx.storage.put(
+                                    'fsm_context',
+                                    updated,
+                                )
+                                console.log(
+                                    `>> [DO SAGA] Task ${updated.taskId} state settled in ROLLED_BACK (Success: ${sagaRes.success})`,
+                                )
+                            }
+                        },
+                    ),
+                )
+            }
+
             return new Response(
                 JSON.stringify({
                     action: 'STATE_TRANSITIONED',
-                    previousState,
+                    previousState: _previousState,
                     state: nextState,
                     context,
                 }),
