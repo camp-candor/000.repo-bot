@@ -55,6 +55,18 @@ export class ExecuteHardReset implements Action {
     constructor(public bale: GithubBit) {}
 }
 
+export const REGISTER_WATCHED_REPO = '[Github action] Register Watched Repo'
+export class RegisterWatchedRepo implements Action {
+    readonly type = REGISTER_WATCHED_REPO
+    constructor(public bale: GithubBit) {}
+}
+
+export const LIST_WATCHED_REPOS = '[Github action] List Watched Repos'
+export class ListWatchedRepos implements Action {
+    readonly type = LIST_WATCHED_REPOS
+    constructor(public bale: GithubBit) {}
+}
+
 export const LIST_GITHUB = '[List action] List Github'
 export class ListGithub implements Action {
     readonly type = LIST_GITHUB
@@ -71,4 +83,6 @@ export type Actions =
     | FetchRecentCommits
     | PreviewCommitDetails
     | ExecuteHardReset
+    | RegisterWatchedRepo
+    | ListWatchedRepos
     | ListGithub

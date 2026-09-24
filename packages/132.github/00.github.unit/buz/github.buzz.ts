@@ -25,8 +25,25 @@ const getBaseUrl = (): string => {
     ).replace(/\/$/, '')
 }
 
-export const initGithub = (cpy: GithubModel, bal: GithubBit, ste: State) => {
-    if (bal.slv != null) bal.slv({ intBit: { idx: 'init-github' } })
+export const initGithub = async (
+    cpy: GithubModel,
+    bal: GithubBit,
+    ste: State,
+) => {
+    const baseUrl = getBaseUrl()
+    const endpoint = `${baseUrl}/api/github/test`
+
+    try {
+        const res = await fetch(endpoint)
+        const data: any = await res.json()
+        if (bal.slv)
+            bal.slv({
+                intBit: { idx: 'init-github', dat: { github: data } },
+            })
+    } catch (err: any) {
+        if (bal.slv)
+            bal.slv({ intBit: { idx: 'init-github-err', dat: err.message } })
+    }
     return cpy
 }
 
@@ -489,5 +506,253 @@ export const listGithub = async (
     ste: State,
 ) => {
     if (bal.slv != null) bal.slv({ gthBit: { idx: 'list-github' } })
+    return cpy
+}
+
+/**
+ * Automates GitHub webhook provisioning and edge DO registration in a single step.
+ */
+export const registerWatchedRepo = async (
+    cpy: GithubModel,
+    bal: GithubBit,
+    ste: State,
+) => {
+    const rawInput = bal.src || bal.dat?.url
+    if (!rawInput) {
+        await logConsole('>> [ERROR] No repository slug or URL provided.')
+        if (bal.slv)
+            bal.slv({ gthBit: { idx: 'register-watched-repo-err', val: 0 } })
+        return cpy
+    }
+
+    const cleaned = rawInput
+        .replace(/^https:\/\/github\.com\//, '')
+        .replace(/\.git$/, '')
+        .trim()
+    const [owner, repo] = cleaned.split('/')
+
+    if (!owner || !repo) {
+        await logConsole(
+            `>> [ERROR] Invalid repository format: "${rawInput}". Expected "owner/repo" or full URL`,
+        )
+        if (bal.slv)
+            bal.slv({ gthBit: { idx: 'register-watched-repo-err', val: 0 } })
+        return cpy
+    }
+
+    const ghToken = process.env.GITHUB_TOKEN || process.env.GH_TOKEN
+    const webhookSecret =
+        process.env.GH_WEBHOOK_SECRET || process.env.GITHUB_WEBHOOK_SECRET || ''
+    const baseUrl = getBaseUrl()
+    const webhookPayloadUrl = `${baseUrl}/webhooks/github`
+
+    await logConsole(
+        '>> ==============================================================',
+    )
+    await logConsole(
+        `>> [AUTO-PROVISION] Setting up surveillance for ${owner}/${repo}...`,
+    )
+
+    let hookCreated = false
+
+    // STEP 1: Automate GitHub Webhook Creation via REST API
+    await logConsole(
+        `>> [STEP 1/2] Installing GitHub Webhook on ${owner}/${repo}...`,
+    )
+    if (!ghToken) {
+        await logConsole(
+            '>> [WARNING] GITHUB_TOKEN not found in terminal env. Skipping GitHub webhook creation.',
+        )
+    } else {
+        const t0 = Date.now()
+        try {
+            const hookRes = await fetch(
+                `https://api.github.com/repos/${owner}/${repo}/hooks`,
+                {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `token ${ghToken}`,
+                        'Accept': 'application/vnd.github+json',
+                        'User-Agent': 'Repo-Bot-Flight-Deck',
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        name: 'web',
+                        active: true,
+                        events: [
+                            'pull_request',
+                            'push',
+                            'check_run',
+                            'check_suite',
+                            'issue_comment',
+                        ],
+                        config: {
+                            url: webhookPayloadUrl,
+                            content_type: 'json',
+                            secret: webhookSecret,
+                            insecure_ssl: '0',
+                        },
+                    }),
+                },
+            )
+
+            const rtt = Date.now() - t0
+            const hookData: any = await hookRes.json()
+
+            if (hookRes.status === 201) {
+                await logConsole(
+                    `>> [WEBHOOK INSTALLED] ID: ${hookData.id} [OK] (${rtt}ms RTT)`,
+                )
+                hookCreated = true
+            } else if (
+                hookRes.status === 422 &&
+                hookData.errors?.[0]?.message?.includes('already exists')
+            ) {
+                await logConsole(
+                    `>> [WEBHOOK EXISTS] Repository already configured with webhook [OK] (${rtt}ms RTT)`,
+                )
+                hookCreated = true
+            } else {
+                await logConsole(
+                    `>> [WEBHOOK WARNING] GitHub returned HTTP ${hookRes.status}: ${hookData.message || 'Error'}`,
+                )
+            }
+        } catch (hookErr: any) {
+            await logConsole(`>> [WEBHOOK ERROR]: ${hookErr.message}`)
+        }
+    }
+
+    // STEP 2: Register in Edge Durable Object Control Plane
+    await logConsole(
+        '>> --------------------------------------------------------------',
+    )
+    await logConsole(
+        `>> [STEP 2/2] Registering in Repo-Bot Edge Control Plane...`,
+    )
+
+    const t1 = Date.now()
+    try {
+        const doRes = await fetch(`${baseUrl}/repos`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                url: `https://github.com/${owner}/${repo}`,
+            }),
+        })
+
+        const rtt = Date.now() - t1
+        const doData: any = await doRes.json()
+
+        if (doRes.ok) {
+            await logConsole(
+                `>> [DO REGISTERED] Target: ${doData.repo?.id || `${owner}/${repo}`} [OK] (${rtt}ms RTT)`,
+            )
+            await logConsole(
+                '>> --------------------------------------------------------------',
+            )
+            await logConsole(
+                `>> [STATUS] SURVEILLANCE ACTIVE. Events streaming to #ops-bridge.`,
+            )
+            await logConsole(
+                '>> ==============================================================',
+            )
+            if (bal.slv)
+                bal.slv({
+                    gthBit: {
+                        idx: 'register-watched-repo',
+                        val: 1,
+                        dat: { hookCreated, doData },
+                    },
+                })
+        } else {
+            await logConsole(
+                `>> [DO ERROR] HTTP ${doRes.status}: ${doData.error || 'Failed to register'}`,
+            )
+            await logConsole(
+                '>> ==============================================================',
+            )
+            if (bal.slv)
+                bal.slv({
+                    gthBit: {
+                        idx: 'register-watched-repo-err',
+                        val: 0,
+                        dat: doData,
+                    },
+                })
+        }
+    } catch (doErr: any) {
+        await logConsole(`>> [DO NETWORK ERROR]: ${doErr.message}`)
+        await logConsole(
+            '>> ==============================================================',
+        )
+        if (bal.slv)
+            bal.slv({
+                gthBit: {
+                    idx: 'register-watched-repo-err',
+                    val: 0,
+                    src: doErr.message,
+                },
+            })
+    }
+
+    return cpy
+}
+
+/**
+ * Lists all repositories currently under active edge surveillance.
+ */
+export const listWatchedRepos = async (
+    cpy: GithubModel,
+    bal: GithubBit,
+    ste: State,
+) => {
+    const baseUrl = getBaseUrl()
+    await logConsole(
+        '>> ==============================================================',
+    )
+    await logConsole(
+        '>> [WATCHED REPOSITORIES] Querying active fleet from edge DO...',
+    )
+
+    const t0 = Date.now()
+    try {
+        const res = await fetch(`${baseUrl}/repos`)
+        const rtt = Date.now() - t0
+        const repos: any[] = await res.json()
+
+        if (Array.isArray(repos) && repos.length > 0) {
+            await logConsole(
+                `>> [HTTP 200 OK] :: ${rtt}ms RTT :: Total Watched: ${repos.length}`,
+            )
+            await logConsole(
+                '>> --------------------------------------------------------------',
+            )
+            for (let idx = 0; idx < repos.length; idx++) {
+                const r = repos[idx]
+                await logConsole(`>> [${idx + 1}] ${r.id} (${r.url})`)
+            }
+            await logConsole(
+                '>> ==============================================================',
+            )
+            if (bal.slv)
+                bal.slv({ gthBit: { idx: 'list-watched-repos', lst: repos } })
+        } else {
+            await logConsole(
+                `>> [HTTP 200 OK] :: ${rtt}ms RTT :: No repositories currently watched.`,
+            )
+            await logConsole(
+                '>> ==============================================================',
+            )
+            if (bal.slv)
+                bal.slv({ gthBit: { idx: 'list-watched-repos', lst: [] } })
+        }
+    } catch (err: any) {
+        await logConsole(`>> [QUERY ERROR]: ${err.message}`)
+        await logConsole(
+            '>> ==============================================================',
+        )
+        if (bal.slv)
+            bal.slv({ gthBit: { idx: 'list-watched-repos-err', lst: [] } })
+    }
     return cpy
 }

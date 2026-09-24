@@ -3,7 +3,7 @@ import { initGithub } from './buz/github.buzz.js'
 import { GithubModel } from './github.model.js'
 
 describe('github', () => {
-    it('should initialize github', () => {
+    it('should initialize github', async () => {
         const model = new GithubModel()
         const state = {
             hunt: vi.fn().mockResolvedValue({}),
@@ -16,7 +16,7 @@ describe('github', () => {
         // Check if initGithub is a function and can be called
         expect(typeof initGithub).toBe('function')
 
-        const result = initGithub(model, bal, state)
+        const result = await initGithub(model, bal, state)
         expect(result).toBe(model)
         //expect(slv).toHaveBeenCalledWith({ intBit: { idx: 'init-github' } });
     })
@@ -27,7 +27,8 @@ describe('github', () => {
         const slv = vi.fn()
         const bal = { idx: 'test', slv } as any
 
-        const urlgithub = 'https://zero00-github.onrender.com/api/github/test'
+        const urlgithub =
+            'https://repo-bot-00.berad4000.workers.dev/api/github/test'
 
         const mockResponsegithub = { status: 'github-awake' }
 
@@ -67,7 +68,8 @@ describe('github', () => {
         const slv = vi.fn()
         const bal = { idx: 'test', slv } as any
 
-        const urlgithub = 'https://zero00-github.onrender.com/api/github/test'
+        const urlgithub =
+            'https://repo-bot-00.berad4000.workers.dev/api/github/test'
 
         const errorMessage = 'Network error'
         const globalFetch = vi
