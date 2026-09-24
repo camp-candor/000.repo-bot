@@ -313,7 +313,9 @@ export class RepoBotDO extends DurableObject<Env> {
                                 if (res.ok && res.ts) {
                                     context.slackMessageTs = res.ts
                                     context.slackChannelId =
-                                        this.env.SLACK_CHANNEL_ID ||
+                                        (this.env.SLACK_CHANNEL_ID || '')
+                                            .trim()
+                                            .replace(/^["']|["']$/g, '') ||
                                         '#ops-bridge'
                                     await this.ctx.storage.put(
                                         'fsm_context',

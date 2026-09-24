@@ -97,7 +97,7 @@ export async function handleSlackInteraction(c: Context<{ Bindings: Env }>) {
     // 4. Approver RBAC Check
     const authorizedApprovers = (c.env.SLACK_AUTHORIZED_APPROVERS || '')
         .split(',')
-        .map((s) => s.trim())
+        .map((s) => s.trim().replace(/^["']|["']$/g, ''))
         .filter(Boolean)
 
     if (

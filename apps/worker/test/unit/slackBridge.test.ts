@@ -141,6 +141,7 @@ describe('FEAT-04: Human Approval Gate & Slack Review Bridge', () => {
         function createMockContext(
             bodyText: string,
             headers: Record<string, string> = {},
+            envOverrides: Partial<tools.Env> = {},
         ) {
             let executedPromise: Promise<any> | null = null
             return {
@@ -151,6 +152,7 @@ describe('FEAT-04: Human Approval Gate & Slack Review Bridge', () => {
                 env: {
                     ...mockEnv,
                     SLACK_SIGNING_SECRET: 'test-secret', // Added so verification logic can proceed
+                    ...envOverrides,
                     REPO_BOT_DO: {
                         idFromName: vi.fn().mockReturnValue('mock-do-id'),
                         get: vi.fn().mockReturnValue({
@@ -233,6 +235,45 @@ describe('FEAT-04: Human Approval Gate & Slack Review Bridge', () => {
 
             const encodedBody = `payload=${encodeURIComponent(JSON.stringify(payload))}`
             const ctx = createMockContext(encodedBody)
+
+            const res: any = await handleSlackInteraction(ctx)
+            expect(JSON.stringify(res.body)).toContain('[PROCESSING]')
+            expect(ctx.getExecutedPromise()).not.toBeNull()
+        })
+
+        it('accepts authorized approver clicks when SLACK_AUTHORIZED_APPROVERS contains surrounding quotes', async () => {
+            const verifySpy = vi.spyOn(
+                await import('../../src/slackBridge.js'),
+                'verifySlackSignature',
+            )
+            verifySpy.mockResolvedValue({ valid: true })
+
+            const payload = {
+                type: 'block_actions',
+                user: { id: 'U12345', name: 'lead_architect' },
+                channel: { id: 'C123', name: 'ops-bridge' },
+                actions: [
+                    {
+                        action_id: 'approve_task',
+                        value: JSON.stringify({
+                            taskId: 'task-04.01',
+                            headSha: 'c7f4901b8e42f9a0d8431e21b7782a1290f12c34',
+                            owner: 'camp-candor',
+                            repo: '000.repo-bot',
+                            pullNumber: 42,
+                        }),
+                    },
+                ],
+            }
+
+            const encodedBody = `payload=${encodeURIComponent(JSON.stringify(payload))}`
+            const ctx = createMockContext(
+                encodedBody,
+                {},
+                {
+                    SLACK_AUTHORIZED_APPROVERS: '"U12345 , U67890"',
+                },
+            )
 
             const res: any = await handleSlackInteraction(ctx)
             expect(JSON.stringify(res.body)).toContain('[PROCESSING]')

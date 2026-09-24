@@ -167,7 +167,9 @@ export async function dispatchSlackApprovalCard(
         return { ok: false, error: 'MISSING_SLACK_BOT_TOKEN' }
     }
 
-    const channel = env.SLACK_CHANNEL_ID || '#ops-bridge'
+    const channel =
+        (env.SLACK_CHANNEL_ID || '').trim().replace(/^["']|["']$/g, '') ||
+        '#ops-bridge'
     const card = buildApprovalBlockKit(params)
 
     try {
