@@ -15,11 +15,13 @@ export interface FSMContext {
     auditedHeadSha: string | null
     scopeCheckPassed: boolean
     isHighRiskPath: boolean
+    dominantRiskClass?: string
+    lastAuditViolations?: string[]
     attempts: number
     leaseEpoch: number
     updatedAt: number
-    dominantRiskClass?: string
-    lastAuditViolations?: string[]
+    slackMessageTs?: string
+    slackChannelId?: string
 }
 
 export function parseRepoIdentifier(
@@ -47,6 +49,24 @@ export function parseRepoIdentifier(
 export class RepoBotDO extends DurableObject {
     constructor(ctx: DurableObjectState, env: Env) {
         super(ctx, env)
+    }
+
+    /**
+     * Watchdog Alarm: Handles 24-hour timeout for tasks stranded in AWAITING_APPROVAL.
+     */
+    async alarm(): Promise<void> {
+        const context = await this.ctx.storage.get<FSMContext>('fsm_context')
+        if (!context) return
+
+        // If the task has sat in AWAITING_APPROVAL for > 24 hours, halt non-destructively
+        if (context.state === 'AWAITING_APPROVAL') {
+            context.state = 'HALTED'
+            context.updatedAt = Date.now()
+            await this.ctx.storage.put('fsm_context', context)
+            console.warn(
+                `:: WATCHDOG: Task ${context.taskId} expired in AWAITING_APPROVAL. Transitioned to HALTED.`,
+            )
+        }
     }
 
     async fetch(request: Request): Promise<Response> {
@@ -165,7 +185,7 @@ export class RepoBotDO extends DurableObject {
 
         // 5. POST /fsm/context — Initialize or update task context
         if (request.method === 'POST' && path === '/fsm/context') {
-            const update: Partial<FSMContext> = (await request
+            const update = (await request
                 .json()
                 .catch(() => ({}))) as Partial<FSMContext>
             const current = (await this.ctx.storage.get<FSMContext>(
@@ -196,7 +216,7 @@ export class RepoBotDO extends DurableObject {
             )
         }
 
-        // 6. POST /fsm/transition — Process quality event transitions
+        // 6. POST /fsm/transition — Process quality and human approval transitions
         if (request.method === 'POST' && path === '/fsm/transition') {
             const body: any = await request.json().catch(() => null)
             const context = (await this.ctx.storage.get<FSMContext>(
@@ -231,15 +251,24 @@ export class RepoBotDO extends DurableObject {
                 )
             }
 
+            const previousState = context.state
             let nextState = context.state
 
+            // Event A: QUALITY_PASS
             if (body?.type === 'QUALITY_PASS') {
                 if (!context.isHighRiskPath && context.scopeCheckPassed) {
                     nextState = 'MERGING'
                 } else if (context.isHighRiskPath && context.scopeCheckPassed) {
                     nextState = 'AWAITING_APPROVAL'
+                    // Arm 24-hour expiration alarm
+                    await this.ctx.storage.setAlarm(
+                        Date.now() + 24 * 60 * 60 * 1000,
+                    )
                 }
-            } else if (body?.type === 'QUALITY_FAIL_RETRY') {
+            }
+
+            // Event B: QUALITY_FAIL_RETRY
+            else if (body?.type === 'QUALITY_FAIL_RETRY') {
                 const nextAttempts = context.attempts + 1
                 if (nextAttempts < 3) {
                     nextState = 'RETRYING'
@@ -250,6 +279,26 @@ export class RepoBotDO extends DurableObject {
                 }
             }
 
+            // Event C: HUMAN_APPROVED (from Slack bridge)
+            else if (body?.type === 'HUMAN_APPROVED') {
+                if (context.state === 'AWAITING_APPROVAL') {
+                    nextState = 'MERGING'
+                }
+            }
+
+            // Event D: HUMAN_REJECTED (from Slack bridge)
+            else if (body?.type === 'HUMAN_REJECTED') {
+                if (context.state === 'AWAITING_APPROVAL') {
+                    nextState = 'ROLLING_BACK'
+                }
+            }
+
+            // Event E: PR_SYNCHRONIZE (Head moved while pending approval)
+            else if (body?.type === 'PR_SYNCHRONIZE') {
+                nextState = 'VERIFYING'
+                context.auditedHeadSha = body.headSha
+            }
+
             context.state = nextState
             context.updatedAt = Date.now()
             await this.ctx.storage.put('fsm_context', context)
@@ -257,7 +306,7 @@ export class RepoBotDO extends DurableObject {
             return new Response(
                 JSON.stringify({
                     action: 'STATE_TRANSITIONED',
-                    previousState: context.state,
+                    previousState,
                     state: nextState,
                     context,
                 }),
