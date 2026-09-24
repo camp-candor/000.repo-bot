@@ -1,4 +1,5 @@
 import { DurableObject } from 'cloudflare:workers'
+import { dispatchSlackApprovalCard, updateSlackMessage } from './slackBridge.js'
 import type { Env } from './tools.js'
 
 export interface WatchedRepo {
@@ -12,11 +13,15 @@ export interface WatchedRepo {
 export interface FSMContext {
     taskId: string
     state: string
+    owner?: string
+    repo?: string
+    pullNumber?: number
     auditedHeadSha: string | null
     scopeCheckPassed: boolean
     isHighRiskPath: boolean
     dominantRiskClass?: string
     lastAuditViolations?: string[]
+    highRiskFiles?: string[]
     attempts: number
     leaseEpoch: number
     updatedAt: number
@@ -46,7 +51,7 @@ export function parseRepoIdentifier(
     return { owner, repo, id, url }
 }
 
-export class RepoBotDO extends DurableObject {
+export class RepoBotDO extends DurableObject<Env> {
     constructor(ctx: DurableObjectState, env: Env) {
         super(ctx, env)
     }
@@ -63,6 +68,20 @@ export class RepoBotDO extends DurableObject {
             context.state = 'HALTED'
             context.updatedAt = Date.now()
             await this.ctx.storage.put('fsm_context', context)
+
+            if (
+                context.slackMessageTs &&
+                context.slackChannelId &&
+                this.env.SLACK_BOT_TOKEN
+            ) {
+                const expiredText = `*:: PR APPROVAL EXPIRED*\nTask: \`${context.taskId}\`\n*[HALTED]* 24-hour review window elapsed without sign-off. Work preserved non-destructively.`
+                await updateSlackMessage(
+                    context.slackChannelId,
+                    context.slackMessageTs,
+                    expiredText,
+                    this.env,
+                )
+            }
             console.warn(
                 `:: WATCHDOG: Task ${context.taskId} expired in AWAITING_APPROVAL. Transitioned to HALTED.`,
             )
@@ -188,18 +207,18 @@ export class RepoBotDO extends DurableObject {
             const update: Partial<FSMContext> = (await request
                 .json()
                 .catch(() => ({}))) as Partial<FSMContext>
-            const current = (await this.ctx.storage.get<FSMContext>(
-                'fsm_context',
-            )) || {
-                taskId: update.taskId || 'UNKNOWN',
-                state: 'VERIFYING',
-                auditedHeadSha: null,
-                scopeCheckPassed: false,
-                isHighRiskPath: false,
-                attempts: 0,
-                leaseEpoch: 1,
-                updatedAt: Date.now(),
-            }
+            const current =
+                (await this.ctx.storage.get<FSMContext>('fsm_context')) ||
+                ({
+                    taskId: update.taskId || 'UNKNOWN',
+                    state: 'VERIFYING',
+                    auditedHeadSha: null,
+                    scopeCheckPassed: false,
+                    isHighRiskPath: false,
+                    attempts: 0,
+                    leaseEpoch: 1,
+                    updatedAt: Date.now(),
+                } as FSMContext)
 
             const merged: FSMContext = {
                 ...current,
@@ -219,21 +238,22 @@ export class RepoBotDO extends DurableObject {
         // 6. POST /fsm/transition — Process quality and human approval transitions
         if (request.method === 'POST' && path === '/fsm/transition') {
             const body: any = await request.json().catch(() => null)
-            const context = (await this.ctx.storage.get<FSMContext>(
-                'fsm_context',
-            )) || {
-                taskId: body?.taskId || 'UNKNOWN',
-                state: 'VERIFYING',
-                auditedHeadSha: body?.headSha,
-                scopeCheckPassed: true,
-                isHighRiskPath: false,
-                attempts: 0,
-                leaseEpoch: 1,
-                updatedAt: Date.now(),
-            }
+            const context =
+                (await this.ctx.storage.get<FSMContext>('fsm_context')) ||
+                ({
+                    taskId: body?.taskId || 'UNKNOWN',
+                    state: 'VERIFYING',
+                    auditedHeadSha: body?.headSha,
+                    scopeCheckPassed: true,
+                    isHighRiskPath: false,
+                    attempts: 0,
+                    leaseEpoch: 1,
+                    updatedAt: Date.now(),
+                } as FSMContext)
 
-            // Stale Head SHA Guard
+            // Stale Head SHA Guard (bypassed on explicit PR_SYNCHRONIZE which updates the SHA)
             if (
+                body?.type !== 'PR_SYNCHRONIZE' &&
                 context.auditedHeadSha &&
                 body?.headSha &&
                 context.auditedHeadSha !== body.headSha
@@ -264,6 +284,42 @@ export class RepoBotDO extends DurableObject {
                     await this.ctx.storage.setAlarm(
                         Date.now() + 24 * 60 * 60 * 1000,
                     )
+
+                    // Dispatch Block Kit card to Slack
+                    if (this.env.SLACK_BOT_TOKEN) {
+                        const cardParams = {
+                            taskId: context.taskId,
+                            owner:
+                                context.owner || body?.owner || 'camp-candor',
+                            repo: context.repo || body?.repo || '000.repo-bot',
+                            pullNumber:
+                                context.pullNumber || body?.pullNumber || 0,
+                            headSha: context.auditedHeadSha || body.headSha,
+                            branchName: `spec/${context.taskId}`,
+                            highRiskFiles:
+                                context.highRiskFiles ||
+                                context.lastAuditViolations ||
+                                [],
+                        }
+
+                        this.ctx.waitUntil(
+                            dispatchSlackApprovalCard(
+                                cardParams,
+                                this.env,
+                            ).then(async (res) => {
+                                if (res.ok && res.ts) {
+                                    context.slackMessageTs = res.ts
+                                    context.slackChannelId =
+                                        this.env.SLACK_CHANNEL_ID ||
+                                        '#ops-bridge'
+                                    await this.ctx.storage.put(
+                                        'fsm_context',
+                                        context,
+                                    )
+                                }
+                            }),
+                        )
+                    }
                 }
             }
 
@@ -295,6 +351,21 @@ export class RepoBotDO extends DurableObject {
 
             // Event E: PR_SYNCHRONIZE (Head moved while pending approval)
             else if (body?.type === 'PR_SYNCHRONIZE') {
+                if (
+                    context.slackMessageTs &&
+                    context.slackChannelId &&
+                    this.env.SLACK_BOT_TOKEN
+                ) {
+                    const voidText = `*:: PR AWAITING APPROVAL VOIDED*\nTask: \`${context.taskId}\`\n~Status: Awaiting Review~\n*[VOIDED]* Head commit moved to \`${(body.headSha || '').slice(0, 7)}\`. Re-auditing in progress...`
+                    this.ctx.waitUntil(
+                        updateSlackMessage(
+                            context.slackChannelId,
+                            context.slackMessageTs,
+                            voidText,
+                            this.env,
+                        ),
+                    )
+                }
                 nextState = 'VERIFYING'
                 context.auditedHeadSha = body.headSha
             }
