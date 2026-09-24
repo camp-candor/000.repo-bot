@@ -1,4 +1,5 @@
 import { Hono } from 'hono'
+import { handleSlackInteraction } from './routes/slackInteractions.js'
 import { generateCommitMessage } from './commitGenerator.js'
 import { dispatchJulesJob, getJulesSession } from './jules.js'
 import { handleGitHubWebhook } from './prAuditEngine.js'
@@ -96,6 +97,9 @@ app.post('/api/commit-message', generateCommitMessage)
 app.post('/api/jules/dispatch', dispatchJulesJob)
 app.get('/api/jules/session/:id', getJulesSession)
 app.post('/webhooks/github', handleGitHubWebhook)
+app.post('/api/slack/interactions', async (c) => {
+    return await handleSlackInteraction(c)
+})
 
 // ----------------------------------------------------------------------------
 // :: EDGE WATCHLIST & FLEET CI HEALTH MONITOR ENDPOINTS
