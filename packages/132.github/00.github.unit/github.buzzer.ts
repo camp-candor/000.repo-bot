@@ -1,4 +1,6 @@
-﻿export { initGithub } from './buz/github.buzz.js'
+export { initGithub } from './buz/github.buzz.js'
 export { updateGithub } from './buz/github.buzz.js'
-export { testGithub } from './buz/github.buzz.js'
+export { fetchMergeCandidates } from './buz/github.buzz.js'
+export { inspectPrCas } from './buz/github.buzz.js'
+export { executeMerge } from './buz/github.buzz.js'
 export { listGithub } from './buz/github.buzz.js'

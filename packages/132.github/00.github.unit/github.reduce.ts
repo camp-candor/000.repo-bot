@@ -1,4 +1,4 @@
-﻿import clone from 'clone-deep'
+import clone from 'clone-deep'
 import * as Act from './github.action.js'
 import { GithubModel } from './github.model.js'
 import * as Buzz from './github.buzzer.js'
@@ -16,8 +16,14 @@ export function reducer(
         case Act.INIT_GITHUB:
             return Buzz.initGithub(clone(model), act.bale, state)
 
-        case Act.TEST_GITHUB:
-            return Buzz.testGithub(clone(model), act.bale, state)
+        case Act.FETCH_MERGE_CANDIDATES:
+            return Buzz.fetchMergeCandidates(clone(model), act.bale, state)
+
+        case Act.INSPECT_PR_CAS:
+            return Buzz.inspectPrCas(clone(model), act.bale, state)
+
+        case Act.EXECUTE_MERGE:
+            return Buzz.executeMerge(clone(model), act.bale, state)
 
         case Act.LIST_GITHUB:
             return Buzz.listGithub(clone(model), act.bale, state)
