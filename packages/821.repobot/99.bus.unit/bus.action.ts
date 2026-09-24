@@ -40,9 +40,4 @@ export class CreateBus implements Action {
 }
 
 export type Actions =
-    | InitBus
-    | OpenBus
-    | UpdateBus
-    | ConnectBus
-    | MessageBus
-    | CreateBus
+    InitBus | OpenBus | UpdateBus | ConnectBus | MessageBus | CreateBus
