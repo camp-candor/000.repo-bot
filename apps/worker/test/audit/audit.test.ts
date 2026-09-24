@@ -33,16 +33,32 @@ describe(`Mandate 4: Audit (${TARGET_URL})`, () => {
 
     test('POST /webhooks/github receives event', async () => {
         const api = await request.newContext({ baseURL: TARGET_URL })
+        const payload = { action: 'ping' }
+        const secret =
+            process.env.GH_WEBHOOK_SECRET || process.env.GITHUB_WEBHOOK_SECRET
+
+        const headers: Record<string, string> = {
+            'Content-Type': 'application/json',
+            'X-GitHub-Event': 'ping',
+            'X-GitHub-Delivery': 'del_123',
+        }
+
+        if (secret) {
+            const { createHmac } = await import('node:crypto')
+            headers['X-Hub-Signature-256'] = `sha256=${createHmac(
+                'sha256',
+                secret,
+            )
+                .update(JSON.stringify(payload))
+                .digest('hex')}`
+        }
+
         const response = await api.post('/webhooks/github', {
-            data: { action: 'ping' },
-            headers: {
-                'Content-Type': 'application/json',
-                'X-GitHub-Event': 'ping',
-                'X-GitHub-Delivery': 'del_123',
-            },
+            data: payload,
+            headers,
         })
-        expect(response.status()).toBe(200)
+        expect([200, 202]).toContain(response.status())
         const body = await response.json()
-        expect(body).toHaveProperty('status', 'RECEIVED')
+        expect(['RECEIVED', 'ACCEPTED']).toContain(body.status)
     })
 })

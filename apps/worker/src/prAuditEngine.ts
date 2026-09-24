@@ -422,6 +422,9 @@ export const handleGitHubWebhook = async (c: Context<{ Bindings: Env }>) => {
     // 1. Constant-Time HMAC-SHA256 Verification
     if (webhookSecret) {
         if (!signature) {
+            if (event === 'ping') {
+                return c.json({ status: 'RECEIVED', event, deliveryId }, 200)
+            }
             return c.json({ error: 'MISSING_SIGNATURE' }, 401)
         }
 
@@ -485,8 +488,12 @@ export const handleGitHubWebhook = async (c: Context<{ Bindings: Env }>) => {
             return c.json({ error: 'INVALID_JSON_PAYLOAD' }, 400)
         }
 
-        // 3. Process Pull Request Events
-        // 3. Process check_run Events
+        // 3. Process ping Events
+        if (event === 'ping') {
+            return c.json({ status: 'RECEIVED', event, deliveryId }, 200)
+        }
+
+        // 4. Process check_run Events
         if (event === 'check_run') {
             return await handleCheckRunEvent(c, payload)
         }

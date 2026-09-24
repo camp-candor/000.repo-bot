@@ -56,3 +56,4 @@ jobs:
               run: npm run test:audit:staging --workspace=@camp_candor/agent
               env:
                   STAGING_URL: https://repo-bot-00.berad4000.workers.dev
+                  GH_WEBHOOK_SECRET: ${{ secrets.GH_WEBHOOK_SECRET }}
