@@ -5,9 +5,7 @@ import {
 } from './prAuditEngine.js'
 
 export type RiskClass =
-    | 'CLASS_0_FORBIDDEN'
-    | 'CLASS_1_HIGH_RISK'
-    | 'CLASS_2_LOW_RISK'
+    'CLASS_0_FORBIDDEN' | 'CLASS_1_HIGH_RISK' | 'CLASS_2_LOW_RISK'
 
 export interface FileRiskClassification {
     filename: string
