@@ -13,6 +13,7 @@ export interface Env {
     CLOUDFLARE_AI_GATEWAY_TOKEN?: string
     GITHUB_TOKEN: string
     GITHUB_DEFAULT_OWNER?: string
+    GH_WEBHOOK_SECRET?: string
     GITHUB_WEBHOOK_SECRET?: string
     JULES_API_KEY?: string
     AI: any
