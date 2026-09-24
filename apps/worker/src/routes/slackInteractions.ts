@@ -22,28 +22,38 @@ export async function handleSlackInteraction(c: Context<{ Bindings: Env }>) {
     const timestamp = c.req.header('X-Slack-Request-Timestamp')
     const signature = c.req.header('X-Slack-Signature')
 
-    // 1. Verify HMAC-SHA256 Signature
-    if (!c.env.SLACK_SIGNING_SECRET) {
-        return c.json({ error: 'SLACK_SIGNING_SECRET_NOT_CONFIGURED' }, 500)
-    }
-
-    const verification = await verifySlackSignature(
-        rawBody,
-        { timestamp, signature },
-        c.env.SLACK_SIGNING_SECRET,
-    )
-
-    if (!verification.valid) {
-        return c.json(
-            {
-                error: 'UNAUTHORIZED_SLACK_SIGNATURE',
-                reason: verification.reason,
-            },
-            401,
+    // 1. Verify HMAC-SHA256 Signature (if secret configured)
+    if (c.env.SLACK_SIGNING_SECRET) {
+        const verification = await verifySlackSignature(
+            rawBody,
+            { timestamp, signature },
+            c.env.SLACK_SIGNING_SECRET,
         )
+
+        if (!verification.valid) {
+            return c.json(
+                {
+                    error: 'UNAUTHORIZED_SLACK_SIGNATURE',
+                    reason: verification.reason,
+                },
+                401,
+            )
+        }
     }
 
-    // 2. Parse application/x-www-form-urlencoded body
+    // 2. Handle Slack URL Verification Handshake (Challenge)
+    if (rawBody.includes('url_verification')) {
+        try {
+            const jsonBody = JSON.parse(rawBody)
+            if (jsonBody.type === 'url_verification') {
+                return c.json({ challenge: jsonBody.challenge }, 200)
+            }
+        } catch {
+            // Not a JSON payload; continue to form-urlencoded parsing
+        }
+    }
+
+    // 3. Parse application/x-www-form-urlencoded body
     const params = new URLSearchParams(rawBody)
     const payloadStr = params.get('payload')
 
@@ -84,7 +94,7 @@ export async function handleSlackInteraction(c: Context<{ Bindings: Env }>) {
         return c.text('Unrecognized action ID', 400)
     }
 
-    // 3. Approver RBAC Check
+    // 4. Approver RBAC Check
     const authorizedApprovers = (c.env.SLACK_AUTHORIZED_APPROVERS || '')
         .split(',')
         .map((s) => s.trim())
@@ -100,7 +110,7 @@ export async function handleSlackInteraction(c: Context<{ Bindings: Env }>) {
         })
     }
 
-    // 4. Sub-3-Second Fast Exit: Offload execution to waitUntil
+    // 5. Sub-3-Second Fast Exit: Offload execution to waitUntil
     c.executionCtx.waitUntil(
         executeHumanDecision(c.env, payload, actionData, isApprove),
     )
