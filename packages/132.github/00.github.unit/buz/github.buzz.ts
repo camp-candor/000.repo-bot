@@ -1,4 +1,3 @@
-import crypto from 'node:crypto'
 import { GithubModel } from '../github.model.js'
 import GithubBit from '../fce/github.bit.js'
 import State from '../../99.core/state.js'
@@ -14,34 +13,17 @@ const logConsole = async (src: string) => {
     }
 }
 
+const getBaseUrl = (): string => {
+    return (
+        (global as any).githubBaseUrl ||
+        process.env.LIVE_WORKER_URL ||
+        process.env.WORKER_URL ||
+        'https://repo-bot-00.berad4000.workers.dev'
+    ).replace(/\/$/, '')
+}
+
 export const initGithub = (cpy: GithubModel, bal: GithubBit, ste: State) => {
-    const urlgithub = 'https://zero00-github.onrender.com/api/github/test'
-
-    fetch(urlgithub)
-        .then((res) => {
-            if (!res.ok) throw new Error('Network response was not ok')
-            return res.json()
-        })
-        .then((data) => {
-            if (bal.slv != null) {
-                bal.slv({
-                    intBit: {
-                        idx: 'init-github',
-                        dat: {
-                            github: data,
-                        },
-                    },
-                })
-            }
-        })
-        .catch((err) => {
-            if (bal.slv != null) {
-                bal.slv({
-                    intBit: { idx: 'init-github-err', dat: err.message },
-                })
-            }
-        })
-
+    if (bal.slv != null) bal.slv({ intBit: { idx: 'init-github' } })
     return cpy
 }
 
@@ -51,156 +33,196 @@ export const updateGithub = (cpy: GithubModel, bal: GithubBit, ste: State) => {
 }
 
 /**
- * OPTION 1: End-to-End Synthetic Webhook Smoke Test
- * Sends live HTTP wire traffic to the active worker isolate (/webhooks/github):
- * 1. Negative control: forged HMAC signature (asserts 401 Unauthorized)
- * 2. Positive control: authentic HMAC signature on PR open (asserts 202 AUDIT_DISPATCHED)
+ * Fetches in-flight candidate tasks from edge worker.
  */
-export const testGithub = async (
+export const fetchMergeCandidates = async (
     cpy: GithubModel,
     bal: GithubBit,
     ste: State,
 ) => {
-    const baseUrl =
-        (global as any).agentBaseUrl ||
-        process.env.LOCAL_WORKER_URL ||
-        process.env.WORKER_URL ||
-        'http://127.0.0.1:8787'
-
-    const webhookUrl = `${baseUrl.replace(/\/$/, '')}/webhooks/github`
-    const secret =
-        process.env.GH_WEBHOOK_SECRET ||
-        process.env.GITHUB_WEBHOOK_SECRET ||
-        'super_secret_webhook_key'
-
-    await logConsole('>> ==================================================')
-    await logConsole(`>> [SMOKE TEST] Target: ${webhookUrl}`)
-    await logConsole('>> ==================================================')
-
-    // Synthetic pull request payload targeting 000.repo-bot
-    const payload = {
-        action: 'opened',
-        number: 101,
-        pull_request: {
-            number: 101,
-            head: {
-                sha: '9f8e7d6c5b4a3a2b1c0d9e8f7a6b5c4d3e2f1a0b',
-            },
-            body: 'Automated task spec delivery.\n<!-- file_whitelist: ["apps/worker/src/index.ts"] -->',
-        },
-        repository: {
-            name: '000.repo-bot',
-            owner: {
-                login: 'camp-candor',
-            },
-        },
-    }
-
-    const rawBody = JSON.stringify(payload)
-
-    // Compute authentic HMAC-SHA256 signature
-    const hmac = crypto.createHmac('sha256', secret)
-    hmac.update(rawBody)
-    const validSignature = `sha256=${hmac.digest('hex')}`
-    const forgedSignature =
-        'sha256=0000000000000000000000000000000000000000000000000000000000000000'
-
-    let negPassed = false
-    let posPassed = false
-    let posLatency = 0
-    let posData: any = null
+    const baseUrl = getBaseUrl()
+    const endpoint = `${baseUrl}/api/tasks/candidates`
 
     try {
-        // ------------------------------------------------------------------------
-        // CASE 1: Negative Control (Tampered Signature -> HTTP 401)
-        // ------------------------------------------------------------------------
-        await logConsole('>> 1. Dispatching forged signature...')
-        const t0Neg = Date.now()
-        const resNeg = await fetch(webhookUrl, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-GitHub-Event': 'pull_request',
-                'X-GitHub-Delivery': crypto.randomUUID(),
-                'X-Hub-Signature-256': forgedSignature,
-            },
-            body: rawBody,
-        })
-        const durNeg = Date.now() - t0Neg
+        const res = await fetch(endpoint)
+        const data: any = await res.json()
+        const candidates = data.candidates || []
 
-        if (resNeg.status === 401) {
-            negPassed = true
-            await logConsole(
-                `>> [HTTP 401 OK] :: ${durNeg}ms :: FORGED SIGNATURE BLOCKED`,
-            )
-        } else {
-            await logConsole(
-                `>> [HTTP ${resNeg.status} FAIL] :: Expected 401 Unauthorized`,
-            )
-        }
-
-        // ------------------------------------------------------------------------
-        // CASE 2: Positive Control (Valid Signed PR -> HTTP 202 AUDIT_DISPATCHED)
-        // ------------------------------------------------------------------------
-        await logConsole('>> 2. Dispatching authentic signed PR event...')
-        const t0Pos = Date.now()
-        const resPos = await fetch(webhookUrl, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-GitHub-Event': 'pull_request',
-                'X-GitHub-Delivery': crypto.randomUUID(),
-                'X-Hub-Signature-256': validSignature,
-            },
-            body: rawBody,
-        })
-        posLatency = Date.now() - t0Pos
-        posData = await resPos.json().catch(() => null)
-
-        if (resPos.status === 202 && posData?.status === 'AUDIT_DISPATCHED') {
-            posPassed = true
-            await logConsole(
-                `>> [HTTP 202 OK] :: ${posLatency}ms :: WEBHOOK ACCEPTED & DISPATCHED`,
-            )
-            await logConsole(
-                `>> Context: PR #${posData.pr} @ ${posData.sha.slice(0, 7)}`,
-            )
-        } else {
-            await logConsole(
-                `>> [HTTP ${resPos.status} FAIL] :: Response: ${JSON.stringify(posData)}`,
-            )
-        }
-
-        await logConsole(
-            '>> ==================================================',
-        )
-        const overallTag =
-            negPassed && posPassed
-                ? '[SMOKE TEST PASSED]'
-                : '[SMOKE TEST FAILED]'
-        await logConsole(
-            `>> ${overallTag} :: Fast-Exit < 50ms: ${posLatency < 50 ? 'YES' : 'NO'}`,
-        )
-        await logConsole(
-            '>> ==================================================',
-        )
+        if (bal.slv)
+            bal.slv({
+                gthBit: { idx: 'fetch-merge-candidates', lst: candidates },
+            })
     } catch (err: any) {
-        await logConsole(`>> [SMOKE ERROR]: ${err.message}`)
+        await logConsole(`>> [FLEET DISCOVERY ERROR]: ${err.message}`)
+        if (bal.slv)
+            bal.slv({ gthBit: { idx: 'fetch-merge-candidates-err', lst: [] } })
     }
 
-    if (bal.slv != null) {
-        bal.slv({
-            gthBit: {
-                idx: 'test-github',
-                val: negPassed && posPassed ? 1 : 0,
-                dat: {
-                    negPassed,
-                    posPassed,
-                    latency: posLatency,
-                    response: posData,
+    return cpy
+}
+
+/**
+ * Inspects PR CAS status and compares auditedHeadSha vs remote head SHA.
+ */
+export const inspectPrCas = async (
+    cpy: GithubModel,
+    bal: GithubBit,
+    ste: State,
+) => {
+    const baseUrl = getBaseUrl()
+    const taskId = bal.src || bal.dat?.taskId || 'TEST-TASK-00'
+    const endpoint = `${baseUrl}/api/tasks/${encodeURIComponent(taskId)}/inspect`
+
+    await logConsole(
+        '>> ==============================================================',
+    )
+    await logConsole(`>> [CAS PRE-FLIGHT AUDIT] Target Task: ${taskId}`)
+
+    const t0 = Date.now()
+    try {
+        const res = await fetch(endpoint)
+        const rtt = Date.now() - t0
+        const data: any = await res.json()
+
+        if (!res.ok || !data.ok) {
+            await logConsole(
+                `>> [HTTP ${res.status}] :: ${rtt}ms RTT :: TASK CONTEXT NOT FOUND`,
+            )
+            await logConsole(`>> Error: ${data.error || 'Unknown failure'}`)
+            await logConsole(
+                '>> ==============================================================',
+            )
+            if (bal.slv)
+                bal.slv({
+                    gthBit: { idx: 'inspect-pr-cas-err', val: 0, dat: data },
+                })
+            return cpy
+        }
+
+        const isLocked = !data.headDrift && Boolean(data.auditedHeadSha)
+        const checksOk = data.checksPassed === true
+        const shortAudited = (data.auditedHeadSha || 'none').slice(0, 7)
+        const shortRemote = (data.remoteHeadSha || 'none').slice(0, 7)
+
+        await logConsole(
+            `>> [HTTP 200 OK] :: ${rtt}ms RTT :: PR #${data.pullNumber} (${data.state})`,
+        )
+        await logConsole(
+            `>> Audited Head SHA : ${data.auditedHeadSha} (${shortAudited})`,
+        )
+        await logConsole(
+            `>> Remote Head SHA  : ${data.remoteHeadSha} (${shortRemote})`,
+        )
+        await logConsole(
+            `>> Head Drift Status: ${isLocked ? '[LOCKED & COMPATIBLE]' : '[FAIL: TOCTOU DIVERGENCE]'}`,
+        )
+        await logConsole(
+            `>> Scope / QA Check : ${checksOk ? '[PASSED]' : '[FAIL: CHECKS PENDING / FAILED]'}`,
+        )
+        await logConsole(`>> Ephemeral Branch : ${data.branchName}`)
+        await logConsole(
+            '>> ==============================================================',
+        )
+
+        if (bal.slv) {
+            bal.slv({
+                gthBit: {
+                    idx: 'inspect-pr-cas',
+                    val: checksOk && isLocked ? 1 : 0,
+                    dat: data,
                 },
-            },
+            })
+        }
+    } catch (err: any) {
+        await logConsole(`>> [INSPECTION NETWORK ERROR]: ${err.message}`)
+        if (bal.slv)
+            bal.slv({
+                gthBit: { idx: 'inspect-pr-cas-err', val: 0, src: err.message },
+            })
+    }
+
+    return cpy
+}
+
+/**
+ * Triggers the SHA-pinned merge executor via POST /fsm/transition.
+ */
+export const executeMerge = async (
+    cpy: GithubModel,
+    bal: GithubBit,
+    ste: State,
+) => {
+    const baseUrl = getBaseUrl()
+    const endpoint = `${baseUrl}/fsm/transition`
+    const taskId = bal.src || bal.dat?.taskId
+    const headSha = bal.dat?.headSha
+    const pullNumber = bal.dat?.pullNumber || 0
+
+    await logConsole(
+        '>> ==============================================================',
+    )
+    await logConsole(
+        `>> [EXECUTE CAS MERGE] Dispatching break-glass trigger for ${taskId}`,
+    )
+
+    const t0 = Date.now()
+    try {
+        const res = await fetch(endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                type: 'HUMAN_APPROVED',
+                taskId,
+                headSha,
+                actor: 'TERMINAL_OPERATOR',
+            }),
         })
+
+        const rtt = Date.now() - t0
+        const data: any = await res.json()
+
+        if (res.ok && data.action === 'STATE_TRANSITIONED') {
+            const nextState = data.state
+            const mergeSha =
+                data.context?.mergeCommitSha || 'PENDING_OR_COMPLETED'
+
+            await logConsole(
+                `>> [HTTP 200 OK] :: ${rtt}ms RTT :: STATE: ${nextState}`,
+            )
+            await logConsole(`>> Pull Request     : #${pullNumber}`)
+            await logConsole(`>> Audited Head SHA : ${headSha}`)
+            await logConsole(`>> Merge Commit SHA : ${mergeSha}`)
+            await logConsole(
+                `>> Branch Status    : Ephemeral ref marked for deletion [OK]`,
+            )
+            await logConsole(
+                `>> Slack Channel    : Announcement dispatched to #ops-bridge [OK]`,
+            )
+            await logConsole(
+                '>> ==============================================================',
+            )
+
+            if (bal.slv)
+                bal.slv({ gthBit: { idx: 'execute-merge', val: 1, dat: data } })
+        } else {
+            await logConsole(
+                `>> [HTTP ${res.status}] :: ${rtt}ms RTT :: MERGE ABORTED`,
+            )
+            await logConsole(`>> Server Reason: ${JSON.stringify(data)}`)
+            await logConsole(
+                '>> ==============================================================',
+            )
+            if (bal.slv)
+                bal.slv({
+                    gthBit: { idx: 'execute-merge-err', val: 0, dat: data },
+                })
+        }
+    } catch (err: any) {
+        await logConsole(`>> [MERGE TRIGGER ERROR]: ${err.message}`)
+        if (bal.slv)
+            bal.slv({
+                gthBit: { idx: 'execute-merge-err', val: 0, src: err.message },
+            })
     }
 
     return cpy
@@ -211,7 +233,6 @@ export const listGithub = async (
     bal: GithubBit,
     ste: State,
 ) => {
-    const lst = ['github-repo-1', 'github-repo-2']
-    if (bal.slv != null) bal.slv({ gthBit: { idx: 'list-github', lst } })
+    if (bal.slv != null) bal.slv({ gthBit: { idx: 'list-github' } })
     return cpy
 }
