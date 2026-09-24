@@ -17,6 +17,12 @@ export interface Env {
     JULES_API_KEY?: string
     AI: any
     REPO_BOT_DO: DurableObjectNamespace<RepoBotDO>
+
+    // :: Slack Bridge Credentials (FEAT-04)
+    SLACK_BOT_TOKEN?: string
+    SLACK_SIGNING_SECRET?: string
+    SLACK_CHANNEL_ID?: string
+    SLACK_AUTHORIZED_APPROVERS?: string // Comma-separated Slack User IDs (e.g. "U01234,U56789")
 }
 
 // Helper: GitHub REST API fetcher with deterministic headers
