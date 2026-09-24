@@ -417,8 +417,10 @@ export const handleGitHubWebhook = async (c: Context<{ Bindings: Env }>) => {
     const event = c.req.header('X-GitHub-Event')
     const deliveryId = c.req.header('X-GitHub-Delivery')
 
+    const webhookSecret = c.env.GH_WEBHOOK_SECRET || c.env.GITHUB_WEBHOOK_SECRET
+
     // 1. Constant-Time HMAC-SHA256 Verification
-    if (c.env.GITHUB_WEBHOOK_SECRET) {
+    if (webhookSecret) {
         if (!signature) {
             return c.json({ error: 'MISSING_SIGNATURE' }, 401)
         }
@@ -427,7 +429,7 @@ export const handleGitHubWebhook = async (c: Context<{ Bindings: Env }>) => {
         const encoder = new TextEncoder()
         const key = await crypto.subtle.importKey(
             'raw',
-            encoder.encode(c.env.GITHUB_WEBHOOK_SECRET),
+            encoder.encode(webhookSecret),
             { name: 'HMAC', hash: 'SHA-256' },
             false,
             ['verify'],
