@@ -45,6 +45,10 @@ const init = async () => {
         import.meta.dirname,
         '../../packages/dist/132.github',
     )
+    const slkPath = path.resolve(
+        import.meta.dirname,
+        '../../packages/dist/924.slack',
+    )
 
     try {
         const LIBRARY = require(path.join(libPath, 'hunt'))
@@ -209,6 +213,34 @@ const init = async () => {
                 throw err
             }
 
+            // Register SLACK MENU into the Blessed Menu registry
+            try {
+                const SLACK = require(path.join(slkPath, 'hunt'))
+                global.SLACK = SLACK.default || SLACK
+
+                const MENU_ACTION_SLACK = require(
+                    path.join(slkPath, '98.menu.unit/menu.action'),
+                )
+
+                await LIBRARY.hunt(MENU_ACTION_LIBRARY.ROUTE_MENU, {
+                    idx: 'SLACK MENU',
+                    src: 'Open the Slack menu\nto manage slack.',
+                    fnc: async () => {
+                        await new Promise<void>((resolve) => {
+                            global.SLACK.hunt(MENU_ACTION_SLACK.INIT_MENU, {
+                                slv: resolve,
+                            })
+                        })
+                        await LIBRARY.hunt(MENU_ACTION_LIBRARY.OPEN_MENU, {
+                            src: '',
+                        })
+                    },
+                })
+            } catch (err) {
+                console.error(`exec error loading slack: ${err}`)
+                throw err
+            }
+
             await LIBRARY.hunt(MENU_ACTION_LIBRARY.OPEN_MENU, { src: '' })
         } catch (err) {
             console.error(`exec error loading agent: ${err}`)
@@ -220,12 +252,12 @@ const init = async () => {
     }
 }
 
-// 3. Main Execution Flow: Build library, agent, repobot, cloudflare, jules, and github packages
+// 3. Main Execution Flow: Build library, agent, repobot, cloudflare, jules, github, and slack packages
 const main = async () => {
     try {
         console.log('🔨 Building TypeScript...')
         var { stdout, stderr } = await exec(
-            'tsc -b 995.library ../../packages/000.agent ../../packages/821.repobot ../../packages/822.cloudflare ../../packages/823.jules ../../packages/132.github',
+            'tsc -b 995.library ../../packages/000.agent ../../packages/821.repobot ../../packages/822.cloudflare ../../packages/823.jules ../../packages/132.github ../../packages/924.slack',
             { cwd: import.meta.dirname },
         )
 
