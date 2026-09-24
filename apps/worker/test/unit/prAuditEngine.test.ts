@@ -15,7 +15,7 @@ describe('FEAT-01: Zero-Trust PR Scope Firewall & Diff Auditor', () => {
         CLOUDFLARE_API_TOKEN: 'test-token',
         CLOUDFLARE_AI_GATEWAY: 'test-gw',
         GITHUB_TOKEN: 'test-gh-token',
-        GITHUB_WEBHOOK_SECRET: 'super-secret',
+        GH_WEBHOOK_SECRET: 'super-secret',
         AI: {} as any,
         REPO_BOT_DO: {} as any,
     }

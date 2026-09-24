@@ -13,7 +13,8 @@ export interface Env {
     CLOUDFLARE_AI_GATEWAY_TOKEN?: string
     GITHUB_TOKEN: string
     GITHUB_DEFAULT_OWNER?: string
-    GITHUB_WEBHOOK_SECRET?: string
+    GH_WEBHOOK_SECRET?: string
+    GITHUB_WEBHOOK_SECRET?: string // Optional fallback for backward compatibility
     JULES_API_KEY?: string
     AI: any
     REPO_BOT_DO: DurableObjectNamespace<RepoBotDO>
