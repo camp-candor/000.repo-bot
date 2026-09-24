@@ -277,6 +277,14 @@ export const dispatchTestCard = async (
         `>> [LIVE DISPATCH] Sending Block Kit card to ${channel}...`,
     )
 
+    const buttonPayload = JSON.stringify({
+        taskId: 'TEST-TASK-00',
+        headSha: 'abcdef1234567890',
+        owner: 'camp-candor',
+        repo: '000.repo-bot',
+        pullNumber: 0,
+    })
+
     const t0 = Date.now()
     try {
         const cardPayload = {
@@ -311,10 +319,7 @@ export const dispatchTestCard = async (
                             },
                             style: 'primary',
                             action_id: 'approve_task',
-                            value: JSON.stringify({
-                                taskId: 'TEST-TASK-00',
-                                headSha: 'abcdef1234567890',
-                            }),
+                            value: buttonPayload,
                         },
                         {
                             type: 'button',
@@ -325,10 +330,7 @@ export const dispatchTestCard = async (
                             },
                             style: 'danger',
                             action_id: 'reject_task',
-                            value: JSON.stringify({
-                                taskId: 'TEST-TASK-00',
-                                headSha: 'abcdef1234567890',
-                            }),
+                            value: buttonPayload,
                         },
                     ],
                 },
