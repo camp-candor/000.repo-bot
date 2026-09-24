@@ -52,6 +52,15 @@ export function reducer(
         case Act.LIST_GITHUB:
             return Buzz.listGithub(clone(model), act.bale, state)
 
+        case Act.AUDIT_HASH_CHAIN_INTEGRITY:
+            return Buzz.auditHashChainIntegrity(clone(model), act.bale, state)
+
+        case Act.INSPECT_D1_AUDIT_LOG:
+            return Buzz.inspectD1AuditLog(clone(model), act.bale, state)
+
+        case Act.TRIGGER_COLD_DRAINAGE:
+            return Buzz.triggerColdDrainage(clone(model), act.bale, state)
+
         default:
             return model
     }

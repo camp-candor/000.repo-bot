@@ -479,6 +479,43 @@ export const updateMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
             await new Promise((r) => setTimeout(r, 2000))
             break
 
+        case 'AUDIT HASH CHAIN INTEGRITY (VERIFY PROVENANCE)': {
+            const inputGrid = await global.LIBRARY.hunt(UPDATE_GRID, {
+                x: 0,
+                y: 4,
+                xSpan: 4,
+                ySpan: 4,
+            })
+            const inputBit = await global.LIBRARY.hunt(OPEN_INPUT, {
+                dat: { clr0: Color.BLACK, clr1: Color.YELLOW },
+                src: Align.VERTICAL,
+                lst: [],
+                txt: 'Enter repo slug to verify chain (default: astro-kahn-it-com/001.goblin-lore):',
+                net: inputGrid.grdBit.dat,
+            })
+
+            const targetRepo =
+                inputBit.putBit?.src?.trim() ||
+                'astro-kahn-it-com/001.goblin-lore'
+            await ste.hunt(ActGth.AUDIT_HASH_CHAIN_INTEGRITY, {
+                src: targetRepo,
+            })
+            await new Promise((r) => setTimeout(r, 2500))
+            break
+        }
+
+        case 'INSPECT D1 AUDIT TRAIL (LAST 20)': {
+            await ste.hunt(ActGth.INSPECT_D1_AUDIT_LOG, {})
+            await new Promise((r) => setTimeout(r, 2500))
+            break
+        }
+
+        case 'TRIGGER MANUAL COLD DRAINAGE FLUSH': {
+            await ste.hunt(ActGth.TRIGGER_COLD_DRAINAGE, {})
+            await new Promise((r) => setTimeout(r, 2500))
+            break
+        }
+
         case 'ROOT MENU':
             if (rootSlv != null) rootSlv({ mnuBit: { idx: 'root-menu' } })
             return cpy
