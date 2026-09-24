@@ -375,11 +375,17 @@ export async function auditPullRequest(
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         taskId,
+                        owner,
+                        repo,
+                        pullNumber,
                         auditedHeadSha: headSha,
                         scopeCheckPassed: passed,
                         isHighRiskPath: riskResult.isHighRiskPath,
                         dominantRiskClass: riskResult.dominantClass,
                         lastAuditViolations: violations,
+                        highRiskFiles: riskResult.files
+                            .filter((f) => f.riskClass === 'CLASS_1_HIGH_RISK')
+                            .map((f) => f.filename),
                     }),
                 }),
             )
@@ -505,8 +511,32 @@ export const handleGitHubWebhook = async (c: Context<{ Bindings: Env }>) => {
                 const headSha = pr.head?.sha
                 const baseSha = pr.base?.sha
                 const prBody = pr.body
-
                 const headBranch = pr.head?.ref
+                const taskId = extractTaskIdFromBranch(headBranch)
+
+                // Forward PR_SYNCHRONIZE to invalidate obsolete review cycles if the head commit moved
+                if (
+                    action === 'synchronize' &&
+                    taskId &&
+                    (c.env as any).REPO_BOT_DO
+                ) {
+                    const doId = (c.env as any).REPO_BOT_DO.idFromName(taskId)
+                    const taskDO = (c.env as any).REPO_BOT_DO.get(doId)
+                    c.executionCtx.waitUntil(
+                        taskDO.fetch(
+                            new Request('https://internal/fsm/transition', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({
+                                    type: 'PR_SYNCHRONIZE',
+                                    taskId,
+                                    headSha,
+                                    timestamp: Date.now(),
+                                }),
+                            }),
+                        ),
+                    )
+                }
 
                 // Offload audit to background isolate context
                 c.executionCtx.waitUntil(
