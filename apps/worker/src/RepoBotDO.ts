@@ -1,5 +1,6 @@
 import { DurableObject } from 'cloudflare:workers'
 import { dispatchSlackApprovalCard, updateSlackMessage } from './slackBridge.js'
+import { executeShaPinnedMerge } from './mergeExecutor.js'
 import type { Env } from './tools.js'
 
 export interface WatchedRepo {
@@ -27,6 +28,7 @@ export interface FSMContext {
     updatedAt: number
     slackMessageTs?: string
     slackChannelId?: string
+    mergeCommitSha?: string
 }
 
 export function parseRepoIdentifier(
@@ -276,11 +278,13 @@ export class RepoBotDO extends DurableObject<Env> {
 
             const previousState = context.state
             let nextState = context.state
+            let shouldTriggerMerge = false
 
             // Event A: QUALITY_PASS
             if (body?.type === 'QUALITY_PASS') {
                 if (!context.isHighRiskPath && context.scopeCheckPassed) {
                     nextState = 'MERGING'
+                    shouldTriggerMerge = true
                 } else if (context.isHighRiskPath && context.scopeCheckPassed) {
                     nextState = 'AWAITING_APPROVAL'
                     // Arm 24-hour expiration alarm
@@ -340,10 +344,11 @@ export class RepoBotDO extends DurableObject<Env> {
                 }
             }
 
-            // Event C: HUMAN_APPROVED (from Slack bridge)
+            // Event C: HUMAN_APPROVED (Trigger merge from approval bridge)
             else if (body?.type === 'HUMAN_APPROVED') {
                 if (context.state === 'AWAITING_APPROVAL') {
                     nextState = 'MERGING'
+                    shouldTriggerMerge = true
                 }
             }
 
@@ -375,9 +380,55 @@ export class RepoBotDO extends DurableObject<Env> {
                 context.auditedHeadSha = body.headSha
             }
 
+            // Event F: MERGE_SUCCEEDED / MERGE_FAILED
+            else if (body?.type === 'MERGE_SUCCEEDED') {
+                nextState = 'MERGED'
+                context.mergeCommitSha = body.mergeCommitSha
+            } else if (body?.type === 'MERGE_FAILED') {
+                nextState = 'ROLLING_BACK'
+            }
+
             context.state = nextState
             context.updatedAt = Date.now()
             await this.ctx.storage.put('fsm_context', context)
+
+            // Trigger SHA-Pinned Merge Execution via Outbox
+            if (shouldTriggerMerge) {
+                const mergePayload = {
+                    taskId: context.taskId,
+                    owner: context.owner || body?.owner || 'camp-candor',
+                    repo: context.repo || body?.repo || '000.repo-bot',
+                    pullNumber: context.pullNumber || body?.pullNumber || 0,
+                    auditedHeadSha: context.auditedHeadSha || body.headSha,
+                    actor: body?.actor || 'repo-bot',
+                    slackMessageTs: context.slackMessageTs,
+                    slackChannelId: context.slackChannelId,
+                }
+
+                this.ctx.waitUntil(
+                    executeShaPinnedMerge(mergePayload, this.env).then(
+                        async (result) => {
+                            const updated =
+                                await this.ctx.storage.get<FSMContext>(
+                                    'fsm_context',
+                                )
+                            if (updated) {
+                                updated.state = result.success
+                                    ? 'MERGED'
+                                    : 'ROLLING_BACK'
+                                if (result.mergeCommitSha)
+                                    updated.mergeCommitSha =
+                                        result.mergeCommitSha
+                                updated.updatedAt = Date.now()
+                                await this.ctx.storage.put(
+                                    'fsm_context',
+                                    updated,
+                                )
+                            }
+                        },
+                    ),
+                )
+            }
 
             return new Response(
                 JSON.stringify({
