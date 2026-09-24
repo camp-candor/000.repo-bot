@@ -363,3 +363,98 @@ export async function postSlackMergeAnnouncement(
         return { ok: false, error: err.message }
     }
 }
+export interface EmergencyAlertParams {
+    taskId: string
+    pullNumber?: number
+    mergeCommitSha?: string
+    headSha: string
+    reason: string
+    actor?: string
+    owner?: string
+    repo?: string
+    targetBranch?: string
+}
+
+/**
+ * Distributes a high-visibility emergency rollback alert to #ops-bridge.
+ */
+export async function postSlackEmergencyAlert(
+    params: EmergencyAlertParams,
+    env: Env,
+): Promise<{ ok: boolean; ts?: string; error?: string }> {
+    const token = env.SLACK_BOT_TOKEN
+    const channel = env.SLACK_CHANNEL_ID || '#ops-bridge'
+
+    if (!token) {
+        console.warn(
+            'Slack emergency alert skipped: SLACK_BOT_TOKEN not configured',
+        )
+        return { ok: false, error: 'MISSING_SLACK_BOT_TOKEN' }
+    }
+
+    const repoSlug =
+        params.owner && params.repo
+            ? `${params.owner}/${params.repo}`
+            : '000.repo-bot'
+    const targetBranch = params.targetBranch || 'main'
+    const shortHead = (params.headSha || '0000000').slice(0, 7)
+    const shortMerge = params.mergeCommitSha
+        ? params.mergeCommitSha.slice(0, 7)
+        : 'N/A'
+
+    const payload = {
+        channel,
+        text: `:: [EMERGENCY ROLLBACK] Task ${params.taskId} rolled back on ${targetBranch}`,
+        blocks: [
+            {
+                type: 'header',
+                text: {
+                    type: 'plain_text',
+                    text: `:: CRITICAL: SAGA ROLLBACK EXECUTED (${params.taskId})`,
+                    emoji: false,
+                },
+            },
+            {
+                type: 'section',
+                text: {
+                    type: 'mrkdwn',
+                    text:
+                        `*[ALERT: COMPENSATING SAGA TRIGGERED]*\n` +
+                        `*Repository:* \`${repoSlug}\` | *Trunk Target:* \`${targetBranch}\`\n` +
+                        (params.pullNumber && params.pullNumber > 0
+                            ? `*PR:* <https://github.com/${repoSlug}/pull/${params.pullNumber}|#${params.pullNumber}>\n`
+                            : '') +
+                        `*Candidate SHA:* \`${shortHead}\` | *Merge SHA:* \`${shortMerge}\`\n` +
+                        `*Root Cause:* \`${params.reason}\`\n` +
+                        `*Triggered By:* ${params.actor ? `<@${params.actor}>` : 'System Watchdog'}\n` +
+                        `*Remediation:* [OK] Compensating teardown executed. Ephemeral artifacts dismantled.`,
+                },
+            },
+        ],
+    }
+
+    try {
+        const res = await fetch('https://slack.com/api/chat.postMessage', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json; charset=utf-8',
+            },
+            body: JSON.stringify(payload),
+        })
+
+        const data: any = await res.json()
+        if (!data.ok) {
+            console.error('Slack emergency alert failed:', data.error)
+            return { ok: false, error: data.error }
+        }
+
+        return { ok: true, ts: data.ts }
+    } catch (err: any) {
+        console.error(
+            'Network error dispatching Slack emergency alert:',
+            err.message,
+        )
+        return { ok: false, error: err.message }
+    }
+}
