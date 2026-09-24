@@ -18,7 +18,7 @@ describe('FEAT-04: Human Approval Gate & Slack Review Bridge', () => {
         SLACK_SIGNING_SECRET: mockSigningSecret,
         SLACK_AUTHORIZED_APPROVERS: 'U12345,U67890',
         AI: {} as any,
-    REPO_BOT_DO: {} as any,
+        REPO_BOT_DO: {} as any,
     }
 
     beforeEach(() => {
@@ -150,7 +150,7 @@ describe('FEAT-04: Human Approval Gate & Slack Review Bridge', () => {
                 },
                 env: {
                     ...mockEnv,
-          SLACK_SIGNING_SECRET: 'test-secret', // Added so verification logic can proceed
+                    SLACK_SIGNING_SECRET: 'test-secret', // Added so verification logic can proceed
                     REPO_BOT_DO: {
                         idFromName: vi.fn().mockReturnValue('mock-do-id'),
                         get: vi.fn().mockReturnValue({
@@ -175,7 +175,10 @@ describe('FEAT-04: Human Approval Gate & Slack Review Bridge', () => {
 
         it('rejects unauthorized Slack user clicks', async () => {
             // Mock verifySlackSignature to return true just for RBAC testing
-            const verifySpy = vi.spyOn(await import('../../src/slackBridge.js'), 'verifySlackSignature')
+            const verifySpy = vi.spyOn(
+                await import('../../src/slackBridge.js'),
+                'verifySlackSignature',
+            )
             verifySpy.mockResolvedValue({ valid: true })
 
             const payload = {
@@ -199,12 +202,15 @@ describe('FEAT-04: Human Approval Gate & Slack Review Bridge', () => {
             const encodedBody = `payload=${encodeURIComponent(JSON.stringify(payload))}`
             const ctx = createMockContext(encodedBody)
 
-      const res: any = await handleSlackInteraction(ctx)
+            const res: any = await handleSlackInteraction(ctx)
             expect(JSON.stringify(res.body)).toContain('Unauthorized')
         })
 
         it('accepts authorized approver clicks and dispatches async execution', async () => {
-            const verifySpy = vi.spyOn(await import('../../src/slackBridge.js'), 'verifySlackSignature')
+            const verifySpy = vi.spyOn(
+                await import('../../src/slackBridge.js'),
+                'verifySlackSignature',
+            )
             verifySpy.mockResolvedValue({ valid: true })
 
             const payload = {
@@ -228,9 +234,35 @@ describe('FEAT-04: Human Approval Gate & Slack Review Bridge', () => {
             const encodedBody = `payload=${encodeURIComponent(JSON.stringify(payload))}`
             const ctx = createMockContext(encodedBody)
 
-      const res: any = await handleSlackInteraction(ctx)
+            const res: any = await handleSlackInteraction(ctx)
             expect(JSON.stringify(res.body)).toContain('[PROCESSING]')
             expect(ctx.getExecutedPromise()).not.toBeNull()
+        })
+    })
+    describe('4. URL Verification Challenge Handshake', () => {
+        it('responds with challenge parameter when receiving url_verification', async () => {
+            const body = JSON.stringify({
+                type: 'url_verification',
+                token: 'test-token',
+                challenge: '3eZbrAqagDbOJTF0stAxqqga',
+            })
+
+            const ctx = {
+                req: {
+                    text: async () => body,
+                    header: () => undefined,
+                },
+                env: {
+                    ...mockEnv,
+                    SLACK_SIGNING_SECRET: undefined, // Bypassed for handshake test
+                },
+                json: (data: any, status = 200) => ({ body: data, status }),
+                text: (msg: string, status = 200) => ({ body: msg, status }),
+            } as any
+
+            const res: any = await handleSlackInteraction(ctx)
+            expect(res.status).toBe(200)
+            expect(res.body.challenge).toBe('3eZbrAqagDbOJTF0stAxqqga')
         })
     })
 })
