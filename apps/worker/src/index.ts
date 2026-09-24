@@ -1,4 +1,5 @@
 import { Hono } from 'hono'
+import { handleSlackInteraction } from './routes/slackInteractions.js'
 import { generateCommitMessage } from './commitGenerator.js'
 import { dispatchJulesJob, getJulesSession } from './jules.js'
 import { handleGitHubWebhook } from './prAuditEngine.js'
@@ -92,6 +93,9 @@ app.get('/oracle', async (c) => {
 })
 
 // Clean REST mounts
+app.post('/api/slack/interactions', async (c) => {
+    return await handleSlackInteraction(c)
+})
 app.post('/api/commit-message', generateCommitMessage)
 app.post('/api/jules/dispatch', dispatchJulesJob)
 app.get('/api/jules/session/:id', getJulesSession)
