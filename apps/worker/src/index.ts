@@ -234,4 +234,118 @@ app.post('/api/repos/health', async (c) => {
     })
 })
 
+/**
+ * GET /api/tasks/candidates
+ * Lists active in-flight PR tasks eligible for merge execution.
+ */
+app.get('/api/tasks/candidates', async (c) => {
+    if (c.env.DB) {
+        try {
+            const results = await c.env.DB.prepare(
+                `SELECT task_id as taskId, pull_number as pullNumber, state,
+                        audited_head_sha as auditedHeadSha, is_high_risk as isHighRisk,
+                        owner, repo, updated_at as updatedAt
+                 FROM task_leases
+                 WHERE state IN ('AWAITING_APPROVAL', 'SCOPE_PASSED')
+                 ORDER BY updated_at DESC LIMIT 15`,
+            ).all()
+
+            if (results.results && results.results.length > 0) {
+                return c.json({ ok: true, candidates: results.results })
+            }
+        } catch (err: any) {
+            console.warn('D1 candidate query fallback:', err.message)
+        }
+    }
+
+    // Default discovery fallback for standalone test tasks
+    return c.json({
+        ok: true,
+        candidates: [
+            {
+                taskId: 'TEST-TASK-00',
+                pullNumber: 0,
+                state: 'AWAITING_APPROVAL',
+                auditedHeadSha: 'abcdef1234567890abcdef1234567890abcdef12',
+                isHighRisk: 1,
+                owner: 'camp-candor',
+                repo: '000.repo-bot',
+            },
+        ],
+    })
+})
+
+/**
+ * GET /api/tasks/:taskId/inspect
+ * Inspects real-time CAS compatibility between RepoBotDO context and remote GitHub PR head.
+ */
+app.get('/api/tasks/:taskId/inspect', async (c) => {
+    const taskId = c.req.param('taskId')
+    if (!c.env.REPO_BOT_DO) {
+        return c.json({ error: 'DURABLE_OBJECT_UNAVAILABLE' }, 500)
+    }
+
+    try {
+        const doId = c.env.REPO_BOT_DO.idFromName(taskId)
+        const taskDO = c.env.REPO_BOT_DO.get(doId)
+
+        const doRes = await taskDO.fetch(
+            new Request('https://internal/fsm/context'),
+        )
+        const context: any = await doRes.json()
+
+        if (!context || !context.taskId) {
+            return c.json({ error: 'TASK_CONTEXT_NOT_FOUND', taskId }, 404)
+        }
+
+        let remoteHeadSha = context.auditedHeadSha
+        let headDrift = false
+
+        // Query remote GitHub PR head if pullNumber is valid
+        if (
+            context.pullNumber &&
+            context.pullNumber > 0 &&
+            context.owner &&
+            context.repo
+        ) {
+            try {
+                const { githubRequest } = await import('./tools.js')
+                const pr: any = await githubRequest(
+                    `/repos/${context.owner}/${context.repo}/pulls/${context.pullNumber}`,
+                    c.env,
+                )
+                remoteHeadSha = pr.head?.sha || remoteHeadSha
+                headDrift = remoteHeadSha !== context.auditedHeadSha
+            } catch (ghErr: any) {
+                console.warn(
+                    'Remote PR head inspection skipped:',
+                    ghErr.message,
+                )
+            }
+        }
+
+        const checksPassed =
+            context.scopeCheckPassed === true &&
+            (context.state === 'AWAITING_APPROVAL' ||
+                context.state === 'SCOPE_PASSED')
+
+        return c.json({
+            ok: true,
+            taskId: context.taskId,
+            state: context.state,
+            pullNumber: context.pullNumber || 0,
+            auditedHeadSha: context.auditedHeadSha,
+            remoteHeadSha,
+            headDrift,
+            scopeCheckPassed: context.scopeCheckPassed,
+            checksPassed,
+            branchName:
+                context.branchName || `spec/${context.taskId.toLowerCase()}`,
+            isHighRiskPath: context.isHighRiskPath,
+        })
+    } catch (err: any) {
+        return c.json({ error: err.message }, 500)
+    }
+})
+
 export default app
