@@ -1,17 +1,15 @@
 /* eslint-disable */
 import * as ActMnu from '../menu.action.js'
-import * as ActOlm from '../../00.github.unit/github.action.js'
-import * as ActRepo from '../../02.repo.unit/repo.action.js'
+import * as ActGth from '../../00.github.unit/github.action.js'
 
 import type { MenuModel } from '../menu.model.js'
 import type MenuBit from '../fce/menu.bit.js'
 import type State from '../../99.core/state.js'
 
-import * as Grid from '../../val/grid.js'
 import * as Align from '../../val/align.js'
 import * as Color from '../../val/console-color.js'
 
-let bit: any, lst: string[], src: string
+let bit: any
 let rootSlv: any
 
 const UPDATE_GRID = '[Grid action] Update Grid'
@@ -20,10 +18,19 @@ const UPDATE_CONSOLE = '[Console action] Update Console'
 const OPEN_CHOICE = '[Open action] Open Choice'
 const OPEN_INPUT = '[Open action] Open Input'
 const CLOSE_TERMINAL = '[Close action] Close Terminal'
-const PRINT_MENU = '[Render action] Print Menu'
+
+const getLiveUrl = () =>
+    (
+        process.env.LIVE_WORKER_URL ||
+        process.env.WORKER_URL ||
+        'https://repo-bot-00.berad4000.workers.dev'
+    ).replace(/\/$/, '')
 
 export const initMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
     if (bal.slv != null) rootSlv = bal.slv
+
+    if (!cpy.activeBaseUrl) cpy.activeBaseUrl = getLiveUrl()
+    ;(global as any).githubBaseUrl = cpy.activeBaseUrl
 
     bit = await global.LIBRARY.hunt(UPDATE_GRID, {
         x: 4,
@@ -34,20 +41,24 @@ export const initMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
     bit = await global.LIBRARY.hunt(WRITE_CONSOLE, {
         idx: 'cns00',
         src: '',
-        dat: { net: bit.grdBit.dat, src: 'alligator0' },
+        dat: { net: bit.grdBit.dat, src: 'github0' },
     })
 
-    bit = await global.LIBRARY.hunt(UPDATE_CONSOLE, {
+    await global.LIBRARY.hunt(UPDATE_CONSOLE, {
         idx: 'cns00',
-        src: '-----------',
+        src: '--------------------------------------------------',
     })
-    bit = await global.LIBRARY.hunt(UPDATE_CONSOLE, {
+    await global.LIBRARY.hunt(UPDATE_CONSOLE, {
         idx: 'cns00',
-        src: 'GITHUB & REPO CONTROL MENU',
+        src: 'REPO-BOT FLEET GIT OPERATIONS & MERGE FLIGHT DECK',
     })
-    bit = await global.LIBRARY.hunt(UPDATE_CONSOLE, {
+    await global.LIBRARY.hunt(UPDATE_CONSOLE, {
         idx: 'cns00',
-        src: '-----------',
+        src: `EDGE ISOLATE TARGET: ${cpy.activeBaseUrl}`,
+    })
+    await global.LIBRARY.hunt(UPDATE_CONSOLE, {
+        idx: 'cns00',
+        src: '--------------------------------------------------',
     })
 
     await updateMenu(cpy, bal, ste)
@@ -55,39 +66,24 @@ export const initMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
 }
 
 export const updateMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
-    const SMOKE_TEST_LABEL = 'RUN WEBHOOK SMOKE TEST'
-    const WATCH_REPO_LABEL = 'WATCH REPOSITORY'
-    const LIST_REPOS_LABEL = 'LIST WATCHED REPOS'
-    const DELETE_REPO_LABEL = 'DELETE WATCHED REPO'
-    const READ_REPO_LABEL = 'INSPECT SPECIFIC REPO'
-    const HEALTH_REPO_LABEL = 'AUDIT FLEET CI HEALTH'
-
-    lst = [
-        ActOlm.UPDATE_GITHUB.split(']')[1],
-        SMOKE_TEST_LABEL,
-        WATCH_REPO_LABEL,
-        LIST_REPOS_LABEL,
-        DELETE_REPO_LABEL,
-        READ_REPO_LABEL,
-        HEALTH_REPO_LABEL,
+    const lst = [
+        'FLEET MERGE CONTROLLER (SELECT IN-FLIGHT PR)',
+        'INSPECT CANDIDATE PR CAS STATUS',
+        '[TEST/MOCK] SIMULATE CUSTOM TASK MERGE...',
+        '[TEST/MOCK] RECONCILE STUCK MERGING TASKS',
         'ROOT MENU',
     ]
 
     const descriptions: Record<string, string> = {
-        [ActOlm.UPDATE_GITHUB.split(']')[1]]: 'Update GitHub configuration.',
-        [SMOKE_TEST_LABEL]:
-            'Fire negative (401) and positive (202)\nsynthetic signed PR webhook to isolate.',
-        [WATCH_REPO_LABEL]:
-            'Add a repository to the Durable Object\nwatchlist for continuous tracking.',
-        [LIST_REPOS_LABEL]:
-            'Display all repositories currently stored\nin the Durable Object watchlist.',
-        [DELETE_REPO_LABEL]:
-            'Remove a tracked repository from the\nDurable Object watchlist.',
-        [READ_REPO_LABEL]:
-            'Directly inspect commit and CI checks for a\nsingle repository on demand.',
-        [HEALTH_REPO_LABEL]:
-            'Audit CI test pass/fail status across the\nentire tracked repository fleet.',
-        'ROOT MENU': 'Return to the main runner menu.',
+        'FLEET MERGE CONTROLLER (SELECT IN-FLIGHT PR)':
+            'Browse in-flight candidates from D1, inspect CAS integrity, and execute merge.',
+        'INSPECT CANDIDATE PR CAS STATUS':
+            'Read-only check of auditedHeadSha vs remote head to verify 0-byte drift.',
+        '[TEST/MOCK] SIMULATE CUSTOM TASK MERGE...':
+            'Input custom task ID to trigger authenticated out-of-band merge execution.',
+        '[TEST/MOCK] RECONCILE STUCK MERGING TASKS':
+            'Probe already-merged PRs to resolve network partitions and self-heal DO state.',
+        'ROOT MENU': 'Return to the main runner switchboard.',
     }
 
     bit = await global.LIBRARY.hunt(UPDATE_GRID, {
@@ -96,17 +92,15 @@ export const updateMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
         xSpan: 4,
         ySpan: 8,
     })
-    bit = await global.LIBRARY.hunt(OPEN_CHOICE, {
+
+    const choiceBit = await global.LIBRARY.hunt(OPEN_CHOICE, {
         dat: {
             clr0: Color.BLACK,
             clr1: Color.YELLOW,
             cb: (choice: string) => {
                 const text = descriptions[choice] || 'No description available.'
-                text.split('\n').forEach((line) =>
-                    global.LIBRARY.hunt(UPDATE_CONSOLE, {
-                        idx: 'cns00',
-                        src: line,
-                    }),
+                text.split('\n').forEach((src) =>
+                    global.LIBRARY.hunt(UPDATE_CONSOLE, { idx: 'cns00', src }),
                 )
             },
         },
@@ -115,138 +109,163 @@ export const updateMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
         net: bit.grdBit.dat,
     })
 
-    src = bit.chcBit.src
+    const src = choiceBit.chcBit.src
 
     switch (src) {
-        case ActOlm.UPDATE_GITHUB.split(']')[1]:
-            bit = await ste.hunt(ActOlm.UPDATE_GITHUB, {
-                content: 'Github Menu Selected',
+        case 'FLEET MERGE CONTROLLER (SELECT IN-FLIGHT PR)': {
+            // 1. Discover in-flight candidates
+            await global.LIBRARY.hunt(UPDATE_CONSOLE, {
+                idx: 'cns00',
+                src: '>> Polling live edge worker for merge-ready candidates...',
             })
-            bit = await global.LIBRARY.hunt(PRINT_MENU, bit)
-            break
 
-        case SMOKE_TEST_LABEL:
-        case ActOlm.TEST_GITHUB.split(']')[1]:
-            bit = await ste.hunt(ActOlm.TEST_GITHUB, {
-                content: 'Smoke Test Dispatched',
-            })
-            await new Promise((resolve) => setTimeout(resolve, 2500))
-            break
+            let candidates: any[] = []
+            const fetchRes: any = await ste.hunt(
+                ActGth.FETCH_MERGE_CANDIDATES,
+                {},
+            )
+            candidates = fetchRes.gthBit?.lst || []
 
-        case WATCH_REPO_LABEL: {
-            bit = await global.LIBRARY.hunt(UPDATE_GRID, {
+            if (candidates.length === 0) {
+                await global.LIBRARY.hunt(UPDATE_CONSOLE, {
+                    idx: 'cns00',
+                    src: '>> [FLEET NOTICE] No tasks currently in AWAITING_APPROVAL or SCOPE_PASSED.',
+                })
+                await new Promise((r) => setTimeout(r, 1500))
+                break
+            }
+
+            const candidateChoices = candidates.map(
+                (c) =>
+                    `[PR #${c.pullNumber || 0}] ${c.taskId} | ${c.state} | ${(c.auditedHeadSha || 'none').slice(0, 7)}`,
+            )
+            candidateChoices.push('[-- CANCEL / RETURN --]')
+
+            const candidateGrid = await global.LIBRARY.hunt(UPDATE_GRID, {
                 x: 0,
                 y: 4,
                 xSpan: 4,
-                ySpan: 6,
+                ySpan: 8,
+            })
+            const selectedCandidate = await global.LIBRARY.hunt(OPEN_CHOICE, {
+                dat: { clr0: Color.BLACK, clr1: Color.CYAN },
+                src: Align.VERTICAL,
+                lst: candidateChoices,
+                net: candidateGrid.grdBit.dat,
+            })
+
+            const choiceText = selectedCandidate.chcBit.src
+            if (choiceText === '[-- CANCEL / RETURN --]') break
+
+            const selectedTask = candidates.find((c) =>
+                choiceText.includes(c.taskId),
+            )
+            if (!selectedTask) break
+
+            // 2. Pre-Flight CAS Inspection
+            const inspectRes: any = await ste.hunt(ActGth.INSPECT_PR_CAS, {
+                src: selectedTask.taskId,
+                dat: selectedTask,
+            })
+
+            const isEligible = inspectRes.gthBit?.val === 1
+            if (!isEligible) {
+                await global.LIBRARY.hunt(UPDATE_CONSOLE, {
+                    idx: 'cns00',
+                    src: '>> [MERGE REFUSED]: Candidate has not cleared checks or has remote head drift.',
+                })
+                await new Promise((r) => setTimeout(r, 2500))
+                break
+            }
+
+            // 3. Confirm Execution
+            const confirmGrid = await global.LIBRARY.hunt(UPDATE_GRID, {
+                x: 0,
+                y: 4,
+                xSpan: 4,
+                ySpan: 4,
+            })
+            const confirmChoice = await global.LIBRARY.hunt(OPEN_CHOICE, {
+                dat: { clr0: Color.BLACK, clr1: Color.GREEN },
+                src: Align.VERTICAL,
+                lst: ['CONFIRM SQUASH MERGE & RELEASE', 'CANCEL'],
+                net: confirmGrid.grdBit.dat,
+            })
+
+            if (confirmChoice.chcBit.src === 'CONFIRM SQUASH MERGE & RELEASE') {
+                await ste.hunt(ActGth.EXECUTE_MERGE, {
+                    src: selectedTask.taskId,
+                    dat: {
+                        taskId: selectedTask.taskId,
+                        headSha: selectedTask.auditedHeadSha,
+                        pullNumber: selectedTask.pullNumber,
+                    },
+                })
+                await new Promise((r) => setTimeout(r, 2500))
+            }
+            break
+        }
+
+        case 'INSPECT CANDIDATE PR CAS STATUS': {
+            const inputGrid = await global.LIBRARY.hunt(UPDATE_GRID, {
+                x: 0,
+                y: 4,
+                xSpan: 4,
+                ySpan: 4,
             })
             const inputBit = await global.LIBRARY.hunt(OPEN_INPUT, {
                 dat: { clr0: Color.BLACK, clr1: Color.YELLOW },
                 src: Align.VERTICAL,
                 lst: [],
-                txt: 'Enter GitHub Repo URL (e.g. https://github.com/camp-candor/000.server)',
-                net: bit.grdBit.dat,
+                txt: 'Enter Task ID to inspect (e.g. TEST-TASK-00)',
+                net: inputGrid.grdBit.dat,
             })
-            const inputUrl = inputBit.putBit?.src
-            if (inputUrl && inputUrl.trim().length > 0) {
-                await ste.hunt(ActRepo.WRITE_REPO, { src: inputUrl.trim() })
-                await new Promise((resolve) => setTimeout(resolve, 2000))
+
+            const targetTask = inputBit.putBit?.src?.trim()
+            if (targetTask) {
+                await ste.hunt(ActGth.INSPECT_PR_CAS, { src: targetTask })
+                await new Promise((r) => setTimeout(r, 2000))
             }
             break
         }
 
-        case LIST_REPOS_LABEL:
-            await ste.hunt(ActRepo.LIST_REPO, {})
-            await new Promise((resolve) => setTimeout(resolve, 2500))
-            break
-
-        case DELETE_REPO_LABEL: {
-            const listBit = await ste.hunt(ActRepo.LIST_REPO, {})
-            const watchedList: string[] = listBit.repoBit?.lst || []
-
-            if (watchedList.length === 0) {
-                await global.LIBRARY.hunt(UPDATE_CONSOLE, {
-                    idx: 'cns00',
-                    src: '>> Watchlist is empty. Nothing to delete.',
-                })
-                await new Promise((resolve) => setTimeout(resolve, 1500))
-                break
-            }
-
-            const deleteChoices = [...watchedList, 'CANCEL']
-            bit = await global.LIBRARY.hunt(UPDATE_GRID, {
+        case '[TEST/MOCK] SIMULATE CUSTOM TASK MERGE...': {
+            const inputGrid = await global.LIBRARY.hunt(UPDATE_GRID, {
                 x: 0,
                 y: 4,
                 xSpan: 4,
-                ySpan: Math.min(12, Math.max(6, deleteChoices.length + 2)),
+                ySpan: 4,
             })
-            const deleteChoiceBit = await global.LIBRARY.hunt(OPEN_CHOICE, {
-                dat: { clr0: Color.BLACK, clr1: Color.RED },
-                src: Align.VERTICAL,
-                lst: deleteChoices,
-                net: bit.grdBit.dat,
-            })
-            const targetToDelete = deleteChoiceBit.chcBit.src
-
-            if (targetToDelete && targetToDelete !== 'CANCEL') {
-                await ste.hunt(ActRepo.DELETE_REPO, { src: targetToDelete })
-                await new Promise((resolve) => setTimeout(resolve, 2000))
-            }
-            break
-        }
-
-        case READ_REPO_LABEL: {
-            const listBit = await ste.hunt(ActRepo.LIST_REPO, {})
-            const watchedList: string[] = listBit.repoBit?.lst || []
-            const inspectChoices = [...watchedList, 'CUSTOM REPO URL', 'CANCEL']
-
-            bit = await global.LIBRARY.hunt(UPDATE_GRID, {
-                x: 0,
-                y: 4,
-                xSpan: 4,
-                ySpan: Math.min(12, Math.max(6, inspectChoices.length + 2)),
-            })
-            const inspectChoiceBit = await global.LIBRARY.hunt(OPEN_CHOICE, {
+            const inputBit = await global.LIBRARY.hunt(OPEN_INPUT, {
                 dat: { clr0: Color.BLACK, clr1: Color.YELLOW },
                 src: Align.VERTICAL,
-                lst: inspectChoices,
-                net: bit.grdBit.dat,
+                lst: [],
+                txt: 'Enter Task ID to merge (e.g. TEST-TASK-00)',
+                net: inputGrid.grdBit.dat,
             })
-            const chosenTarget = inspectChoiceBit.chcBit.src
 
-            if (chosenTarget === 'CANCEL') break
-
-            if (chosenTarget === 'CUSTOM REPO URL') {
-                bit = await global.LIBRARY.hunt(UPDATE_GRID, {
-                    x: 0,
-                    y: 4,
-                    xSpan: 4,
-                    ySpan: 6,
+            const customId = inputBit.putBit?.src?.trim()
+            if (customId) {
+                await ste.hunt(ActGth.EXECUTE_MERGE, {
+                    src: customId,
+                    dat: {
+                        taskId: customId,
+                        headSha: 'abcdef1234567890abcdef1234567890abcdef12',
+                        pullNumber: 0,
+                    },
                 })
-                const inputBit = await global.LIBRARY.hunt(OPEN_INPUT, {
-                    dat: { clr0: Color.BLACK, clr1: Color.YELLOW },
-                    src: Align.VERTICAL,
-                    lst: [],
-                    txt: 'Enter GitHub Repo URL or slug (e.g. slopratchet/000.alligator.ink)',
-                    net: bit.grdBit.dat,
-                })
-                const customTarget = inputBit.putBit?.src
-                if (customTarget && customTarget.trim().length > 0) {
-                    await ste.hunt(ActRepo.READ_REPO, {
-                        src: customTarget.trim(),
-                    })
-                    await new Promise((resolve) => setTimeout(resolve, 3000))
-                }
-            } else if (chosenTarget) {
-                await ste.hunt(ActRepo.READ_REPO, { src: chosenTarget })
-                await new Promise((resolve) => setTimeout(resolve, 3000))
+                await new Promise((r) => setTimeout(r, 2000))
             }
             break
         }
 
-        case HEALTH_REPO_LABEL:
-            await ste.hunt(ActRepo.HEALTH_REPO, {})
-            await new Promise((resolve) => setTimeout(resolve, 3500))
+        case '[TEST/MOCK] RECONCILE STUCK MERGING TASKS':
+            await global.LIBRARY.hunt(UPDATE_CONSOLE, {
+                idx: 'cns00',
+                src: '>> Scanning DO fleet for stranded MERGING states...',
+            })
+            await ste.hunt(ActGth.INSPECT_PR_CAS, { src: 'TEST-TASK-00' })
+            await new Promise((r) => setTimeout(r, 2000))
             break
 
         case 'ROOT MENU':
