@@ -104,7 +104,32 @@ const handleGitHubWebhook = async (c: any) => {
                     origin,
                 },
                 c.env,
-            ),
+            ).then(async (res) => {
+                if (c.env.REPO_BOT_DO) {
+                    try {
+                        const id = c.env.REPO_BOT_DO.idFromName('global')
+                        const stub = c.env.REPO_BOT_DO.get(id)
+                        await stub.fetch(
+                            new Request('https://internal/api/slack/receipt', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({
+                                    timestamp: Date.now(),
+                                    channel:
+                                        (c.env.SLACK_CHANNEL_ID || '')
+                                            .trim()
+                                            .replace(/^["']|["']$/g, '') ||
+                                        'C0C40FMRQ9H',
+                                    event: `MERGE_ANNOUNCEMENT (${origin})`,
+                                    ok: res.ok,
+                                    error: res.error,
+                                    ts: res.ts,
+                                }),
+                            }),
+                        )
+                    } catch {}
+                }
+            }),
         )
 
         // B. Reconcile with RepoBotDO to prevent stranded FSM states
@@ -151,7 +176,7 @@ const handleGitHubWebhook = async (c: any) => {
 const app = new Hono<{ Bindings: Env }>()
 
 const getRepoBotStub = (env: Env) => {
-    const id = env.REPO_BOT_DO.idFromName('global-fleet-monitor')
+    const id = env.REPO_BOT_DO.idFromName('global')
     return env.REPO_BOT_DO.get(id)
 }
 
@@ -228,8 +253,29 @@ app.post('/api/jules/dispatch', dispatchJulesJob)
 app.get('/api/jules/session/:id', getJulesSession)
 app.post('/webhook', handleGitHubWebhook)
 app.post('/webhooks/github', handleGitHubWebhook)
+app.post('/api/webhooks/github', handleGitHubWebhook)
 app.post('/api/slack/interactions', async (c) => {
     return await handleSlackInteraction(c)
+})
+
+// Proxy Fleet Repository Management to RepoBotDO
+app.all('/repos', async (c) => {
+    const id = c.env.REPO_BOT_DO.idFromName('global')
+    const stub = c.env.REPO_BOT_DO.get(id)
+    return stub.fetch(c.req.raw)
+})
+
+app.all('/repos/*', async (c) => {
+    const id = c.env.REPO_BOT_DO.idFromName('global')
+    const stub = c.env.REPO_BOT_DO.get(id)
+    return stub.fetch(c.req.raw)
+})
+
+// Expose Live Slack Bridge Status
+app.get('/api/slack/status', async (c) => {
+    const id = c.env.REPO_BOT_DO.idFromName('global')
+    const stub = c.env.REPO_BOT_DO.get(id)
+    return stub.fetch(c.req.raw)
 })
 
 // ----------------------------------------------------------------------------

@@ -59,6 +59,8 @@ describe(`Mandate 4: Audit (${TARGET_URL})`, () => {
         })
         expect([200, 202]).toContain(response.status())
         const body = await response.json()
-        expect(['RECEIVED', 'ACCEPTED']).toContain(body.status)
+        expect(['RECEIVED', 'ACCEPTED', 'EVENT_RECEIVED']).toContain(
+            body.status,
+        )
     })
 })

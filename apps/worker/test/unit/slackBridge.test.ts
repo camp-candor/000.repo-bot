@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import {
     verifySlackSignature,
     buildApprovalBlockKit,
+    sanitizeChannelId,
 } from '../../src/slackBridge.js'
 import { handleSlackInteraction } from '../../src/routes/slackInteractions.js'
 import * as tools from '../../src/tools.js'
@@ -304,6 +305,17 @@ describe('FEAT-04: Human Approval Gate & Slack Review Bridge', () => {
             const res: any = await handleSlackInteraction(ctx)
             expect(res.status).toBe(200)
             expect(res.body.challenge).toBe('3eZbrAqagDbOJTF0stAxqqga')
+        })
+    })
+
+    describe('5. Slack Channel Sanitization', () => {
+        it('strips quotes and whitespace and defaults to C0C40FMRQ9H', () => {
+            expect(sanitizeChannelId('"C12345"')).toBe('C12345')
+            expect(sanitizeChannelId("'C67890'")).toBe('C67890')
+            expect(sanitizeChannelId('  "C12345"  ')).toBe('C12345')
+            expect(sanitizeChannelId('#ops-bridge')).toBe('C0C40FMRQ9H')
+            expect(sanitizeChannelId('')).toBe('C0C40FMRQ9H')
+            expect(sanitizeChannelId(undefined)).toBe('C0C40FMRQ9H')
         })
     })
 })

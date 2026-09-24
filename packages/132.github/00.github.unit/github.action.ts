@@ -73,6 +73,19 @@ export class ListGithub implements Action {
     constructor(public bale: GithubBit) {}
 }
 
+export const AUDIT_GITHUB_TOKEN = '[Github action] Audit Github Token'
+export class AuditGithubToken implements Action {
+    readonly type = AUDIT_GITHUB_TOKEN
+    constructor(public bale: GithubBit) {}
+}
+
+export const CHECK_SLACK_BRIDGE_STATUS =
+    '[Github action] Check Slack Bridge Status'
+export class CheckSlackBridgeStatus implements Action {
+    readonly type = CHECK_SLACK_BRIDGE_STATUS
+    constructor(public bale: GithubBit) {}
+}
+
 export type Actions =
     | InitGithub
     | UpdateGithub
@@ -85,4 +98,6 @@ export type Actions =
     | ExecuteHardReset
     | RegisterWatchedRepo
     | ListWatchedRepos
+    | AuditGithubToken
+    | CheckSlackBridgeStatus
     | ListGithub

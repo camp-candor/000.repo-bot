@@ -43,6 +43,12 @@ export function reducer(
         case Act.LIST_WATCHED_REPOS:
             return Buzz.listWatchedRepos(clone(model), act.bale, state)
 
+        case Act.AUDIT_GITHUB_TOKEN:
+            return Buzz.auditGithubToken(clone(model), act.bale, state)
+
+        case Act.CHECK_SLACK_BRIDGE_STATUS:
+            return Buzz.checkSlackBridgeStatus(clone(model), act.bale, state)
+
         case Act.LIST_GITHUB:
             return Buzz.listGithub(clone(model), act.bale, state)
 

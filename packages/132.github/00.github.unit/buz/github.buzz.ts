@@ -7,12 +7,61 @@ import State from '../../99.core/state.js'
 const execAsync = promisify(exec)
 const UPDATE_CONSOLE = '[Console action] Update Console'
 
-const logConsole = async (src: string) => {
-    if ((global as any).LIBRARY) {
+export const logConsole = async (src: string, maxLen = 56) => {
+    if (!(global as any).LIBRARY) return
+
+    if (
+        src.length <= maxLen ||
+        src.startsWith('>> ===') ||
+        src.startsWith('>> ---')
+    ) {
         await (global as any).LIBRARY.hunt(UPDATE_CONSOLE, {
             idx: 'cns00',
             src,
         })
+        return
+    }
+
+    const words = src.split(' ')
+    let currentLine = ''
+
+    for (const word of words) {
+        if ((currentLine + ' ' + word).length > maxLen) {
+            await (global as any).LIBRARY.hunt(UPDATE_CONSOLE, {
+                idx: 'cns00',
+                src: currentLine,
+            })
+            currentLine = '>>    ' + word
+        } else {
+            currentLine = currentLine ? `${currentLine} ${word}` : word
+        }
+    }
+    if (currentLine) {
+        await (global as any).LIBRARY.hunt(UPDATE_CONSOLE, {
+            idx: 'cns00',
+            src: currentLine,
+        })
+    }
+}
+
+export async function parseSafeResponse(
+    res: Response,
+): Promise<{ ok: boolean; status: number; data: any; raw: string }> {
+    const status = res.status
+    const raw = (await res.text()).trim()
+    let data: any = null
+
+    try {
+        data = JSON.parse(raw)
+    } catch {
+        data = null
+    }
+
+    return {
+        ok: res.ok,
+        status,
+        data,
+        raw,
     }
 }
 
@@ -493,7 +542,7 @@ export const listGithub = async (
 }
 
 /**
- * Automates GitHub webhook provisioning and edge DO registration in a single step.
+ * Automates GitHub webhook provisioning, edge DO registration, and ping test in three phases.
  */
 export const registerWatchedRepo = async (
     cpy: GithubModel,
@@ -516,7 +565,7 @@ export const registerWatchedRepo = async (
 
     if (!owner || !repo) {
         await logConsole(
-            `>> [ERROR] Invalid repository format: "${rawInput}". Expected "owner/repo" or full URL`,
+            `>> [ERROR] Invalid repository: "${rawInput}". Expected owner/repo or full URL`,
         )
         if (bal.slv)
             bal.slv({ gthBit: { idx: 'register-watched-repo-err', val: 0 } })
@@ -537,14 +586,15 @@ export const registerWatchedRepo = async (
     )
 
     let hookCreated = false
+    let hookId: number | null = null
 
-    // STEP 1: Automate GitHub Webhook Creation via REST API
+    // STEP 1/3: GitHub REST API Webhook Creation
     await logConsole(
-        `>> [STEP 1/2] Installing GitHub Webhook on ${owner}/${repo}...`,
+        `>> [STEP 1/3] Installing GitHub Webhook on ${owner}/${repo}...`,
     )
     if (!ghToken) {
         await logConsole(
-            '>> [WARNING] GITHUB_TOKEN not found in terminal env. Skipping GitHub webhook creation.',
+            '>> [WARNING] GITHUB_TOKEN not found in env. Skipping GitHub webhook creation.',
         )
     } else {
         const t0 = Date.now()
@@ -580,37 +630,39 @@ export const registerWatchedRepo = async (
             )
 
             const rtt = Date.now() - t0
-            const hookData: any = await hookRes.json()
+            const parsedHook = await parseSafeResponse(hookRes)
 
-            if (hookRes.status === 201) {
+            if (parsedHook.status === 201) {
+                hookId = parsedHook.data?.id
                 await logConsole(
-                    `>> [WEBHOOK INSTALLED] ID: ${hookData.id} [OK] (${rtt}ms RTT)`,
+                    `>> [WEBHOOK INSTALLED] ID: ${hookId} [OK] (${rtt}ms RTT)`,
                 )
                 hookCreated = true
             } else if (
-                hookRes.status === 422 &&
-                hookData.errors?.[0]?.message?.includes('already exists')
+                parsedHook.status === 422 &&
+                parsedHook.raw.includes('already exists')
             ) {
                 await logConsole(
-                    `>> [WEBHOOK EXISTS] Repository already configured with webhook [OK] (${rtt}ms RTT)`,
+                    `>> [WEBHOOK EXISTS] Repository already configured [OK] (${rtt}ms RTT)`,
                 )
                 hookCreated = true
             } else {
                 await logConsole(
-                    `>> [WEBHOOK WARNING] GitHub returned HTTP ${hookRes.status}: ${hookData.message || 'Error'}`,
+                    `>> [WEBHOOK ERROR: HTTP ${parsedHook.status}]`,
                 )
+                await logConsole(`>> ${parsedHook.raw.slice(0, 100)}`)
             }
         } catch (hookErr: any) {
-            await logConsole(`>> [WEBHOOK ERROR]: ${hookErr.message}`)
+            await logConsole(`>> [WEBHOOK NETWORK ERROR]: ${hookErr.message}`)
         }
     }
 
-    // STEP 2: Register in Edge Durable Object Control Plane
+    // STEP 2/3: Edge Control Plane Registration
     await logConsole(
         '>> --------------------------------------------------------------',
     )
     await logConsole(
-        `>> [STEP 2/2] Registering in Repo-Bot Edge Control Plane...`,
+        `>> [STEP 2/3] Registering in Repo-Bot Edge Control Plane...`,
     )
 
     const t1 = Date.now()
@@ -624,50 +676,31 @@ export const registerWatchedRepo = async (
         })
 
         const rtt = Date.now() - t1
-        const doData: any = await doRes.json()
+        const parsedDo = await parseSafeResponse(doRes)
 
-        if (doRes.ok) {
+        if (parsedDo.ok && parsedDo.data) {
             await logConsole(
-                `>> [DO REGISTERED] Target: ${doData.repo?.id || `${owner}/${repo}`} [OK] (${rtt}ms RTT)`,
+                `>> [DO REGISTERED] Target: ${parsedDo.data.repo?.id || `${owner}/${repo}`} [OK] (${rtt}ms RTT)`,
             )
-            await logConsole(
-                '>> --------------------------------------------------------------',
-            )
-            await logConsole(
-                `>> [STATUS] SURVEILLANCE ACTIVE. Events streaming to #ops-bridge.`,
-            )
-            await logConsole(
-                '>> ==============================================================',
-            )
-            if (bal.slv)
-                bal.slv({
-                    gthBit: {
-                        idx: 'register-watched-repo',
-                        val: 1,
-                        dat: { hookCreated, doData },
-                    },
-                })
         } else {
             await logConsole(
-                `>> [DO ERROR] HTTP ${doRes.status}: ${doData.error || 'Failed to register'}`,
+                `>> [DO REGISTRATION FAILED: HTTP ${parsedDo.status}]`,
             )
             await logConsole(
-                '>> ==============================================================',
+                `>> Raw Output: ${parsedDo.raw.slice(0, 120) || '(empty response)'}`,
             )
             if (bal.slv)
                 bal.slv({
                     gthBit: {
                         idx: 'register-watched-repo-err',
                         val: 0,
-                        dat: doData,
+                        dat: parsedDo,
                     },
                 })
+            return cpy
         }
     } catch (doErr: any) {
         await logConsole(`>> [DO NETWORK ERROR]: ${doErr.message}`)
-        await logConsole(
-            '>> ==============================================================',
-        )
         if (bal.slv)
             bal.slv({
                 gthBit: {
@@ -676,8 +709,54 @@ export const registerWatchedRepo = async (
                     src: doErr.message,
                 },
             })
+        return cpy
     }
 
+    // STEP 3/3: Dispatch Live Webhook Ping Test
+    await logConsole(
+        '>> --------------------------------------------------------------',
+    )
+    await logConsole(`>> [STEP 3/3] Emitting Instant Webhook Ping Test...`)
+    if (hookId && ghToken) {
+        try {
+            const pingRes = await fetch(
+                `https://api.github.com/repos/${owner}/${repo}/hooks/${hookId}/pings`,
+                {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `token ${ghToken}`,
+                        'Accept': 'application/vnd.github+json',
+                        'User-Agent': 'Repo-Bot-Flight-Deck',
+                    },
+                },
+            )
+            if (pingRes.status === 204) {
+                await logConsole(
+                    `>> [PING SUCCESS] GitHub reached edge endpoint [OK]`,
+                )
+            } else {
+                await logConsole(
+                    `>> [PING NOTICE] Ping returned HTTP ${pingRes.status}`,
+                )
+            }
+        } catch (pingErr: any) {
+            await logConsole(`>> [PING SKIPPED]: ${pingErr.message}`)
+        }
+    } else {
+        await logConsole('>> [PING SKIPPED] Existing hook ID not resolved.')
+    }
+
+    await logConsole(
+        '>> --------------------------------------------------------------',
+    )
+    await logConsole(
+        `>> [STATUS] SURVEILLANCE ACTIVE. Events streaming to #ops-bridge.`,
+    )
+    await logConsole(
+        '>> ==============================================================',
+    )
+
+    if (bal.slv) bal.slv({ gthBit: { idx: 'register-watched-repo', val: 1 } })
     return cpy
 }
 
@@ -701,9 +780,10 @@ export const listWatchedRepos = async (
     try {
         const res = await fetch(`${baseUrl}/repos`)
         const rtt = Date.now() - t0
-        const repos: any[] = await res.json()
+        const parsed = await parseSafeResponse(res)
+        const repos: any[] = Array.isArray(parsed.data) ? parsed.data : []
 
-        if (Array.isArray(repos) && repos.length > 0) {
+        if (parsed.ok && repos.length > 0) {
             await logConsole(
                 `>> [HTTP 200 OK] :: ${rtt}ms RTT :: Total Watched: ${repos.length}`,
             )
@@ -718,7 +798,7 @@ export const listWatchedRepos = async (
             )
             if (bal.slv)
                 bal.slv({ gthBit: { idx: 'list-watched-repos', lst: repos } })
-        } else {
+        } else if (parsed.ok) {
             await logConsole(
                 `>> [HTTP 200 OK] :: ${rtt}ms RTT :: No repositories currently watched.`,
             )
@@ -727,6 +807,14 @@ export const listWatchedRepos = async (
             )
             if (bal.slv)
                 bal.slv({ gthBit: { idx: 'list-watched-repos', lst: [] } })
+        } else {
+            await logConsole(`>> [QUERY FAILED: HTTP ${parsed.status}]`)
+            await logConsole(`>> Body: ${parsed.raw.slice(0, 100)}`)
+            await logConsole(
+                '>> ==============================================================',
+            )
+            if (bal.slv)
+                bal.slv({ gthBit: { idx: 'list-watched-repos-err', lst: [] } })
         }
     } catch (err: any) {
         await logConsole(`>> [QUERY ERROR]: ${err.message}`)
@@ -735,6 +823,283 @@ export const listWatchedRepos = async (
         )
         if (bal.slv)
             bal.slv({ gthBit: { idx: 'list-watched-repos-err', lst: [] } })
+    }
+    return cpy
+}
+
+/**
+ * Live Slack Bridge Telemetry Inspector
+ */
+export const checkSlackBridgeStatus = async (
+    cpy: GithubModel,
+    bal: GithubBit,
+    ste: State,
+) => {
+    const baseUrl = getBaseUrl()
+    await logConsole(
+        '>> ==============================================================',
+    )
+    await logConsole(
+        '>> [SLACK BRIDGE TELEMETRY] Querying live edge telemetry...',
+    )
+
+    const t0 = Date.now()
+    try {
+        const res = await fetch(`${baseUrl}/api/slack/status`)
+        const rtt = Date.now() - t0
+        const parsed = await parseSafeResponse(res)
+
+        if (parsed.ok && parsed.data) {
+            const d = parsed.data
+            await logConsole(`>> [HTTP 200 OK] :: ${rtt}ms RTT`)
+            await logConsole(
+                `>> Configured Channel ID : ${d.configuredChannel}`,
+            )
+            await logConsole(
+                `>> Bot Token Configured  : ${d.hasBotToken ? '[YES]' : '[NO: MISSING]'}`,
+            )
+            if (d.lastDelivery) {
+                const dt = new Date(d.lastDelivery.timestamp).toISOString()
+                await logConsole(`>> Last Delivery Time    : ${dt}`)
+                await logConsole(
+                    `>> Last Delivery Event   : ${d.lastDelivery.event}`,
+                )
+                await logConsole(
+                    `>> Last Delivery Status  : ${d.lastDelivery.ok ? '[SUCCESS 200]' : `[FAILED: ${d.lastDelivery.error}]`}`,
+                )
+            } else {
+                await logConsole(
+                    `>> Last Delivery         : (No outbound messages logged yet)`,
+                )
+            }
+            await logConsole(
+                '>> ==============================================================',
+            )
+            if (bal.slv)
+                bal.slv({
+                    gthBit: { idx: 'check-slack-status', val: 1, dat: d },
+                })
+        } else {
+            await logConsole(`>> [STATUS QUERY FAILED: HTTP ${parsed.status}]`)
+            await logConsole(`>> Body: ${parsed.raw.slice(0, 100)}`)
+            await logConsole(
+                '>> ==============================================================',
+            )
+            if (bal.slv)
+                bal.slv({ gthBit: { idx: 'check-slack-status-err', val: 0 } })
+        }
+    } catch (err: any) {
+        await logConsole(`>> [NETWORK ERROR]: ${err.message}`)
+        if (bal.slv)
+            bal.slv({
+                gthBit: {
+                    idx: 'check-slack-status-err',
+                    val: 0,
+                    src: err.message,
+                },
+            })
+    }
+    return cpy
+}
+
+/**
+ * Audits the active GITHUB_TOKEN for identity, scopes, and target repo access.
+ */
+export const auditGithubToken = async (
+    cpy: GithubModel,
+    bal: GithubBit,
+    ste: State,
+) => {
+    const ghToken = process.env.GITHUB_TOKEN || process.env.GH_TOKEN
+    const rawTarget = bal.src || bal.dat?.repo || 'camp-candor/000.repo-bot'
+
+    // Strip full URL prefix (https://github.com/), .git extension, and whitespace
+    const targetRepoSlug = rawTarget
+        .replace(/^https?:\/\/github\.com\//i, '')
+        .replace(/\.git$/i, '')
+        .trim()
+
+    await logConsole(
+        '>> ==============================================================',
+    )
+    await logConsole('>> [GITHUB TOKEN AUDIT & PERMISSION CHECK]')
+
+    if (!ghToken) {
+        await logConsole(
+            '>> [CRITICAL] GITHUB_TOKEN is not set in environment!',
+        )
+        await logConsole(
+            '>> Configure GITHUB_TOKEN in your environment or .env file.',
+        )
+        await logConsole(
+            '>> ==============================================================',
+        )
+        if (bal.slv)
+            bal.slv({ gthBit: { idx: 'audit-github-token-err', val: 0 } })
+        return cpy
+    }
+
+    const maskedToken = ghToken.slice(0, 4) + '...' + ghToken.slice(-4)
+    await logConsole(`>> Active Token : ${maskedToken}`)
+
+    try {
+        await logConsole(
+            '>> --------------------------------------------------------------',
+        )
+        await logConsole(
+            '>> [1/2] Verifying Identity & OAuth Scopes (GET /user)...',
+        )
+
+        const userRes = await fetch('https://api.github.com/user', {
+            headers: {
+                'Authorization': `token ${ghToken}`,
+                'Accept': 'application/vnd.github+json',
+                'User-Agent': 'Repo-Bot-Flight-Deck',
+            },
+        })
+
+        const parsedUser = await parseSafeResponse(userRes)
+
+        if (!parsedUser.ok) {
+            await logConsole(
+                `>> [AUTH FAILED: HTTP ${parsedUser.status}] Invalid token.`,
+            )
+            await logConsole(`>> Response: ${parsedUser.raw.slice(0, 100)}`)
+            await logConsole(
+                '>> ==============================================================',
+            )
+            if (bal.slv)
+                bal.slv({ gthBit: { idx: 'audit-github-token-err', val: 0 } })
+            return cpy
+        }
+
+        const userData = parsedUser.data || {}
+        const rawScopes = userRes.headers.get('x-oauth-scopes') || ''
+        const scopes = rawScopes
+            .split(',')
+            .map((s) => s.trim())
+            .filter(Boolean)
+
+        await logConsole(
+            `>> Authenticated User : ${userData.login} (ID: ${userData.id})`,
+        )
+
+        if (scopes.length > 0) {
+            await logConsole(`>> Detected Scopes    : [${scopes.join(', ')}]`)
+            const hasRepo = scopes.includes('repo')
+            const hasHook =
+                scopes.includes('admin:repo_hook') ||
+                scopes.includes('write:repo_hook') ||
+                hasRepo
+
+            await logConsole(
+                `>>   - 'repo' scope            : ${hasRepo ? '[OK] Present' : '[WARNING] Missing'}`,
+            )
+            await logConsole(
+                `>>   - 'admin:repo_hook' scope : ${hasHook ? '[OK] Authorized' : '[WARNING] Missing'}`,
+            )
+        } else {
+            await logConsole(
+                '>> Detected Scopes    : Fine-grained PAT / GitHub App Installation',
+            )
+        }
+
+        await logConsole(
+            '>> --------------------------------------------------------------',
+        )
+        await logConsole(
+            `>> [2/2] Checking Repository Access: ${targetRepoSlug}...`,
+        )
+
+        const repoRes = await fetch(
+            `https://api.github.com/repos/${targetRepoSlug}`,
+            {
+                headers: {
+                    'Authorization': `token ${ghToken}`,
+                    'Accept': 'application/vnd.github+json',
+                    'User-Agent': 'Repo-Bot-Flight-Deck',
+                },
+            },
+        )
+
+        const parsedRepo = await parseSafeResponse(repoRes)
+
+        if (!parsedRepo.ok) {
+            await logConsole(
+                `>> [ACCESS REJECTED: HTTP ${parsedRepo.status}] ${targetRepoSlug}`,
+            )
+            if (parsedRepo.status === 404) {
+                await logConsole(
+                    '>> Cause: Repository does not exist or token lacks permission.',
+                )
+            }
+            await logConsole(
+                '>> ==============================================================',
+            )
+            if (bal.slv)
+                bal.slv({ gthBit: { idx: 'audit-github-token-err', val: 0 } })
+            return cpy
+        }
+
+        const repoData = parsedRepo.data || {}
+        const perms = repoData.permissions || {}
+
+        await logConsole(
+            `>> Target Visibility  : ${repoData.private ? 'Private' : 'Public'} (Branch: ${repoData.default_branch})`,
+        )
+        await logConsole(
+            `>> Pull  (Read)       : ${perms.pull ? '[OK] GRANTED' : '[FAIL] DENIED'}`,
+        )
+        await logConsole(
+            `>> Push  (Write)      : ${perms.push ? '[OK] GRANTED' : '[FAIL] DENIED'}`,
+        )
+        await logConsole(
+            `>> Admin (Settings)   : ${perms.admin ? '[OK] GRANTED' : '[FAIL] LACKS ADMIN'}`,
+        )
+
+        if (!perms.admin && !perms.push) {
+            await logConsole(
+                '>> [STATUS] INSUFFICIENT PERMISSIONS: Cannot push or configure hooks.',
+            )
+        } else {
+            await logConsole(
+                '>> --------------------------------------------------------------',
+            )
+            await logConsole(
+                '>> [STATUS] TOKEN FULLY CERTIFIED FOR FLEET SURVEILLANCE',
+            )
+        }
+        await logConsole(
+            '>> ==============================================================',
+        )
+
+        if (bal.slv) {
+            bal.slv({
+                gthBit: {
+                    idx: 'audit-github-token',
+                    val: perms.push ? 1 : 0,
+                    dat: {
+                        user: userData.login,
+                        scopes,
+                        permissions: perms,
+                        repoSlug: targetRepoSlug,
+                    },
+                },
+            })
+        }
+    } catch (err: any) {
+        await logConsole(`>> [AUDIT NETWORK ERROR]: ${err.message}`)
+        await logConsole(
+            '>> ==============================================================',
+        )
+        if (bal.slv)
+            bal.slv({
+                gthBit: {
+                    idx: 'audit-github-token-err',
+                    val: 0,
+                    src: err.message,
+                },
+            })
     }
     return cpy
 }

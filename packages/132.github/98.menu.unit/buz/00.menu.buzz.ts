@@ -70,6 +70,8 @@ export const updateMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
         'FLEET MERGE CONTROLLER (SELECT IN-FLIGHT PR)',
         'REGISTER WATCHED REPOSITORY...',
         'LIST WATCHED FLEET REPOSITORIES',
+        'AUDIT GITHUB TOKEN & PERMISSIONS',
+        'INSPECT SLACK BRIDGE STATUS',
         'ABORT IN-FLIGHT TASK & TRIGGER SAGA (TEARDOWN)',
         'HARD RESET TO HISTORICAL COMMIT & FORCE SYNC...',
         'INSPECT CANDIDATE PR CAS STATUS',
@@ -82,9 +84,13 @@ export const updateMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
         'FLEET MERGE CONTROLLER (SELECT IN-FLIGHT PR)':
             'Browse in-flight candidates from D1, inspect CAS integrity, and execute merge.',
         'REGISTER WATCHED REPOSITORY...':
-            'Auto-provision GitHub webhook and register target repo in Edge Durable Object.',
+            'Auto-provision GitHub webhook, register repo in Edge DO, and execute ping test.',
         'LIST WATCHED FLEET REPOSITORIES':
             'Query and display all active repositories under edge surveillance.',
+        'AUDIT GITHUB TOKEN & PERMISSIONS':
+            'Audit active GITHUB_TOKEN identity, OAuth scopes, and repository permissions.',
+        'INSPECT SLACK BRIDGE STATUS':
+            'Stream live Slack outbound receipts and health telemetry from edge DO.',
         'ABORT IN-FLIGHT TASK & TRIGGER SAGA (TEARDOWN)':
             'Break-glass trigger to tear down in-flight PR, obliterate spec branch, and freeze Slack card.',
         'HARD RESET TO HISTORICAL COMMIT & FORCE SYNC...':
@@ -151,6 +157,34 @@ export const updateMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
 
         case 'LIST WATCHED FLEET REPOSITORIES': {
             await ste.hunt(ActGth.LIST_WATCHED_REPOS, {})
+            await new Promise((r) => setTimeout(r, 2500))
+            break
+        }
+
+        case 'AUDIT GITHUB TOKEN & PERMISSIONS': {
+            const inputGrid = await global.LIBRARY.hunt(UPDATE_GRID, {
+                x: 0,
+                y: 4,
+                xSpan: 4,
+                ySpan: 4,
+            })
+            const inputBit = await global.LIBRARY.hunt(OPEN_INPUT, {
+                dat: { clr0: Color.BLACK, clr1: Color.YELLOW },
+                src: Align.VERTICAL,
+                lst: [],
+                txt: 'Enter repo slug to audit (default: camp-candor/000.repo-bot):',
+                net: inputGrid.grdBit.dat,
+            })
+
+            const targetRepo =
+                inputBit.putBit?.src?.trim() || 'camp-candor/000.repo-bot'
+            await ste.hunt(ActGth.AUDIT_GITHUB_TOKEN, { src: targetRepo })
+            await new Promise((r) => setTimeout(r, 2500))
+            break
+        }
+
+        case 'INSPECT SLACK BRIDGE STATUS': {
+            await ste.hunt(ActGth.CHECK_SLACK_BRIDGE_STATUS, {})
             await new Promise((r) => setTimeout(r, 2500))
             break
         }

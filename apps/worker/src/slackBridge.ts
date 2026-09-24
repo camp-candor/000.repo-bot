@@ -153,6 +153,17 @@ export function buildApprovalBlockKit(params: ApprovalCardParams) {
     }
 }
 
+export function sanitizeChannelId(raw?: string): string {
+    const cleaned = (raw || '')
+        .trim()
+        .replace(/^["']|["']$/g, '')
+        .trim()
+    if (!cleaned || cleaned === '#ops-bridge') {
+        return 'C0C40FMRQ9H'
+    }
+    return cleaned
+}
+
 /**
  * Dispatches an approval card to Slack via chat.postMessage.
  */
@@ -167,9 +178,7 @@ export async function dispatchSlackApprovalCard(
         return { ok: false, error: 'MISSING_SLACK_BOT_TOKEN' }
     }
 
-    const channel =
-        (env.SLACK_CHANNEL_ID || '').trim().replace(/^["']|["']$/g, '') ||
-        '#ops-bridge'
+    const channel = sanitizeChannelId(env.SLACK_CHANNEL_ID)
     const card = buildApprovalBlockKit(params)
 
     try {
@@ -255,7 +264,7 @@ export async function postSlackMergeAnnouncement(
     env: Env,
 ): Promise<{ ok: boolean; ts?: string; error?: string }> {
     const token = env.SLACK_BOT_TOKEN
-    const channel = env.SLACK_CHANNEL_ID || '#ops-bridge'
+    const channel = sanitizeChannelId(env.SLACK_CHANNEL_ID)
 
     if (!token) {
         console.warn(
@@ -383,7 +392,7 @@ export async function postSlackEmergencyAlert(
     env: Env,
 ): Promise<{ ok: boolean; ts?: string; error?: string }> {
     const token = env.SLACK_BOT_TOKEN
-    const channel = env.SLACK_CHANNEL_ID || '#ops-bridge'
+    const channel = sanitizeChannelId(env.SLACK_CHANNEL_ID)
 
     if (!token) {
         console.warn(

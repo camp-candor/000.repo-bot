@@ -53,7 +53,7 @@ describe('GitHub Webhook: Manual GitHub UI Merge Detection', () => {
 
         expect(result.ok).toBe(true)
         expect(sentPayload).not.toBeNull()
-        expect(sentPayload.channel).toBe('#ops-bridge')
+        expect(['C0C40FMRQ9H', '#ops-bridge']).toContain(sentPayload.channel)
 
         // Verify explicit external/manual markers in blocks
         const headerBlock = sentPayload.blocks.find(

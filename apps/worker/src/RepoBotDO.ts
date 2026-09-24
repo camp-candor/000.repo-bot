@@ -36,6 +36,22 @@ export interface FSMContext {
     mergeCommitSha?: string
 }
 
+export interface OutboundSlackReceipt {
+    timestamp: number
+    channel: string
+    event: string
+    ok: boolean
+    error?: string
+    ts?: string
+}
+
+export async function recordSlackReceipt(
+    storage: DurableObjectStorage,
+    receipt: OutboundSlackReceipt,
+) {
+    await storage.put('last_slack_receipt', receipt)
+}
+
 export function parseRepoIdentifier(
     rawInput: string,
 ): { owner: string; repo: string; id: string; url: string } | null {
@@ -97,6 +113,35 @@ export class RepoBotDO extends DurableObject<Env> {
     async fetch(request: Request): Promise<Response> {
         const url = new URL(request.url)
         const path = url.pathname
+
+        // 0. GET /api/slack/status
+        if (request.method === 'GET' && path === '/api/slack/status') {
+            const lastReceipt =
+                await this.ctx.storage.get<OutboundSlackReceipt>(
+                    'last_slack_receipt',
+                )
+            const sanitizedChannel =
+                (this.env.SLACK_CHANNEL_ID || '')
+                    .trim()
+                    .replace(/^["']|["']$/g, '') || 'C0C40FMRQ9H'
+
+            return Response.json({
+                ok: true,
+                configuredChannel: sanitizedChannel,
+                hasBotToken: Boolean(this.env.SLACK_BOT_TOKEN),
+                lastDelivery: lastReceipt || null,
+                serverTime: Date.now(),
+            })
+        }
+
+        // 0.1 POST /api/slack/receipt
+        if (request.method === 'POST' && path === '/api/slack/receipt') {
+            const receipt = await request.json().catch(() => null)
+            if (receipt) {
+                await recordSlackReceipt(this.ctx.storage, receipt)
+            }
+            return Response.json({ ok: true })
+        }
 
         // 1. GET /repos
         if (request.method === 'GET' && (path === '/repos' || path === '/')) {
@@ -328,11 +373,26 @@ export class RepoBotDO extends DurableObject<Env> {
                                 cardParams,
                                 this.env,
                             ).then(async (res) => {
+                                const receipt: OutboundSlackReceipt = {
+                                    timestamp: Date.now(),
+                                    channel:
+                                        (this.env.SLACK_CHANNEL_ID || '')
+                                            .trim()
+                                            .replace(/^["']|["']$/g, '') ||
+                                        'C0C40FMRQ9H',
+                                    event: 'APPROVAL_CARD_DISPATCHED',
+                                    ok: res.ok,
+                                    error: res.error,
+                                    ts: res.ts,
+                                }
+                                await recordSlackReceipt(
+                                    this.ctx.storage,
+                                    receipt,
+                                )
+
                                 if (res.ok && res.ts) {
                                     context.slackMessageTs = res.ts
-                                    context.slackChannelId =
-                                        this.env.SLACK_CHANNEL_ID ||
-                                        '#ops-bridge'
+                                    context.slackChannelId = receipt.channel
                                     await this.ctx.storage.put(
                                         'fsm_context',
                                         context,
