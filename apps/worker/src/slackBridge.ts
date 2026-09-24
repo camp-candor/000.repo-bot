@@ -241,10 +241,14 @@ export interface MergeAnnouncementParams {
     actor?: string
     repo?: string
     owner?: string
+    prTitle?: string
+    branchName?: string
+    origin?: 'REPO_BOT_CAS' | 'GITHUB_MANUAL_UI'
 }
 
 /**
  * Distributes a standalone merge completion announcement to the #ops-bridge channel.
+ * Expressly discriminates between Repo-Bot automated CAS merges and direct GitHub manual UI merges.
  */
 export async function postSlackMergeAnnouncement(
     params: MergeAnnouncementParams,
@@ -260,21 +264,53 @@ export async function postSlackMergeAnnouncement(
         return { ok: false, error: 'MISSING_SLACK_BOT_TOKEN' }
     }
 
-    const shortMergeSha = params.mergeCommitSha.slice(0, 7)
-    const shortHeadSha = params.auditedHeadSha.slice(0, 7)
+    const shortMergeSha = (params.mergeCommitSha || '0000000').slice(0, 7)
+    const shortHeadSha = (params.auditedHeadSha || '0000000').slice(0, 7)
     const targetBranch = params.targetBranch || 'main'
-    const actorText = params.actor
-        ? `<@${params.actor}>`
-        : 'Autonomous Fast-Track'
     const repoSlug =
         params.owner && params.repo
             ? `${params.owner}/${params.repo}`
             : '000.repo-bot'
+    const prTitleText = params.prTitle ? ` - ${params.prTitle}` : ''
+    const origin = params.origin || 'REPO_BOT_CAS'
 
-    const payload = {
-        channel,
-        text: `:: [RELEASE] PR #${params.pullNumber} (${params.taskId}) merged into ${targetBranch}`,
-        blocks: [
+    let blocks: any[] = []
+    let fallbackText = ''
+
+    if (origin === 'GITHUB_MANUAL_UI') {
+        // Explicitly format as a manual GitHub Web UI merge event
+        fallbackText = `:: [GITHUB MANUAL MERGE] PR #${params.pullNumber} merged directly on GitHub into ${targetBranch} by ${params.actor || 'unknown'}`
+        blocks = [
+            {
+                type: 'header',
+                text: {
+                    type: 'plain_text',
+                    text: `:: GITHUB MANUAL MERGE DETECTED (PR #${params.pullNumber})`,
+                    emoji: false,
+                },
+            },
+            {
+                type: 'section',
+                text: {
+                    type: 'mrkdwn',
+                    text:
+                        `*[ORIGIN: DIRECT GITHUB WEB CONSOLE / EXTERNAL ACTOR]*\n` +
+                        `*Notice:* This merge was executed directly on GitHub, outside the Repo-Bot CAS verification executor.\n` +
+                        `*Repository:* \`${repoSlug}\` | *PR:* <https://github.com/${repoSlug}/pull/${params.pullNumber}|#${params.pullNumber}${prTitleText}>\n` +
+                        `*Merged By:* *${params.actor || 'GitHub UI'}*\n` +
+                        `*Target Trunk:* \`${targetBranch}\` ──► *Squash/Merge SHA:* \`${shortMergeSha}\`\n` +
+                        `*Head Ref:* \`${params.branchName || shortHeadSha}\`\n` +
+                        `*Status:* [OK] GitHub Webhook ingested. Distributed state reconciled.`,
+                },
+            },
+        ]
+    } else {
+        // Standard Repo-Bot CAS Executor release announcement
+        const actorText = params.actor
+            ? `<@${params.actor}>`
+            : 'Autonomous Fast-Track'
+        fallbackText = `:: [RELEASE] PR #${params.pullNumber} (${params.taskId}) merged into ${targetBranch}`
+        blocks = [
             {
                 type: 'header',
                 text: {
@@ -288,13 +324,14 @@ export async function postSlackMergeAnnouncement(
                 text: {
                     type: 'mrkdwn',
                     text:
+                        `*[ORIGIN: REPO-BOT CAS MERGE EXECUTOR]*\n` +
                         `*Repository:* \`${repoSlug}\` | *PR:* <https://github.com/${repoSlug}/pull/${params.pullNumber}|#${params.pullNumber}>\n` +
                         `*Audited Commit:* \`${shortHeadSha}\` ──► *Squash Merge SHA:* \`${shortMergeSha}\`\n` +
                         `*Trunk Target:* \`${targetBranch}\` | *Author/Approver:* ${actorText}\n` +
                         `*Status:* [OK] Ephemeral tracking branch obliterated. Trunk invariants satisfied.`,
                 },
             },
-        ],
+        ]
     }
 
     try {
@@ -304,7 +341,11 @@ export async function postSlackMergeAnnouncement(
                 'Authorization': `Bearer ${token}`,
                 'Content-Type': 'application/json; charset=utf-8',
             },
-            body: JSON.stringify(payload),
+            body: JSON.stringify({
+                channel,
+                text: fallbackText,
+                blocks,
+            }),
         })
 
         const data: any = await res.json()

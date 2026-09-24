@@ -2,7 +2,8 @@ import { Hono } from 'hono'
 import { handleSlackInteraction } from './routes/slackInteractions.js'
 import { generateCommitMessage } from './commitGenerator.js'
 import { dispatchJulesJob, getJulesSession } from './jules.js'
-import { handleGitHubWebhook } from './prAuditEngine.js'
+import { verifyGitHubSignature } from './tools.js'
+import { postSlackMergeAnnouncement } from './slackBridge.js'
 import {
     fetchRepoChecks,
     inspectRepoChecksViaAiGateway,
@@ -17,6 +18,135 @@ import {
 
 export { RepoBotDO }
 export * from './tools.js'
+
+/**
+ * POST /webhook and POST /api/webhooks/github
+ * Ingests inbound GitHub webhook events with HMAC-SHA256 signature verification.
+ */
+const handleGitHubWebhook = async (c: any) => {
+    const rawBody = await c.req.text()
+    const signature = c.req.header('x-hub-signature-256')
+    const githubEvent = c.req.header('x-github-event')
+
+    // 1. Signature Verification (using normalized GH_WEBHOOK_SECRET)
+    const webhookSecret = c.env.GH_WEBHOOK_SECRET || c.env.GITHUB_WEBHOOK_SECRET
+    if (webhookSecret) {
+        const isValid = await verifyGitHubSignature(
+            rawBody,
+            signature,
+            webhookSecret,
+        )
+        if (!isValid) {
+            console.error(
+                '>> [WEBHOOK REJECTED] Invalid GitHub HMAC-SHA256 signature',
+            )
+            return c.json({ error: 'UNAUTHORIZED_SIGNATURE' }, 401)
+        }
+    }
+
+    let payload: any = {}
+    try {
+        payload = JSON.parse(rawBody)
+    } catch {
+        return c.text('Malformed JSON payload', 400)
+    }
+
+    // 2. Process Pull Request Closed & Merged Event
+    if (
+        githubEvent === 'pull_request' &&
+        payload.action === 'closed' &&
+        payload.pull_request?.merged === true
+    ) {
+        const pr = payload.pull_request
+        const repo = payload.repository?.name || '000.repo-bot'
+        const owner = payload.repository?.owner?.login || 'camp-candor'
+        const pullNumber = pr.number
+        const mergeCommitSha = pr.merge_commit_sha || ''
+        const headSha = pr.head?.sha || ''
+        const baseRef = pr.base?.ref || 'main'
+        const headRef = pr.head?.ref || ''
+        const mergedBy =
+            pr.merged_by?.login || payload.sender?.login || 'unknown'
+        const prTitle = pr.title || ''
+
+        // Distinguish between Repo-Bot CAS squash merge and Direct Manual GitHub UI merge
+        const commitMessage = pr.body || ''
+        const isRepoBotCAS =
+            commitMessage.includes('squash merge completed by repo-bot') ||
+            commitMessage.includes('Audited-Head-SHA:') ||
+            mergedBy.includes('repo-bot')
+
+        const origin = isRepoBotCAS ? 'REPO_BOT_CAS' : 'GITHUB_MANUAL_UI'
+        console.log(
+            `>> [GITHUB WEBHOOK] Ingested PR #${pullNumber} closed & merged. Origin: ${origin} (Merged by: ${mergedBy})`,
+        )
+
+        // Extract taskId from headRef if following spec/{taskId}-{sha} convention
+        const specMatch = headRef.match(
+            /^spec\/([a-zA-Z0-9._-]+?)(-[a-f0-9]{7,40})?$/,
+        )
+        const taskId = specMatch ? specMatch[1] : `PR-${pullNumber}`
+
+        // A. Broadcast announcement to #ops-bridge
+        c.executionCtx.waitUntil(
+            postSlackMergeAnnouncement(
+                {
+                    taskId,
+                    pullNumber,
+                    mergeCommitSha,
+                    auditedHeadSha: headSha,
+                    targetBranch: baseRef,
+                    branchName: headRef,
+                    actor: mergedBy,
+                    owner,
+                    repo,
+                    prTitle,
+                    origin,
+                },
+                c.env,
+            ),
+        )
+
+        // B. Reconcile with RepoBotDO to prevent stranded FSM states
+        if (c.env.REPO_BOT_DO) {
+            c.executionCtx.waitUntil(
+                (async () => {
+                    try {
+                        const doId = c.env.REPO_BOT_DO.idFromName(taskId)
+                        const taskDO = c.env.REPO_BOT_DO.get(doId)
+                        await taskDO.fetch(
+                            new Request('https://internal/fsm/transition', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({
+                                    type: 'MERGE_SUCCEEDED',
+                                    taskId,
+                                    headSha,
+                                    mergeCommitSha,
+                                    actor: `GITHUB_UI:${mergedBy}`,
+                                }),
+                            }),
+                        )
+                    } catch (doErr: any) {
+                        console.warn(
+                            `DO state reconcile bypass for ${taskId}:`,
+                            doErr.message,
+                        )
+                    }
+                })(),
+            )
+        }
+
+        return c.json({
+            ok: true,
+            status: 'MERGE_RECORDED',
+            origin,
+            pullNumber,
+        })
+    }
+
+    return c.json({ ok: true, status: 'EVENT_RECEIVED', event: githubEvent })
+}
 
 const app = new Hono<{ Bindings: Env }>()
 
@@ -96,6 +226,7 @@ app.get('/oracle', async (c) => {
 app.post('/api/commit-message', generateCommitMessage)
 app.post('/api/jules/dispatch', dispatchJulesJob)
 app.get('/api/jules/session/:id', getJulesSession)
+app.post('/webhook', handleGitHubWebhook)
 app.post('/webhooks/github', handleGitHubWebhook)
 app.post('/api/slack/interactions', async (c) => {
     return await handleSlackInteraction(c)

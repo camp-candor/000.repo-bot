@@ -227,3 +227,42 @@ export async function inspectRepoChecksViaAiGateway(
 
     return rawToolData
 }
+
+/**
+ * Verifies GitHub webhook signature using Web Crypto constant-time HMAC-SHA256.
+ */
+export async function verifyGitHubSignature(
+    rawBody: string,
+    signatureHeader: string | null | undefined,
+    secret: string,
+): Promise<boolean> {
+    if (!signatureHeader || !secret) {
+        return false
+    }
+
+    const sigParts = signatureHeader.split('=')
+    if (sigParts.length !== 2 || sigParts[0] !== 'sha256') {
+        return false
+    }
+    const signatureHex = sigParts[1]
+
+    const encoder = new TextEncoder()
+    const key = await crypto.subtle.importKey(
+        'raw',
+        encoder.encode(secret),
+        { name: 'HMAC', hash: 'SHA-256' },
+        false,
+        ['verify'],
+    )
+
+    const sigBytes = new Uint8Array(
+        signatureHex.match(/.{1,2}/g)?.map((byte) => parseInt(byte, 16)) || [],
+    )
+
+    return await crypto.subtle.verify(
+        'HMAC',
+        key,
+        sigBytes,
+        encoder.encode(rawBody),
+    )
+}
