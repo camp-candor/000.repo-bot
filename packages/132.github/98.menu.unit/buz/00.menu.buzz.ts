@@ -68,6 +68,8 @@ export const initMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
 export const updateMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
     const lst = [
         'FLEET MERGE CONTROLLER (SELECT IN-FLIGHT PR)',
+        'ABORT IN-FLIGHT TASK & TRIGGER SAGA (TEARDOWN)',
+        'HARD RESET TO HISTORICAL COMMIT & FORCE SYNC...',
         'INSPECT CANDIDATE PR CAS STATUS',
         'SIMULATE CUSTOM TASK MERGE...',
         'RECONCILE STUCK MERGING TASKS',
@@ -77,6 +79,10 @@ export const updateMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
     const descriptions: Record<string, string> = {
         'FLEET MERGE CONTROLLER (SELECT IN-FLIGHT PR)':
             'Browse in-flight candidates from D1, inspect CAS integrity, and execute merge.',
+        'ABORT IN-FLIGHT TASK & TRIGGER SAGA (TEARDOWN)':
+            'Break-glass trigger to tear down in-flight PR, obliterate spec branch, and freeze Slack card.',
+        'HARD RESET TO HISTORICAL COMMIT & FORCE SYNC...':
+            'Choose from last 5 commits, inspect preview, confirm reset, and force push to GitHub.',
         'INSPECT CANDIDATE PR CAS STATUS':
             'Read-only check of auditedHeadSha vs remote head to verify 0-byte drift.',
         'SIMULATE CUSTOM TASK MERGE...':
@@ -267,6 +273,140 @@ export const updateMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
             await ste.hunt(ActGth.INSPECT_PR_CAS, { src: 'TEST-TASK-00' })
             await new Promise((r) => setTimeout(r, 2000))
             break
+
+        case 'ABORT IN-FLIGHT TASK & TRIGGER SAGA (TEARDOWN)': {
+            const inputGrid = await global.LIBRARY.hunt(UPDATE_GRID, {
+                x: 0,
+                y: 4,
+                xSpan: 4,
+                ySpan: 4,
+            })
+            const inputBit = await global.LIBRARY.hunt(OPEN_INPUT, {
+                dat: { clr0: Color.BLACK, clr1: Color.RED },
+                src: Align.VERTICAL,
+                lst: [],
+                txt: 'Enter Task ID to abort (e.g. TEST-TASK-00)',
+                net: inputGrid.grdBit.dat,
+            })
+
+            const targetTask = inputBit.putBit?.src?.trim()
+            if (targetTask) {
+                const confirmGrid = await global.LIBRARY.hunt(UPDATE_GRID, {
+                    x: 0,
+                    y: 4,
+                    xSpan: 4,
+                    ySpan: 4,
+                })
+                const confirmChoice = await global.LIBRARY.hunt(OPEN_CHOICE, {
+                    dat: { clr0: Color.BLACK, clr1: Color.RED },
+                    src: Align.VERTICAL,
+                    lst: [
+                        '[NO]  CANCEL & RETURN',
+                        `[YES] ABORT & TEARDOWN ${targetTask}`,
+                    ],
+                    net: confirmGrid.grdBit.dat,
+                })
+
+                if (confirmChoice.chcBit.src.startsWith('[YES]')) {
+                    await ste.hunt(ActGth.TRIGGER_TASK_ROLLBACK, {
+                        src: targetTask,
+                        dat: {
+                            taskId: targetTask,
+                            reason: 'OPERATOR_TERMINAL_TEARDOWN',
+                        },
+                    })
+                    await new Promise((r) => setTimeout(r, 2500))
+                }
+            }
+            break
+        }
+
+        case 'HARD RESET TO HISTORICAL COMMIT & FORCE SYNC...': {
+            await global.LIBRARY.hunt(UPDATE_CONSOLE, {
+                idx: 'cns00',
+                src: '>> Querying local git repository for recent commits...',
+            })
+
+            const fetchRes: any = await ste.hunt(
+                ActGth.FETCH_RECENT_COMMITS,
+                {},
+            )
+            const commits: any[] = fetchRes.gthBit?.lst || []
+
+            if (commits.length === 0) {
+                await global.LIBRARY.hunt(UPDATE_CONSOLE, {
+                    idx: 'cns00',
+                    src: '>> [ERROR] No git commits found or git log failed.',
+                })
+                await new Promise((r) => setTimeout(r, 1500))
+                break
+            }
+
+            const commitChoices = commits.map(
+                (c, i) =>
+                    `[${i + 1}] ${c.shortSha} - ${c.subject.slice(0, 36)} (${c.relativeDate})`,
+            )
+            commitChoices.push('[-- CANCEL / RETURN --]')
+
+            const choiceGrid = await global.LIBRARY.hunt(UPDATE_GRID, {
+                x: 0,
+                y: 4,
+                xSpan: 4,
+                ySpan: 8,
+            })
+            const selectedChoice = await global.LIBRARY.hunt(OPEN_CHOICE, {
+                dat: { clr0: Color.BLACK, clr1: Color.YELLOW },
+                src: Align.VERTICAL,
+                lst: commitChoices,
+                net: choiceGrid.grdBit.dat,
+            })
+
+            const choiceText = selectedChoice.chcBit.src
+            if (choiceText === '[-- CANCEL / RETURN --]') break
+
+            const chosenCommit = commits.find((c) =>
+                choiceText.includes(c.shortSha),
+            )
+            if (!chosenCommit) break
+
+            // Preview details in cns00
+            await ste.hunt(ActGth.PREVIEW_COMMIT_DETAILS, {
+                src: chosenCommit.shortSha,
+                dat: chosenCommit,
+            })
+
+            // Confirmation Dialog (Default to NO for safety)
+            const confirmGrid = await global.LIBRARY.hunt(UPDATE_GRID, {
+                x: 0,
+                y: 4,
+                xSpan: 4,
+                ySpan: 4,
+            })
+            const confirmChoice = await global.LIBRARY.hunt(OPEN_CHOICE, {
+                dat: { clr0: Color.BLACK, clr1: Color.RED },
+                src: Align.VERTICAL,
+                lst: [
+                    '[NO]  CANCEL & RETURN (KEEP CURRENT STATE)',
+                    `[YES] CONFIRM RESET & FORCE PUSH TO ORIGIN (${chosenCommit.shortSha})`,
+                ],
+                net: confirmGrid.grdBit.dat,
+            })
+
+            if (confirmChoice.chcBit.src.startsWith('[YES]')) {
+                await ste.hunt(ActGth.EXECUTE_HARD_RESET, {
+                    src: chosenCommit.shortSha,
+                    dat: { sha: chosenCommit.shortSha },
+                })
+                await new Promise((r) => setTimeout(r, 2500))
+            } else {
+                await global.LIBRARY.hunt(UPDATE_CONSOLE, {
+                    idx: 'cns00',
+                    src: '>> [ABORTED] Hard reset and remote push canceled. Working tree untouched.',
+                })
+                await new Promise((r) => setTimeout(r, 1200))
+            }
+            break
+        }
 
         case 'ROOT MENU':
             if (rootSlv != null) rootSlv({ mnuBit: { idx: 'root-menu' } })

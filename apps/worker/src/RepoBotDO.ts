@@ -369,7 +369,10 @@ export class RepoBotDO extends DurableObject<Env> {
 
             // Event D: HUMAN_REJECTED
             else if (body?.type === 'HUMAN_REJECTED') {
-                if (context.state === 'AWAITING_APPROVAL') {
+                if (
+                    context.state === 'AWAITING_APPROVAL' ||
+                    context.state === 'VERIFYING'
+                ) {
                     nextState = 'ROLLING_BACK'
                     shouldTriggerRollback = true
                     rollbackReason = `HUMAN_REJECTED by ${body?.actor || 'Lead Architect'}`
