@@ -13,7 +13,7 @@ describe('FEAT-04: Human Approval Gate & Slack Review Bridge', () => {
         CLOUDFLARE_API_TOKEN: 'test-token',
         CLOUDFLARE_AI_GATEWAY: 'test-gw',
         GITHUB_TOKEN: 'test-gh-token',
-        GITHUB_WEBHOOK_SECRET: 'test-secret',
+        GH_WEBHOOK_SECRET: 'test-secret',
         SLACK_BOT_TOKEN: 'xoxb-test-token',
         SLACK_SIGNING_SECRET: mockSigningSecret,
         SLACK_AUTHORIZED_APPROVERS: 'U12345,U67890',

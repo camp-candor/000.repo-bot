@@ -69,7 +69,9 @@ export const testGithub = async (
 
     const webhookUrl = `${baseUrl.replace(/\/$/, '')}/webhooks/github`
     const secret =
-        process.env.GITHUB_WEBHOOK_SECRET || 'super_secret_webhook_key'
+        process.env.GH_WEBHOOK_SECRET ||
+        process.env.GITHUB_WEBHOOK_SECRET ||
+        'super_secret_webhook_key'
 
     await logConsole('>> ==================================================')
     await logConsole(`>> [SMOKE TEST] Target: ${webhookUrl}`)

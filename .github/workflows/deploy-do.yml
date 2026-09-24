@@ -32,7 +32,7 @@ jobs:
                   echo "${{ secrets.AI_GATEWAY_TOKEN }}" | npx wrangler secret put AI_GATEWAY_TOKEN --env staging
                   echo "$RUNTIME_GITHUB_TOKEN" | npx wrangler secret put GITHUB_TOKEN --env staging
                   echo "${{ secrets.JULES_API_KEY }}" | npx wrangler secret put JULES_API_KEY --env staging
-                  echo "${{ secrets.GITHUB_WEBHOOK_SECRET }}" | npx wrangler secret put GITHUB_WEBHOOK_SECRET --env staging
+                  echo "${{ secrets.GH_WEBHOOK_SECRET }}" | npx wrangler secret put GH_WEBHOOK_SECRET --env staging
 
                   # --- FEAT-04: Slack Review Bridge Secrets ---
                   echo "${{ secrets.SLACK_BOT_TOKEN }}" | npx wrangler secret put SLACK_BOT_TOKEN --env staging
