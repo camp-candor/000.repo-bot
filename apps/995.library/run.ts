@@ -35,11 +35,11 @@ const init = async () => {
     )
     const cfPath = path.resolve(
         import.meta.dirname,
-        '../../packages/dist/822.cloudflare',
+        '../../packages/dist/133.cloudflare',
     )
     const jlsPath = path.resolve(
         import.meta.dirname,
-        '../../packages/dist/823.jules',
+        '../../packages/dist/135.jules',
     )
     const ghPath = path.resolve(
         import.meta.dirname,
@@ -257,7 +257,7 @@ const main = async () => {
     try {
         console.log('🔨 Building TypeScript...')
         var { stdout, stderr } = await exec(
-            'tsc -b 995.library ../../packages/000.agent ../../packages/821.repobot ../../packages/822.cloudflare ../../packages/823.jules ../../packages/132.github ../../packages/924.slack',
+            'tsc -b 995.library ../../packages/000.agent ../../packages/821.repobot ../../packages/133.cloudflare ../../packages/135.jules ../../packages/132.github ../../packages/924.slack',
             { cwd: import.meta.dirname },
         )
 
