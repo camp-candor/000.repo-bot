@@ -16,6 +16,17 @@ export function reducer(
         case Act.INIT_STORAGE:
             return Buzz.initStorage(clone(model), act.bale, state)
 
+        case Act.CHECK_DRAINAGE_STATUS:
+            return Buzz.checkDrainageStatus(clone(model), act.bale, state)
+
+        case Act.COUNTDOWN_DRAINAGE:
+            return Buzz.countdownDrainage(clone(model), act.bale, state)
+
+        case Act.FETCH_STORAGE_RECORDS:
+            return Buzz.fetchStorageRecords(clone(model), act.bale, state)
+
+        case Act.INSPECT_STORAGE_RECORD:
+            return Buzz.inspectStorageRecord(clone(model), act.bale, state)
         default:
             return model
     }

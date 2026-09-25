@@ -1,2 +1,6 @@
-export { initStorage } from './buz/storage.buzz'
-export { updateStorage } from './buz/storage.buzz'
+export { initStorage } from './buz/storage.buzz.js'
+export { updateStorage } from './buz/storage.buzz.js'
+export { checkDrainageStatus } from './buz/storage.buzz.js'
+export { countdownDrainage } from './buz/storage.buzz.js'
+export { fetchStorageRecords } from './buz/storage.buzz.js'
+export { inspectStorageRecord } from './buz/storage.buzz.js'
