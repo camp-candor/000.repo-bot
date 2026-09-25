@@ -28,6 +28,9 @@ export function reducer(
         case Act.DISPATCH_TEST_CARD:
             return Buzz.dispatchTestCard(clone(model), act.bale, state)
 
+        case Act.DISPATCH_JULES_TEST_CARD:
+            return Buzz.dispatchJulesTestCard(clone(model), act.bale, state)
+
         case Act.LIST_SLACK:
             return Buzz.listSlack(clone(model), act.bale, state)
 

@@ -37,6 +37,13 @@ export class DispatchTestCard implements Action {
     constructor(public bale: slackBit) {}
 }
 
+export const DISPATCH_JULES_TEST_CARD =
+    '[Slack action] Dispatch Jules Test Card'
+export class DispatchJulesTestCard implements Action {
+    readonly type = DISPATCH_JULES_TEST_CARD
+    constructor(public bale: slackBit) {}
+}
+
 export const LIST_SLACK = '[List action] List Slack'
 export class ListSlack implements Action {
     readonly type = LIST_SLACK
@@ -50,4 +57,5 @@ export type Actions =
     | ProbeHandshake
     | SimulateInteraction
     | DispatchTestCard
+    | DispatchJulesTestCard
     | ListSlack
