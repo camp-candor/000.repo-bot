@@ -6,6 +6,7 @@ import { handleSlackInteraction } from './routes/slackInteractions.js'
 import { generateCommitMessage } from './commitGenerator.js'
 import { dispatchJulesJob, getJulesSession } from './jules.js'
 import { verifyGitHubSignature } from './tools.js'
+import { ensureAuditSchema } from './audit/auditLedger.js'
 import { postSlackMergeAnnouncement } from './slackBridge.js'
 import {
     fetchRepoChecks,
@@ -553,17 +554,73 @@ app.get('/api/tasks/:taskId/inspect', async (c) => {
 // AUDIT LEDGER & DRAINAGE ROUTES
 // -----------------------------------------------------------------------------
 
-// Query recent events from D1
+// Query audit telemetry, sync recency, and buffer capacity
+app.get('/api/audit/status', async (c) => {
+    if (!c.env.DB) {
+        return c.json(
+            { ok: false, error: 'D1 binding DB is not configured' },
+            500,
+        )
+    }
+    await ensureAuditSchema(c.env.DB)
+
+    const lastDrainedRow = await c.env.DB.prepare(
+        'SELECT MAX(drained_at) as lastDrainedAt FROM audit_events WHERE drained_at IS NOT NULL',
+    ).first()
+
+    const undrainedRow = await c.env.DB.prepare(
+        'SELECT COUNT(*) as count FROM audit_events WHERE drained_at IS NULL',
+    ).first()
+
+    const totalRow = await c.env.DB.prepare(
+        'SELECT COUNT(*) as count FROM audit_events',
+    ).first()
+
+    const lastRecord = await c.env.DB.prepare(
+        'SELECT sequence_id, created_at, repository, event_type, record_hash FROM audit_events ORDER BY sequence_id DESC LIMIT 1',
+    ).first()
+
+    return c.json({
+        ok: true,
+        serverTime: Date.now(),
+        lastDrainedAt: lastDrainedRow?.lastDrainedAt || null,
+        undrainedCount: undrainedRow?.count || 0,
+        totalHotRecords: totalRow?.count || 0,
+        lastRecord: lastRecord || null,
+        cronSchedule: '0 0 * * * (Midnight UTC)',
+    })
+})
+
+// Query recent audit records (up to 100) with undrained and repo filtering
 app.get('/api/audit/recent', async (c) => {
+    if (!c.env.DB) {
+        return c.json(
+            { ok: false, error: 'D1 binding DB is not configured' },
+            500,
+        )
+    }
+    await ensureAuditSchema(c.env.DB)
+
     const limit = Math.min(Number(c.req.query('limit')) || 20, 100)
+    const undrainedOnly = c.req.query('undrained') === 'true'
     const repo = c.req.query('repo')
 
     let query = 'SELECT * FROM audit_events '
     const params: any[] = []
+    const conditions: string[] = []
+
     if (repo) {
-        query += 'WHERE repository = ? '
+        conditions.push('repository = ?')
         params.push(repo)
     }
+    if (undrainedOnly) {
+        conditions.push('drained_at IS NULL')
+    }
+
+    if (conditions.length > 0) {
+        query += 'WHERE ' + conditions.join(' AND ') + ' '
+    }
+
     query += 'ORDER BY sequence_id DESC LIMIT ?'
     params.push(limit)
 
