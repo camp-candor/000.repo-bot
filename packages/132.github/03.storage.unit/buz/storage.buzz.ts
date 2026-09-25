@@ -91,7 +91,8 @@ export const checkDrainageStatus = async (
             if (data.lastDrainedAt) {
                 const drainedDate = new Date(data.lastDrainedAt)
                 const elapsedMin = Math.round(
-                    (Date.now() - data.lastDrainedAt) / 60000,
+                    ((data.serverTime || Date.now()) - data.lastDrainedAt) /
+                        60000,
                 )
                 await logConsole(
                     `>> Last Drainage     : ${drainedDate.toISOString().replace('T', ' ').slice(0, 19)} UTC`,
