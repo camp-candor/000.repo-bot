@@ -128,4 +128,32 @@ describe('cloudflare', () => {
 
         process.env = originalEnv
     })
+
+    it('should handle missing credentials in projectCloudflare gracefully', async () => {
+        const originalEnv = process.env
+        process.env = {
+            ...originalEnv,
+            CLOUDFLARE_ACCOUNT: '',
+            CLOUDFLARE_WORKERS_TOKEN: '',
+        }
+
+        const model = new CloudflareModel()
+        const state = {} as any
+        const slv = vi.fn()
+        const bal = { idx: 'test-missing', slv } as any
+
+        const result = await projectCloudflare(model, bal, state)
+
+        expect(result).toBe(model)
+        expect(slv).toHaveBeenCalledWith({
+            cflBit: {
+                idx: 'project-cloudflare',
+                dat: { workers: [], pages: [] },
+                lst: { workers: [], pages: [] },
+                err: 'Missing credentials',
+            },
+        })
+
+        process.env = originalEnv
+    })
 })

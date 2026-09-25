@@ -19,10 +19,10 @@ export const initCloudflare = async (
 ) => {
     bit = await ste.hunt(ActCfl.PROJECT_CLOUDFLARE)
 
-    dat = bit.cflBit.dat
+    dat = bit?.cflBit?.dat || bit?.cflBit?.lst || { workers: [], pages: [] }
 
-    const { workers } = dat
-    const { pages } = dat
+    const workers = Array.isArray(dat?.workers) ? dat.workers : []
+    const pages = Array.isArray(dat?.pages) ? dat.pages : []
 
     // Fire off all worker tasks simultaneously
     await Promise.all(
@@ -45,7 +45,7 @@ export const initCloudflare = async (
         }),
     )
 
-    bal.slv({ intBit: { idx: 'init-cloudflare' } })
+    if (bal.slv != null) bal.slv({ intBit: { idx: 'init-cloudflare' } })
     return cpy
 }
 
@@ -91,6 +91,7 @@ export const projectCloudflare = async (
             bal.slv({
                 cflBit: {
                     idx: 'project-cloudflare',
+                    dat: { workers: [], pages: [] },
                     lst: { workers: [], pages: [] },
                     err: 'Missing credentials',
                 },
@@ -124,9 +125,14 @@ export const projectCloudflare = async (
         const workersData: any = await workersResponse.json()
         const pagesData: any = await pagesResponse.json()
 
+        const workers = Array.isArray(workersData?.result)
+            ? workersData.result
+            : []
+        const pages = Array.isArray(pagesData?.result) ? pagesData.result : []
+
         const dat = {
-            workers: workersData.result || [],
-            pages: pagesData.result || [],
+            workers,
+            pages,
         }
 
         if (bal.slv != null)
