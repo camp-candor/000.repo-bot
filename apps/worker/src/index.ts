@@ -92,7 +92,14 @@ const handleGitHubWebhook = async (c: any) => {
         const prUrl = pr.html_url || ''
 
         const isJulesBranch =
-            headRef.startsWith('feat/') || headRef.startsWith('spec/')
+            headRef.startsWith('feat/') ||
+            headRef.startsWith('spec/') ||
+            headRef.startsWith('bump-') ||
+            headRef.startsWith('chore/') ||
+            headRef.startsWith('jules/') ||
+            (pr.user?.login || '').toLowerCase().includes('jules') ||
+            (pr.body || '').toLowerCase().includes('jules') ||
+            (pr.title || '').toLowerCase().includes('jules')
 
         if (isJulesBranch && c.env.SLACK_BOT_TOKEN) {
             let actualSessionId = pr.head?.sha?.slice(0, 10) || 'active'

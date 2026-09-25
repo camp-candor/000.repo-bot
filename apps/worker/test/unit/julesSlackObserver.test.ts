@@ -85,4 +85,25 @@ describe('Jules Slack Observer & Winnfield Bridge', () => {
 
         expect(card.channel).toBe('C0C4CK27LA1')
     })
+
+    it('formats card correctly for bump-versions and chore branches', () => {
+        const card = buildJulesStatusCard(
+            {
+                sessionId: 'bump_sha_99',
+                repo: 'camp-candor/000.repo-bot',
+                taskId: 'bump-versions-8416490430213543382',
+                status: 'READY_FOR_REVIEW',
+                prUrl: 'https://github.com/camp-candor/000.repo-bot/pull/46',
+                branchName: 'bump-versions-8416490430213543382',
+                queryText: 'Bump main package versions',
+            },
+            mockEnv,
+        )
+
+        expect(card.channel).toBe('C0C4CK27LA1')
+        expect(card.text).toContain('camp-candor/000.repo-bot')
+        expect(card.blocks[1].fields[2].text).toContain(
+            'bump-versions-8416490430213543382',
+        )
+    })
 })
