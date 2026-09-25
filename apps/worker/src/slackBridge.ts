@@ -499,15 +499,21 @@ export function buildJulesStatusCard(params: JulesCardParams, env: any) {
     } else if (params.prUrl) {
         elements.push({
             type: 'button',
-            text: { type: 'plain_text', text: 'View Pull Request [GitHub]' },
+            text: { type: 'plain_text', text: 'View Pull Request [GitHub]', emoji: false },
             url: params.prUrl,
             style: 'primary',
-        })
+            action_id: 'jules_archive_session',
+            value: JSON.stringify({
+                sessionId: params.sessionId,
+                repo: params.repo,
+                prUrl: params.prUrl,
+            }),
+        });
         elements.push({
             type: 'button',
-            text: { type: 'plain_text', text: 'View Jules Log >>' },
+            text: { type: 'plain_text', text: 'View Jules Log >>', emoji: false },
             url: julesUrl,
-        })
+        });
     }
 
     return {
