@@ -112,4 +112,30 @@ describe('GitHub Terminal Deck: Storage Unit & Forensic Sub-Menu Suite', () => {
         const result = slv.mock.calls[0][0]
         expect(result.strBit.val).toBe(1)
     })
+
+    it('honors (global as any).agentBaseUrl when toggled via agent menu', async () => {
+        const model = new StorageModel()
+        const slv = vi.fn()
+        let targetHostQueried = ''
+
+        ;(global as any).agentBaseUrl = 'http://127.0.0.1:8787'
+
+        global.fetch = vi.fn().mockImplementation(async (url: string) => {
+            targetHostQueried = url
+            return new Response(JSON.stringify({ ok: true, events: [] }), {
+                status: 200,
+            })
+        }) as any
+
+        await fetchStorageRecords(
+            model,
+            { idx: 'fetch', val: 10, slv },
+            {} as any,
+        )
+        expect(slv).toHaveBeenCalled()
+        expect(targetHostQueried).toMatch(/^http:\/\/127\.0\.0\.1:8787/)
+
+        // Reset
+        delete (global as any).agentBaseUrl
+    })
 })
