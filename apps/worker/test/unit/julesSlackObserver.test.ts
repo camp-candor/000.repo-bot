@@ -1,3 +1,4 @@
+import { archiveJulesPlatformSession } from '../../src/jules.js'
 import { describe, it, expect, vi } from 'vitest'
 import { buildJulesStatusCard } from '../../src/slackBridge.js'
 
@@ -105,5 +106,60 @@ describe('Jules Slack Observer & Winnfield Bridge', () => {
         expect(card.blocks[1].fields[2].text).toContain(
             'bump-versions-8416490430213543382',
         )
+    })
+
+    it('attaches action_id jules_archive_session and JSON value to View Pull Request button', () => {
+        const card = buildJulesStatusCard(
+            {
+                sessionId: '5040221361492999795',
+                repo: 'camp-candor/000.repo-bot',
+                taskId: 'bump-version-5040221361492999795',
+                status: 'READY_FOR_REVIEW',
+                prUrl: 'https://github.com/camp-candor/000.repo-bot/pull/46',
+                branchName: 'bump-version-5040221361492999795',
+            },
+            mockEnv,
+        )
+
+        const actionBlock = card.blocks.find((b: any) => b.type === 'actions')
+        expect(actionBlock).toBeDefined()
+
+        const prButton = actionBlock.elements.find(
+            (el: any) =>
+                el.url ===
+                'https://github.com/camp-candor/000.repo-bot/pull/46',
+        )
+        expect(prButton).toBeDefined()
+        expect(prButton.action_id).toBe('jules_archive_session')
+
+        const parsedValue = JSON.parse(prButton.value)
+        expect(parsedValue.sessionId).toBe('5040221361492999795')
+        expect(parsedValue.repo).toBe('camp-candor/000.repo-bot')
+    })
+
+    it('calls Jules REST platform archive endpoint without database interaction', async () => {
+        const fetchSpy = vi.spyOn(global, 'fetch').mockResolvedValueOnce({
+            ok: true,
+            status: 200,
+            text: async () => JSON.stringify({ status: 'ARCHIVED' }),
+        } as any)
+
+        const result = await archiveJulesPlatformSession(
+            '5040221361492999795',
+            'test-key',
+        )
+
+        expect(result.ok).toBe(true)
+        expect(fetchSpy).toHaveBeenCalledWith(
+            'https://jules.google/api/v1/sessions/5040221361492999795:archive',
+            expect.objectContaining({
+                method: 'POST',
+                headers: expect.objectContaining({
+                    Authorization: 'Bearer test-key',
+                }),
+            }),
+        )
+
+        fetchSpy.mockRestore()
     })
 })
