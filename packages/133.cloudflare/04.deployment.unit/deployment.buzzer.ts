@@ -1,0 +1,7 @@
+export { initDeployment } from './buz/deployment.buzz'
+export { updateDeployment } from './buz/deployment.buzz'
+export { listDeployment } from './buz/deployment.buzz'
+export { deleteDeployment } from './buz/deployment.buzz'
+export { testDeployment } from './buz/deployment.buzz'
+export { currentDeployment } from './buz/deployment.buzz'
+export { wipeDeployment } from './buz/deployment.buzz'
