@@ -67,6 +67,7 @@ export async function parseSafeResponse(
 
 const getBaseUrl = (): string => {
     return (
+        (global as any).agentBaseUrl ||
         (global as any).githubBaseUrl ||
         process.env.LIVE_WORKER_URL ||
         process.env.WORKER_URL ||
