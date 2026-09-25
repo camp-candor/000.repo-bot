@@ -2,6 +2,16 @@ import { RepobotModel } from '../repobot.model.js'
 import repobotBit from '../fce/repobot.bit.js'
 import State from '../../99.core/state.js'
 
+export const getBaseUrl = (): string => {
+    return (
+        (global as any).agentBaseUrl ||
+        (global as any).repobotBaseUrl ||
+        process.env.LIVE_WORKER_URL ||
+        process.env.WORKER_URL ||
+        'https://repo-bot-00.berad4000.workers.dev'
+    ).replace(/\/$/, '')
+}
+
 const repobot = {
     list: async () => ({ models: [] as any[] }),
 }
@@ -27,12 +37,7 @@ export const testRepobot = async (
 ) => {
     const owner = 'camp-candor'
     const repo = '000.repo-bot'
-    const baseUrl = (
-        (global as any).repobotBaseUrl ||
-        process.env.LIVE_WORKER_URL ||
-        process.env.WORKER_URL ||
-        'http://127.0.0.1:8787'
-    ).replace(/\/$/, '')
+    const baseUrl = getBaseUrl()
 
     const endpoint = `${baseUrl}/repobot/inspect?owner=${encodeURIComponent(owner)}&repo=${encodeURIComponent(repo)}`
 
