@@ -4,6 +4,7 @@ import {
     createSlackSignature,
     probeHandshake,
     simulateInteraction,
+    dispatchJulesTestCard,
 } from './buz/slack.buzz.js'
 import { SlackModel } from './slack.model.js'
 
@@ -39,8 +40,6 @@ describe('Slack Unit & Test Deck Operations', () => {
             text: async () =>
                 JSON.stringify({ challenge: 'test-challenge-token' }),
         }) as any
-
-        // Mock global.LIBRARY console calls
         ;(global as any).LIBRARY = { hunt: vi.fn().mockResolvedValue({}) }
 
         await probeHandshake(model, { idx: 'probe', slv }, {} as any)
@@ -49,39 +48,46 @@ describe('Slack Unit & Test Deck Operations', () => {
         expect(result.olmBit.idx).toBe('probe-handshake')
     })
 
-    it('simulates interaction with proper headers and form body', async () => {
+    it('dispatches test card specifically targeting #jules-winnfield (C0C4CK27LA1)', async () => {
         const model = new SlackModel()
         const slv = vi.fn()
+        let sentBody: any = null
 
-        let requestHeaders: Record<string, string> = {}
-        let requestBody = ''
+        process.env.SLACK_BOT_TOKEN = 'xoxb-mock-token'
+        process.env.SLACK_JULES_CHANNEL_ID = 'C0C4CK27LA1'
 
         global.fetch = vi.fn().mockImplementation((url, init) => {
-            requestHeaders = init.headers
-            requestBody = init.body
+            sentBody = JSON.parse(init.body)
             return Promise.resolve({
                 ok: true,
                 status: 200,
-                text: async () =>
-                    JSON.stringify({
-                        response_type: 'ephemeral',
-                        text: 'Processing',
-                    }),
+                json: async () => ({
+                    ok: true,
+                    ts: '1790999.0001',
+                    channel: 'C0C4CK27LA1',
+                }),
             })
         }) as any
         ;(global as any).LIBRARY = { hunt: vi.fn().mockResolvedValue({}) }
 
-        await simulateInteraction(
+        await dispatchJulesTestCard(
             model,
-            { idx: 'sim', src: 'APPROVE', slv },
+            { idx: 'jules-test', slv },
             {} as any,
         )
 
-        expect(requestHeaders['Content-Type']).toBe(
-            'application/x-www-form-urlencoded',
-        )
-        expect(requestHeaders['X-Slack-Signature']).toMatch(/^v0=[a-f0-9]{64}$/)
-        expect(requestBody).toContain('payload=')
         expect(slv).toHaveBeenCalled()
+        expect(sentBody).not.toBeNull()
+        expect(sentBody.channel).toBe('C0C4CK27LA1')
+        expect(sentBody.text).toContain('camp-candor/000.repo-bot')
+
+        const actionBlock = sentBody.blocks.find(
+            (b: any) => b.type === 'actions',
+        )
+        expect(actionBlock).toBeDefined()
+        expect(actionBlock.elements[0].url).toContain('https://github.com')
+        expect(actionBlock.elements[1].url).toContain(
+            'https://jules.google.com/session/',
+        )
     })
 })

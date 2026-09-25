@@ -13,7 +13,7 @@ export class UpdateMenu implements Action {
     constructor(public bale: MenuBit) {}
 }
 
-export const TEST_MENU = '[Menu action] Test Menu'
+export const TEST_MENU = '[Test action] Test Menu'
 export class TestMenu implements Action {
     readonly type = TEST_MENU
     constructor(public bale: MenuBit) {}

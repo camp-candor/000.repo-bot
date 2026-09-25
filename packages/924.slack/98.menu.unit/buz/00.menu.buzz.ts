@@ -74,6 +74,7 @@ export const updateMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
         'SIMULATE UNAUTHORIZED USER (NEGATIVE)',
         'SIMULATE FORGED SIGNATURE (NEGATIVE)',
         'DISPATCH LIVE CARD TO #ops-bridge',
+        'TEST CARD: #jules-winnfield',
         'SIMULATE CUSTOM TASK ID...',
         'ROOT MENU',
     ]
@@ -92,7 +93,9 @@ export const updateMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
         'SIMULATE FORGED SIGNATURE (NEGATIVE)':
             'Submit payload with tampered HMAC to verify 401 fail-closed guard.',
         'DISPATCH LIVE CARD TO #ops-bridge':
-            'Send a real Block Kit approval card to the configured Slack channel.',
+            'Send a real Block Kit approval card to #ops-bridge (C0C40FMRQ9H).',
+        'TEST CARD: #jules-winnfield':
+            'Send a Jules verification card with direct PR and session links to #jules-winnfield (C0C4CK27LA1).',
         'SIMULATE CUSTOM TASK ID...':
             'Open text prompt to simulate decisions against a specific Task ID.',
         'ROOT MENU': 'Return to the main runner menu.',
@@ -158,6 +161,11 @@ export const updateMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
 
         case 'DISPATCH LIVE CARD TO #ops-bridge':
             await ste.hunt(ActSlack.DISPATCH_TEST_CARD, {})
+            await new Promise((r) => setTimeout(r, 2500))
+            break
+
+        case 'TEST CARD: #jules-winnfield':
+            await ste.hunt(ActSlack.DISPATCH_JULES_TEST_CARD, {})
             await new Promise((r) => setTimeout(r, 2500))
             break
 

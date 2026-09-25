@@ -512,7 +512,7 @@ export function buildJulesStatusCard(params: JulesCardParams, env: any) {
 
     return {
         channel: targetChannel,
-        text: `Jules Update [${params.status}]:${params.repo}`,
+        text: `Jules Update [${params.status}]: ${params.repo}`,
         blocks: [
             {
                 type: 'header',
