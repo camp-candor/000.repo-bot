@@ -1,6 +1,7 @@
 /* eslint-disable */
 import * as ActMnu from '../menu.action.js'
 import * as ActGth from '../../00.github.unit/github.action.js'
+import * as ActStr from '../../03.storage.unit/storage.action.js'
 
 import type { MenuModel } from '../menu.model.js'
 import type MenuBit from '../fce/menu.bit.js'
@@ -90,12 +91,8 @@ export const updateMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
             'Auto-provision GitHub webhook, register repo in Edge DO, and execute ping test.',
         'LIST WATCHED FLEET REPOSITORIES':
             'Query and display all active repositories under edge surveillance.',
-        'AUDIT HASH CHAIN INTEGRITY (VERIFY PROVENANCE)':
-            'Cryptographically verify recursive SHA-256 hash chain and provenance of audit records.',
-        'INSPECT D1 AUDIT TRAIL (LAST 20)':
-            'Query hot D1 relational database for recent audit events across the fleet.',
-        'TRIGGER MANUAL COLD DRAINAGE FLUSH':
-            'Manually trigger out-of-band batch dump to GitHub audit-log orphan branch and prune old records.',
+        'COLD STORAGE & AUDIT LEDGER...':
+            'Open sub-menu for FEAT-07 Dual-Ledger: inspect records, hash-chain audits, sync countdown, and flushes.',
         'AUDIT GITHUB TOKEN & PERMISSIONS':
             'Audit active GITHUB_TOKEN identity, OAuth scopes, and repository permissions.',
         'INSPECT SLACK BRIDGE STATUS':
@@ -576,4 +573,187 @@ export const updateMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
     }, 333)
 
     return cpy
+}
+
+/**
+ * Dedicated Sub-Menu for FEAT-07 Dual-Ledger Cold Storage & Audit Trail
+ */
+async function openColdStorageSubMenu(
+    cpy: MenuModel,
+    bal: MenuBit,
+    ste: State,
+) {
+    const subLst = [
+        'STORAGE SYNC STATUS & LAST DRAINAGE TIME',
+        'COUNTDOWN TO NEXT SCHEDULED COLD DRAINAGE',
+        'BROWSE LAST 100 STORAGE RECORDS (SELECT TO INSPECT)...',
+        'AUDIT HASH CHAIN INTEGRITY (VERIFY PROVENANCE)',
+        'INSPECT UNDRAINED HOT BUFFER (PENDING FLUSH)',
+        'TRIGGER MANUAL COLD DRAINAGE FLUSH',
+        '<-- BACK TO MAIN FLEET MENU',
+    ]
+
+    const subDescriptions: Record<string, string> = {
+        'STORAGE SYNC STATUS & LAST DRAINAGE TIME':
+            'Query edge worker for the last successful cold drainage timestamp and buffer stats.',
+        'COUNTDOWN TO NEXT SCHEDULED COLD DRAINAGE':
+            'Calculate and display hours/minutes remaining until midnight UTC cron drainage.',
+        'BROWSE LAST 100 STORAGE RECORDS (SELECT TO INSPECT)...':
+            'Scroll through recent 100 records and select one to inspect full commit message, actor, and hash.',
+        'AUDIT HASH CHAIN INTEGRITY (VERIFY PROVENANCE)':
+            'Cryptographically verify recursive SHA-256 hash chain and provenance of audit records.',
+        'INSPECT UNDRAINED HOT BUFFER (PENDING FLUSH)':
+            'Display only records currently held in D1 hot state that have not yet been drained to Git.',
+        'TRIGGER MANUAL COLD DRAINAGE FLUSH':
+            'Manually trigger out-of-band batch dump to GitHub audit-log orphan branch and prune old records.',
+        '<-- BACK TO MAIN FLEET MENU':
+            'Return to the main flight operations deck.',
+    }
+
+    const gridBit = await global.LIBRARY.hunt(UPDATE_GRID, {
+        x: 0,
+        y: 4,
+        xSpan: 4,
+        ySpan: 8,
+    })
+    const choiceBit = await global.LIBRARY.hunt(OPEN_CHOICE, {
+        dat: {
+            clr0: Color.BLACK,
+            clr1: Color.CYAN,
+            cb: (choice: string) => {
+                const text =
+                    subDescriptions[choice] || 'No description available.'
+                text.split('\n').forEach((s) =>
+                    global.LIBRARY.hunt(UPDATE_CONSOLE, {
+                        idx: 'cns00',
+                        src: s,
+                    }),
+                )
+            },
+        },
+        src: Align.VERTICAL,
+        lst: subLst,
+        net: gridBit.grdBit.dat,
+    })
+
+    const choice = choiceBit.chcBit.src
+
+    switch (choice) {
+        case 'STORAGE SYNC STATUS & LAST DRAINAGE TIME': {
+            await ste.hunt(ActStr.CHECK_DRAINAGE_STATUS, {})
+            await new Promise((r) => setTimeout(r, 2500))
+            break
+        }
+
+        case 'COUNTDOWN TO NEXT SCHEDULED COLD DRAINAGE': {
+            await ste.hunt(ActStr.COUNTDOWN_DRAINAGE, {})
+            await new Promise((r) => setTimeout(r, 2500))
+            break
+        }
+
+        case 'BROWSE LAST 100 STORAGE RECORDS (SELECT TO INSPECT)...': {
+            await global.LIBRARY.hunt(UPDATE_CONSOLE, {
+                idx: 'cns00',
+                src: '>> Fetching last 100 records from D1 storage...',
+            })
+
+            const res: any = await ste.hunt(ActStr.FETCH_STORAGE_RECORDS, {
+                val: 100,
+            })
+            const records: any[] = res.strBit?.lst || []
+
+            if (records.length === 0) {
+                await global.LIBRARY.hunt(UPDATE_CONSOLE, {
+                    idx: 'cns00',
+                    src: '>> [NOTICE] Zero storage records found in D1.',
+                })
+                await new Promise((r) => setTimeout(r, 1500))
+                break
+            }
+
+            const recordChoices = records.map((r) => {
+                const dt = new Date(r.created_at)
+                    .toISOString()
+                    .slice(5, 16)
+                    .replace('T', ' ')
+                const state = r.drained_at ? 'COLD' : 'HOT '
+                const repoShort =
+                    (r.repository || '').split('/')[1] || r.repository
+                return `[#${r.sequence_id}] ${dt} | ${state} | ${r.event_type} | ${repoShort}`
+            })
+            recordChoices.push('[-- CANCEL / BACK --]')
+
+            const pickerGrid = await global.LIBRARY.hunt(UPDATE_GRID, {
+                x: 0,
+                y: 4,
+                xSpan: 4,
+                ySpan: 8,
+            })
+            const picked = await global.LIBRARY.hunt(OPEN_CHOICE, {
+                dat: { clr0: Color.BLACK, clr1: Color.YELLOW },
+                src: Align.VERTICAL,
+                lst: recordChoices,
+                net: pickerGrid.grdBit.dat,
+            })
+
+            const selectedTxt = picked.chcBit.src
+            if (selectedTxt !== '[-- CANCEL / BACK --]') {
+                const seqMatch = selectedTxt.match(/\[#(\d+)\]/)
+                if (seqMatch) {
+                    const targetSeq = Number(seqMatch[1])
+                    const matchedRecord = records.find(
+                        (r) => r.sequence_id === targetSeq,
+                    )
+                    if (matchedRecord) {
+                        await ste.hunt(ActStr.INSPECT_STORAGE_RECORD, {
+                            dat: matchedRecord,
+                        })
+                        await new Promise((r) => setTimeout(r, 3000))
+                    }
+                }
+            }
+            break
+        }
+
+        case 'AUDIT HASH CHAIN INTEGRITY (VERIFY PROVENANCE)': {
+            const inputGrid = await global.LIBRARY.hunt(UPDATE_GRID, {
+                x: 0,
+                y: 4,
+                xSpan: 4,
+                ySpan: 4,
+            })
+            const inputBit = await global.LIBRARY.hunt(OPEN_INPUT, {
+                dat: { clr0: Color.BLACK, clr1: Color.YELLOW },
+                src: Align.VERTICAL,
+                lst: [],
+                txt: 'Enter repo slug to verify chain (default: astro-kahn-it-com/001.goblin-lore):',
+                net: inputGrid.grdBit.dat,
+            })
+
+            const targetRepo =
+                inputBit.putBit?.src?.trim() ||
+                'astro-kahn-it-com/001.goblin-lore'
+            await ste.hunt(ActGth.AUDIT_HASH_CHAIN_INTEGRITY, {
+                src: targetRepo,
+            })
+            await new Promise((r) => setTimeout(r, 2500))
+            break
+        }
+
+        case 'INSPECT UNDRAINED HOT BUFFER (PENDING FLUSH)': {
+            await ste.hunt(ActGth.INSPECT_D1_AUDIT_LOG, {})
+            await new Promise((r) => setTimeout(r, 2500))
+            break
+        }
+
+        case 'TRIGGER MANUAL COLD DRAINAGE FLUSH': {
+            await ste.hunt(ActGth.TRIGGER_COLD_DRAINAGE, {})
+            await new Promise((r) => setTimeout(r, 2500))
+            break
+        }
+
+        case '<-- BACK TO MAIN FLEET MENU':
+        default:
+            return
+    }
 }

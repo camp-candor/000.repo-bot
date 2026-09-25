@@ -23,6 +23,46 @@ export interface StoredAuditEvent {
     drained_at: number | null
 }
 
+const INIT_SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS audit_events (
+    sequence_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id TEXT NOT NULL,
+    repository TEXT NOT NULL,
+    event_type TEXT NOT NULL,
+    actor_id TEXT NOT NULL,
+    head_sha TEXT NOT NULL,
+    payload_json TEXT NOT NULL,
+    prev_hash TEXT NOT NULL,
+    record_hash TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    drained_at INTEGER DEFAULT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_audit_task ON audit_events (task_id, sequence_id);
+CREATE INDEX IF NOT EXISTS idx_audit_undrained ON audit_events (drained_at) WHERE drained_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_audit_repo_seq ON audit_events (repository, sequence_id DESC);
+`
+
+let isSchemaInitialized = false
+
+/**
+ * Strategy A: In-Code Self-Healing Schema Bootstrap
+ * Guarantees D1 table and indexes exist on first call without requiring manual migrations.
+ */
+export async function ensureAuditSchema(db: any): Promise<void> {
+    if (isSchemaInitialized || !db) return
+    try {
+        if (typeof db.exec === 'function') {
+            await db.exec(INIT_SCHEMA_SQL)
+            isSchemaInitialized = true
+        }
+    } catch (err) {
+        console.error(
+            '[D1_BOOTSTRAP_ERROR] Failed to auto-initialize audit schema:',
+            err,
+        )
+    }
+}
+
 /**
  * Appends an event to the D1 Hot Transactional Ledger with SHA-256 chaining.
  */
@@ -30,6 +70,7 @@ export async function appendAuditEvent(
     db: any,
     event: AuditEventInput,
 ): Promise<StoredAuditEvent> {
+    await ensureAuditSchema(db)
     const now = Date.now()
 
     // 1. Fetch latest record for this repository to retrieve Hn-1
