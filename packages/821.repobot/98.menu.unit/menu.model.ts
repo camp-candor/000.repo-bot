@@ -23,9 +23,7 @@ const resolvedLiveUrl = (
 
 export class MenuModel implements Menu {
     lst: string[] = []
-    targetMode: 'LIVE' | 'LOCAL' = 'LIVE'
     activeBaseUrl: string = resolvedLiveUrl
-    localProcess: any = null
 
     geoJsonNow: any
     atlasNow: any
