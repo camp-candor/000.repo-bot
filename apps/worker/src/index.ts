@@ -5,7 +5,11 @@ import { executeColdDrainage } from './audit/drainageEngine.js'
 import { Hono } from 'hono'
 import { handleSlackInteraction } from './routes/slackInteractions.js'
 import { generateCommitMessage } from './commitGenerator.js'
-import { dispatchJulesJob, getJulesSession } from './jules.js'
+import {
+    dispatchJulesJob,
+    getJulesSession,
+    pollActiveJulesSessions,
+} from './jules.js'
 import { verifyGitHubSignature } from './tools.js'
 import { postSlackMergeAnnouncement } from './slackBridge.js'
 import {
@@ -670,12 +674,17 @@ export default {
     fetch: app.fetch,
     async scheduled(event: any, env: any, ctx: any) {
         ctx.waitUntil(
-            executeColdDrainage(env.DB, {
-                GITHUB_TOKEN: env.GITHUB_TOKEN,
-                ARCHIVE_REPO: env.ARCHIVE_REPO,
-            }).catch((err) =>
-                console.error('[SCHEDULED_DRAINAGE_FAILED]', err),
-            ),
+            Promise.all([
+                executeColdDrainage(env.DB, {
+                    GITHUB_TOKEN: env.GITHUB_TOKEN,
+                    ARCHIVE_REPO: env.ARCHIVE_REPO,
+                }).catch((err) =>
+                    console.error('[SCHEDULED_DRAINAGE_FAILED]', err),
+                ),
+                pollActiveJulesSessions(env).catch((err) =>
+                    console.error('[SCHEDULED_JULES_POLLER_FAILED]', err),
+                ),
+            ]),
         )
     },
 }

@@ -467,3 +467,137 @@ export async function postSlackEmergencyAlert(
         return { ok: false, error: err.message }
     }
 }
+
+export interface JulesCardParams {
+    sessionId: string
+    repo: string
+    taskId?: string
+    status: 'INPUT_REQUIRED' | 'READY_FOR_REVIEW' | 'FAILED'
+    queryText?: string
+    prUrl?: string
+    branchName?: string
+}
+
+export function buildJulesStatusCard(params: JulesCardParams, env: any) {
+    const julesUrl = `https://jules.google.com/session/${params.sessionId}`
+    const isInput = params.status === 'INPUT_REQUIRED'
+
+    // Dedicated destination channel: #jules-winnfield (C0C4CK27LA1)
+    const targetChannel =
+        (env.SLACK_JULES_CHANNEL_ID || '').trim().replace(/^["']|["']$/g, '') ||
+        'C0C4CK27LA1'
+
+    const elements: any[] = []
+
+    if (isInput) {
+        elements.push({
+            type: 'button',
+            text: { type: 'plain_text', text: 'Open Session in Jules >>' },
+            url: julesUrl,
+            style: 'primary',
+        })
+    } else if (params.prUrl) {
+        elements.push({
+            type: 'button',
+            text: { type: 'plain_text', text: 'View Pull Request [GitHub]' },
+            url: params.prUrl,
+            style: 'primary',
+        })
+        elements.push({
+            type: 'button',
+            text: { type: 'plain_text', text: 'View Jules Log >>' },
+            url: julesUrl,
+        })
+    }
+
+    return {
+        channel: targetChannel,
+        text: `Jules Update [${params.status}]:${params.repo}`,
+        blocks: [
+            {
+                type: 'header',
+                text: {
+                    type: 'plain_text',
+                    text: isInput
+                        ? ':: Jules Requires Operator Feedback'
+                        : ':: Jules Code Ready for Review',
+                    emoji: false,
+                },
+            },
+            {
+                type: 'section',
+                fields: [
+                    {
+                        type: 'mrkdwn',
+                        text: `*Repository:*\n\`${params.repo}\``,
+                    },
+                    { type: 'mrkdwn', text: `*Status:*\n\`${params.status}\`` },
+                    ...(params.taskId
+                        ? [
+                              {
+                                  type: 'mrkdwn',
+                                  text: `*Task ID:*\n\`${params.taskId}\``,
+                              },
+                          ]
+                        : []),
+                    ...(params.branchName
+                        ? [
+                              {
+                                  type: 'mrkdwn',
+                                  text: `*Branch:*\n\`${params.branchName}\``,
+                              },
+                          ]
+                        : []),
+                ],
+            },
+            ...(params.queryText
+                ? [
+                      {
+                          type: 'section',
+                          text: {
+                              type: 'mrkdwn',
+                              text: `*Latest Message from Jules:*\n> _${params.queryText.slice(0, 300)}_`,
+                          },
+                      },
+                  ]
+                : []),
+            {
+                type: 'actions',
+                elements,
+            },
+        ],
+    }
+}
+
+export async function postSlackJulesMessage(
+    payload: any,
+    env: any,
+): Promise<{ ok: boolean; error?: string }> {
+    if (!env.SLACK_BOT_TOKEN) {
+        console.warn(
+            '>> [SLACK WARNING] SLACK_BOT_TOKEN missing. Jules message skipped.',
+        )
+        return { ok: false, error: 'MISSING_SLACK_BOT_TOKEN' }
+    }
+
+    try {
+        const res = await fetch('https://slack.com/api/chat.postMessage', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${env.SLACK_BOT_TOKEN}`,
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(payload),
+        })
+
+        const data: any = await res.json()
+        if (!data.ok) {
+            console.error('>> [SLACK JULES POST FAILED]:', data.error)
+            return { ok: false, error: data.error }
+        }
+        return { ok: true }
+    } catch (err: any) {
+        console.error('>> [SLACK JULES NETWORK ERROR]:', err.message)
+        return { ok: false, error: err.message }
+    }
+}
