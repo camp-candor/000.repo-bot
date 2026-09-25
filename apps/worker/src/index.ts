@@ -1,6 +1,12 @@
 import { ensureAuditSchema } from './audit/auditLedger.js'
 import { appendAuditEvent } from './audit/auditLedger.js'
 import { executeColdDrainage } from './audit/drainageEngine.js'
+import {
+    dispatchJulesJob,
+    getJulesSession,
+    pollActiveJulesSessions,
+} from './jules.js'
+import { buildJulesStatusCard, postSlackJulesMessage } from './slackBridge.js'
 
 import { Hono } from 'hono'
 import { handleSlackInteraction } from './routes/slackInteractions.js'
@@ -77,6 +83,63 @@ const handleGitHubWebhook = async (c: any) => {
     }
 
     // 2. Process Pull Request Closed & Merged Event
+
+    // 1. Audit Ingestion
+    if (githubEvent === 'pull_request' && payload.action) {
+        c.executionCtx.waitUntil(
+            appendAuditEvent(c.env.DB, {
+                taskId:
+                    payload.pull_request?.head?.ref ||
+                    `PR-${payload.pull_request?.number}`,
+                repository: payload.repository?.full_name || 'unknown',
+                eventType: `PR_${payload.action.toUpperCase()}`,
+                actorId: payload.sender?.login || 'unknown',
+                headSha: payload.pull_request?.head?.sha || 'unknown',
+                payload: {
+                    action: payload.action,
+                    number: payload.pull_request?.number,
+                    title: payload.pull_request?.title,
+                    merged: payload.pull_request?.merged || false,
+                },
+            }).catch((err) => console.error('[AUDIT_LEDGER_ERROR]', err)),
+        )
+    }
+
+    // 2. Jules PR Opened Interception -> Route to #jules-winnfield (C0C4CK27LA1)
+    if (githubEvent === 'pull_request' && payload.action === 'opened') {
+        const pr = payload.pull_request
+        const repoFullName = payload.repository?.full_name || 'unknown'
+        const headRef = pr.head?.ref || ''
+        const prUrl = pr.html_url || ''
+
+        const isJulesBranch =
+            headRef.startsWith('feat/') || headRef.startsWith('spec/')
+
+        if (isJulesBranch && c.env.SLACK_BOT_TOKEN) {
+            const card = buildJulesStatusCard(
+                {
+                    sessionId: pr.head?.sha?.slice(0, 10) || 'active',
+                    repo: repoFullName,
+                    taskId: headRef,
+                    status: 'READY_FOR_REVIEW',
+                    prUrl,
+                    branchName: headRef,
+                    queryText:
+                        pr.body ||
+                        pr.title ||
+                        'Pull request ready for evaluation.',
+                },
+                c.env,
+            )
+
+            c.executionCtx.waitUntil(
+                postSlackJulesMessage(card, c.env).catch((err) =>
+                    console.error('[SLACK_JULES_PR_CARD_ERROR]', err),
+                ),
+            )
+        }
+    }
+
     if (
         githubEvent === 'pull_request' &&
         payload.action === 'closed' &&
@@ -670,12 +733,17 @@ export default {
     fetch: app.fetch,
     async scheduled(event: any, env: any, ctx: any) {
         ctx.waitUntil(
-            executeColdDrainage(env.DB, {
-                GITHUB_TOKEN: env.GITHUB_TOKEN,
-                ARCHIVE_REPO: env.ARCHIVE_REPO,
-            }).catch((err) =>
-                console.error('[SCHEDULED_DRAINAGE_FAILED]', err),
-            ),
+            Promise.all([
+                executeColdDrainage(env.DB, {
+                    GITHUB_TOKEN: env.GITHUB_TOKEN,
+                    ARCHIVE_REPO: env.ARCHIVE_REPO,
+                }).catch((err) =>
+                    console.error('[SCHEDULED_DRAINAGE_FAILED]', err),
+                ),
+                pollActiveJulesSessions(env).catch((err) =>
+                    console.error('[SCHEDULED_JULES_POLLER_FAILED]', err),
+                ),
+            ]),
         )
     },
 }

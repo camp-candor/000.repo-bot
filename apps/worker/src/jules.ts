@@ -1,5 +1,11 @@
 import type { Context } from 'hono'
 import { githubRequest, type Env } from './tools.js'
+import {
+    recordJulesSession,
+    ensureJulesSchema,
+    type StoredJulesSession,
+} from './julesLedger.js'
+import { buildJulesStatusCard, postSlackJulesMessage } from './slackBridge.js'
 
 export const dispatchJulesJob = async (c: Context<{ Bindings: Env }>) => {
     const body = await c.req
@@ -86,9 +92,26 @@ Run test suite locally before pushing. Exit code 0 required.
         }
 
         const sessionData: any = await julesRes.json()
+        const sessionId = sessionData.sessionId || sessionData.id
+
+        // 5. Record to D1 Session Ledger
+        if (c.env.DB && sessionId) {
+            c.executionCtx.waitUntil(
+                recordJulesSession(c.env.DB, {
+                    sessionId,
+                    repo: `${owner}/${repo}`,
+                    taskId,
+                    branchName,
+                    prompt: body.prompt,
+                }).catch((err) =>
+                    console.error('[D1_JULES_RECORD_ERROR]', err),
+                ),
+            )
+        }
+
         return c.json({
             action: 'JULES_DISPATCHED',
-            sessionId: sessionData.sessionId || sessionData.id,
+            sessionId,
             branch: branchName,
             sClean,
         })
@@ -113,5 +136,83 @@ export const getJulesSession = async (c: Context<{ Bindings: Env }>) => {
         return c.json(await res.json())
     } catch (err: any) {
         return c.json({ error: err.message }, 500)
+    }
+}
+
+export async function pollActiveJulesSessions(env: Env): Promise<void> {
+    if (!env.DB || !env.JULES_API_KEY) return
+    await ensureJulesSchema(env.DB)
+
+    const { results } = await env.DB.prepare(
+        "SELECT * FROM jules_sessions WHERE status NOT IN ('COMPLETED', 'FAILED') LIMIT 25",
+    ).all()
+
+    const activeSessions = (results || []) as StoredJulesSession[]
+    if (activeSessions.length === 0) return
+
+    for (const item of activeSessions) {
+        try {
+            const res = await fetch(
+                `https://jules.google/api/v1/sessions/${item.session_id}`,
+                {
+                    headers: { Authorization: `Bearer ${env.JULES_API_KEY}` },
+                },
+            )
+            if (!res.ok) continue
+
+            const data: any = await res.json()
+            const currentStatus = data.status || 'RUNNING'
+            const latestPrompt =
+                data.last_prompt || data.last_message || data.prompt || ''
+
+            const needsUserInput =
+                currentStatus === 'AWAITING_USER_INPUT' ||
+                currentStatus === 'NEEDS_ATTENTION' ||
+                currentStatus === 'PAUSED'
+
+            // If Jules is blocked waiting for feedback and we haven't alerted yet
+            if (needsUserInput && item.last_status !== currentStatus) {
+                const card = buildJulesStatusCard(
+                    {
+                        sessionId: item.session_id,
+                        repo: item.repo,
+                        taskId: item.task_id,
+                        status: 'INPUT_REQUIRED',
+                        branchName: item.branch_name,
+                        queryText:
+                            latestPrompt ||
+                            'Jules is waiting for your input to continue.',
+                    },
+                    env,
+                )
+
+                await postSlackJulesMessage(card, env)
+
+                await env.DB.prepare(
+                    'UPDATE jules_sessions SET status = ?, last_status = ?, updated_at = ? WHERE session_id = ?',
+                )
+                    .bind(
+                        currentStatus,
+                        currentStatus,
+                        Date.now(),
+                        item.session_id,
+                    )
+                    .run()
+            } else if (
+                currentStatus === 'COMPLETED' ||
+                currentStatus === 'FAILED'
+            ) {
+                await env.DB.prepare(
+                    'UPDATE jules_sessions SET status = ?, updated_at = ? WHERE session_id = ?',
+                )
+                    .bind(currentStatus, Date.now(), item.session_id)
+                    .run()
+            }
+        } catch (err: any) {
+            console.error(
+                `[JULES_POLLER_ERROR] Session ${item.session_id}:`,
+                err.message,
+            )
+        }
     }
 }

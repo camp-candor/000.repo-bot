@@ -45,6 +45,7 @@ jobs:
                   npx wrangler deploy --env staging \
                     --var GITHUB_DEFAULT_OWNER:"$DEFAULT_OWNER" \
                     --var SLACK_CHANNEL_ID:"$SLACK_CHANNEL" \
+                    --var SLACK_JULES_CHANNEL_ID:"C0C4CK27LA1" \
                     --var SLACK_AUTHORIZED_APPROVERS:"$SLACK_APPROVERS"
               env:
                   CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
