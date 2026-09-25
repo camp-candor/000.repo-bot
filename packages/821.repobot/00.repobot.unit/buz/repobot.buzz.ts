@@ -27,12 +27,7 @@ export const testRepobot = async (
 ) => {
     const owner = 'camp-candor'
     const repo = '000.repo-bot'
-    const baseUrl = (
-        (global as any).repobotBaseUrl ||
-        process.env.LIVE_WORKER_URL ||
-        process.env.WORKER_URL ||
-        'http://127.0.0.1:8787'
-    ).replace(/\/$/, '')
+    const baseUrl = getBaseUrl()
 
     const endpoint = `${baseUrl}/repobot/inspect?owner=${encodeURIComponent(owner)}&repo=${encodeURIComponent(repo)}`
 
@@ -239,4 +234,14 @@ export const disconnectRepobot = (
         bal.slv({ olmBit: { idx: 'disconnect-repobot', lst: [] } })
 
     return cpy
+}
+
+export const getBaseUrl = (): string => {
+    return (
+        (global as any).agentBaseUrl ||
+        (global as any).repobotBaseUrl ||
+        process.env.LIVE_WORKER_URL ||
+        process.env.WORKER_URL ||
+        'https://repo-bot-00.berad4000.workers.dev'
+    ).replace(/\/$/, '')
 }
