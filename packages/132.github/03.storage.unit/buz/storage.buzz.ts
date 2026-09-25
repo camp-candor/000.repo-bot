@@ -41,6 +41,30 @@ export const logConsole = async (src: string, maxLen = 56) => {
     }
 }
 
+/**
+ * Safely parses fetch responses without crashing on non-JSON / plain text errors.
+ */
+export async function parseSafeResponse(
+    res: Response,
+): Promise<{ ok: boolean; status: number; data: any; raw: string }> {
+    const status = res.status
+    const raw = (await res.text()).trim()
+    let data: any = null
+
+    try {
+        data = JSON.parse(raw)
+    } catch {
+        data = null
+    }
+
+    return {
+        ok: res.ok,
+        status,
+        data,
+        raw,
+    }
+}
+
 const getBaseUrl = (): string => {
     return (
         (global as any).agentBaseUrl ||
@@ -78,14 +102,16 @@ export const checkDrainageStatus = async (
         '>> ==============================================================',
     )
     await logConsole('>> [COLD STORAGE STATUS & SYNC TELEMETRY]')
+    await logConsole(`>> Target Endpoint   : ${baseUrl}/api/audit/status`)
 
     const t0 = Date.now()
     try {
         const res = await fetch(`${baseUrl}/api/audit/status`)
-        const data: any = await res.json()
+        const parsed = await parseSafeResponse(res)
         const rtt = Date.now() - t0
 
-        if (res.ok && data.ok) {
+        if (parsed.ok && parsed.data?.ok) {
+            const data = parsed.data
             await logConsole(`>> [HTTP 200 OK] :: ${rtt}ms RTT`)
             await logConsole(`>> Cron Cadence      : ${data.cronSchedule}`)
 
@@ -132,16 +158,44 @@ export const checkDrainageStatus = async (
                     strBit: { idx: 'check-drainage-status', val: 1, dat: data },
                 })
         } else {
-            await logConsole(`>> [QUERY FAILED: HTTP ${res.status}]`)
+            await logConsole(`>> [QUERY FAILED: HTTP ${parsed.status}]`)
+            if (parsed.status === 404) {
+                await logConsole(
+                    '>> Endpoint /api/audit/status not found on target worker.',
+                )
+                await logConsole(
+                    '>> If targeting LIVE, run: cd apps/worker && npx wrangler deploy',
+                )
+            } else {
+                await logConsole(
+                    `>> Response: ${parsed.raw.slice(0, 80) || '(empty response)'}`,
+                )
+            }
+            await logConsole(
+                '>> ==============================================================',
+            )
             if (bal.slv)
                 bal.slv({
-                    strBit: { idx: 'check-drainage-status-err', val: 0 },
+                    strBit: {
+                        idx: 'check-drainage-status-err',
+                        val: 0,
+                        dat: parsed,
+                    },
                 })
         }
     } catch (err: any) {
         await logConsole(`>> [STORAGE NETWORK ERROR]: ${err.message}`)
+        await logConsole(
+            '>> ==============================================================',
+        )
         if (bal.slv)
-            bal.slv({ strBit: { idx: 'check-drainage-status-err', val: 0 } })
+            bal.slv({
+                strBit: {
+                    idx: 'check-drainage-status-err',
+                    val: 0,
+                    src: err.message,
+                },
+            })
     }
     return cpy
 }
@@ -227,12 +281,16 @@ export const fetchStorageRecords = async (
         const res = await fetch(
             `${baseUrl}/api/audit/recent?limit=${limit}${undrainedParam}`,
         )
-        const data: any = await res.json()
-        const records = data.events || []
+        const parsed = await parseSafeResponse(res)
+        const records = parsed.data?.events || []
 
         if (bal.slv)
             bal.slv({
-                strBit: { idx: 'fetch-storage-records', lst: records, val: 1 },
+                strBit: {
+                    idx: 'fetch-storage-records',
+                    lst: records,
+                    val: parsed.ok ? 1 : 0,
+                },
             })
     } catch (err: any) {
         await logConsole(`>> [FETCH STORAGE ERROR]: ${err.message}`)

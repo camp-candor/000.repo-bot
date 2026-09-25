@@ -137,4 +137,45 @@ describe('GitHub Terminal Deck: Storage Unit & Forensic Sub-Menu Suite', () => {
         // Reset
         delete (global as any).agentBaseUrl
     })
+
+    it('checkDrainageStatus absorbs plain-text 404 Not Found without throwing SyntaxError', async () => {
+        const model = new StorageModel()
+        const slv = vi.fn()
+
+        global.fetch = vi.fn().mockResolvedValue(
+            new Response('404 Not Found', {
+                status: 404,
+                statusText: 'Not Found',
+                headers: { 'Content-Type': 'text/plain' },
+            }),
+        ) as any
+
+        await checkDrainageStatus(model, { idx: 'check', slv }, {} as any)
+        expect(slv).toHaveBeenCalled()
+        const result = slv.mock.calls[0][0]
+        expect(result.strBit.val).toBe(0)
+        expect(result.strBit.idx).toBe('check-drainage-status-err')
+    })
+
+    it('fetchStorageRecords absorbs plain-text 500 error cleanly without throwing', async () => {
+        const model = new StorageModel()
+        const slv = vi.fn()
+
+        global.fetch = vi.fn().mockResolvedValue(
+            new Response('500 Internal Server Error', {
+                status: 500,
+                headers: { 'Content-Type': 'text/plain' },
+            }),
+        ) as any
+
+        await fetchStorageRecords(
+            model,
+            { idx: 'fetch', val: 10, slv },
+            {} as any,
+        )
+        expect(slv).toHaveBeenCalled()
+        const result = slv.mock.calls[0][0]
+        expect(result.strBit.val).toBe(0)
+        expect(result.strBit.lst).toEqual([])
+    })
 })
