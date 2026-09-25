@@ -258,9 +258,7 @@ export const toggleTargetMode = async (
 
 export const updateMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
     const toggleLabel =
-        cpy.targetMode === 'LIVE'
-            ? 'TARGET: [LIVE] -> Switch to LOCAL'
-            : 'TARGET: [LOCAL] -> Switch to LIVE'
+        cpy.targetMode === 'LIVE' ? 'SWITCH TO [LOCAL]' : 'SWITCH TO [LIVE]'
 
     const lst = [
         ActOlm.UPDATE_agent.split(']')[1],
