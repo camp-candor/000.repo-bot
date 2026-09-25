@@ -255,7 +255,7 @@ const init = async () => {
 // 3. Main Execution Flow: Build library, agent, repobot, cloudflare, jules, github, and slack packages
 const main = async () => {
     try {
-        console.log('🔨 Building TypeScript...')
+        console.log('Building TypeScript...')
         var { stdout, stderr } = await exec(
             'tsc -b 995.library ../../packages/000.agent ../../packages/821.repobot ../../packages/133.cloudflare ../../packages/135.jules ../../packages/132.github ../../packages/924.slack',
             { cwd: import.meta.dirname },
