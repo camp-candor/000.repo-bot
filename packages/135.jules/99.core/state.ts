@@ -11,7 +11,7 @@ export default class State extends BehaviorSubject<any> {
     public pivot: any
     public bus: any
 
-    private dispatcher: Subject = new Subject()
+    private dispatcher: Subject<any> = new Subject()
 
     constructor(init: UnitModel = new UnitModel()) {
         super(init)
