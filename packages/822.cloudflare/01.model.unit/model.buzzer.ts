@@ -1,8 +1,0 @@
-export { initModel } from './buz/model.buzz.js'
-export { updateModel } from './buz/model.buzz.js'
-export { readModel } from './buz/model.buzz.js'
-export { writeModel } from './buz/model.buzz.js'
-export { removeModel } from './buz/model.buzz.js'
-export { deleteModel } from './buz/model.buzz.js'
-export { createModel } from './buz/model.buzz.js'
-export { listModel } from './buz/model.buzz.js'
