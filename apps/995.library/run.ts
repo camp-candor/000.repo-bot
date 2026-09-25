@@ -17,7 +17,7 @@ const options = program.opts()
 
 // 2. Logic to run AFTER build
 const init = async () => {
-    console.log('⚡ Initialization started...')
+    console.log('>> Initialization started...')
 
     global.window = global as any
 
@@ -79,7 +79,7 @@ const init = async () => {
             await new Promise((resolve) => setTimeout(resolve, 10))
 
             await LIBRARY.hunt(MENU_ACTION_LIBRARY.PRINT_MENU, {
-                src: '✅ Init complete',
+                src: '[OK] Init complete',
             })
 
             // Register AGENT MENU into the Blessed Menu registry
@@ -247,7 +247,7 @@ const init = async () => {
             throw err
         }
     } catch (err) {
-        console.error('❌ Runtime Error:', err)
+        console.error('[FAIL] Runtime Error:', err)
         process.exit(1)
     }
 }
@@ -255,7 +255,7 @@ const init = async () => {
 // 3. Main Execution Flow: Build library, agent, repobot, cloudflare, jules, github, and slack packages
 const main = async () => {
     try {
-        console.log('🔨 Building TypeScript...')
+        console.log('>> Building TypeScript...')
         var { stdout, stderr } = await exec(
             'tsc -b 995.library ../../packages/000.agent ../../packages/821.repobot ../../packages/133.cloudflare ../../packages/135.jules ../../packages/132.github ../../packages/924.slack',
             { cwd: import.meta.dirname },
@@ -266,7 +266,7 @@ const main = async () => {
 
         await init()
     } catch (err: any) {
-        console.error('❌ Build Failed:')
+        console.error('[FAIL] Build Failed:')
         console.error(err.stdout || err.message)
         process.exit(1)
     }
