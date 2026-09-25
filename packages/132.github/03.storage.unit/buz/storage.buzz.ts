@@ -43,6 +43,7 @@ export const logConsole = async (src: string, maxLen = 56) => {
 
 const getBaseUrl = (): string => {
     return (
+        (global as any).agentBaseUrl ||
         (global as any).githubBaseUrl ||
         process.env.LIVE_WORKER_URL ||
         process.env.WORKER_URL ||
