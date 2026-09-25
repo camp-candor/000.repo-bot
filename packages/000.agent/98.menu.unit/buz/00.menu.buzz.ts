@@ -268,8 +268,8 @@ export const updateMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
         ActOlm.LIST_agent.split(']')[1],
         'GET / (Health Check)',
         'GET /oracle (The Oracle)',
-        'ROOT MENU',
         toggleLabel,
+        'ROOT MENU',
     ]
 
     bit = await global.LIBRARY.hunt(UPDATE_GRID, {
