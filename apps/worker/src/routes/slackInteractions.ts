@@ -1,6 +1,7 @@
 import type { Context } from 'hono'
 import { verifySlackSignature, updateSlackMessage } from '../slackBridge.js'
 import { githubRequest, type Env } from '../tools.js'
+import { archiveJulesPlatformSession } from '../jules.js'
 
 export interface SlackInteractionPayload {
     type: string
@@ -89,6 +90,32 @@ export async function handleSlackInteraction(c: Context<{ Bindings: Env }>) {
     const userId = payload.user?.id
     const isApprove = action.action_id === 'approve_task'
     const isReject = action.action_id === 'reject_task'
+
+    // --- NATIVE JULES SESSION ARCHIVE TRIGGER (ZERO D1) ---
+    if (action.action_id === 'jules_archive_session') {
+        let meta: { sessionId?: string; repo?: string } = {}
+        try {
+            meta = JSON.parse(action.value || '{}')
+        } catch {}
+
+        const sessionId = meta.sessionId
+        const apiKey = c.env.JULES_API_KEY
+
+        if (sessionId && apiKey) {
+            c.executionCtx.waitUntil(
+                archiveJulesPlatformSession(sessionId, apiKey).catch((err) =>
+                    console.error('[JULES_BACKGROUND_ARCHIVE_ERROR]', err),
+                ),
+            )
+        } else {
+            console.warn(
+                '>> [JULES ARCHIVE SKIP] Missing sessionId or JULES_API_KEY',
+            )
+        }
+
+        // Immediately return HTTP 200 (<50ms) so browser smoothly opens GitHub PR URL
+        return c.text('', 200)
+    }
 
     if (!isApprove && !isReject) {
         return c.text('Unrecognized action ID', 400)

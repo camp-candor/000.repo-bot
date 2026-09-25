@@ -102,24 +102,20 @@ const handleGitHubWebhook = async (c: any) => {
             (pr.title || '').toLowerCase().includes('jules')
 
         if (isJulesBranch && c.env.SLACK_BOT_TOKEN) {
-            let actualSessionId = pr.head?.sha?.slice(0, 10) || 'active'
-            if (c.env.DB) {
-                try {
-                    const row = await c.env.DB.prepare(
-                        'SELECT session_id FROM jules_sessions WHERE branch_name = ?',
-                    )
-                        .bind(headRef)
-                        .first()
-                    if (row && row.session_id) {
-                        actualSessionId = row.session_id
-                    }
-                } catch (err) {
-                    console.warn('Failed to query session id by branch', err)
-                }
-            }
+            // Extract the native Jules task/session numeric ID from the PR body link or branch name
+            const bodyIdMatch = (pr.body || '').match(
+                /jules\.google\.com\/(?:task|session)\/([0-9a-zA-Z_-]+)/,
+            )
+            const branchIdMatch = headRef.match(/(?:^|[_-])(\d{15,})/)
+            const resolvedSessionId = bodyIdMatch
+                ? bodyIdMatch[1]
+                : branchIdMatch
+                  ? branchIdMatch[1]
+                  : pr.head?.sha?.slice(0, 10) || 'active'
+
             const card = buildJulesStatusCard(
                 {
-                    sessionId: actualSessionId,
+                    sessionId: resolvedSessionId,
                     repo: repoFullName,
                     taskId: headRef,
                     status: 'READY_FOR_REVIEW',
