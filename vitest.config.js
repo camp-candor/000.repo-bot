@@ -1,9 +1,12 @@
-import { defineWorkersConfig } from '@cloudflare/vitest-pool-workers/config';
-import { resolve } from 'path';
+import { defineWorkersConfig } from '@cloudflare/vitest-pool-workers/config'
+import { resolve } from 'path'
 export default defineWorkersConfig({
     resolve: {
         alias: {
-            '@camp_candor/types': resolve(__dirname, './packages/types/src/index.ts'),
+            '@camp_candor/types': resolve(
+                __dirname,
+                './packages/types/src/index.ts',
+            ),
         },
     },
     test: {
@@ -23,4 +26,4 @@ export default defineWorkersConfig({
             },
         },
     },
-});
+})
