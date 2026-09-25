@@ -12,11 +12,9 @@ describe('cloudflare', () => {
     it('should initialize cloudflare', async () => {
         const model = new CloudflareModel()
         const state = {
-            hunt: vi
-                .fn()
-                .mockResolvedValue({
-                    cflBit: { dat: { workers: [], pages: [] } },
-                }),
+            hunt: vi.fn().mockResolvedValue({
+                cflBit: { dat: { workers: [], pages: [] } },
+            }),
             dispatch: vi.fn(),
         } as any
 
