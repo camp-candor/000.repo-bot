@@ -70,6 +70,9 @@ export const updateMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
         'FLEET MERGE CONTROLLER (SELECT IN-FLIGHT PR)',
         'REGISTER WATCHED REPOSITORY...',
         'LIST WATCHED FLEET REPOSITORIES',
+        'AUDIT HASH CHAIN INTEGRITY (VERIFY PROVENANCE)',
+        'INSPECT D1 AUDIT TRAIL (LAST 20)',
+        'TRIGGER MANUAL COLD DRAINAGE FLUSH',
         'AUDIT GITHUB TOKEN & PERMISSIONS',
         'INSPECT SLACK BRIDGE STATUS',
         'ABORT IN-FLIGHT TASK & TRIGGER SAGA (TEARDOWN)',
@@ -87,6 +90,12 @@ export const updateMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
             'Auto-provision GitHub webhook, register repo in Edge DO, and execute ping test.',
         'LIST WATCHED FLEET REPOSITORIES':
             'Query and display all active repositories under edge surveillance.',
+        'AUDIT HASH CHAIN INTEGRITY (VERIFY PROVENANCE)':
+            'Cryptographically verify recursive SHA-256 hash chain and provenance of audit records.',
+        'INSPECT D1 AUDIT TRAIL (LAST 20)':
+            'Query hot D1 relational database for recent audit events across the fleet.',
+        'TRIGGER MANUAL COLD DRAINAGE FLUSH':
+            'Manually trigger out-of-band batch dump to GitHub audit-log orphan branch and prune old records.',
         'AUDIT GITHUB TOKEN & PERMISSIONS':
             'Audit active GITHUB_TOKEN identity, OAuth scopes, and repository permissions.',
         'INSPECT SLACK BRIDGE STATUS':
@@ -157,6 +166,43 @@ export const updateMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
 
         case 'LIST WATCHED FLEET REPOSITORIES': {
             await ste.hunt(ActGth.LIST_WATCHED_REPOS, {})
+            await new Promise((r) => setTimeout(r, 2500))
+            break
+        }
+
+        case 'AUDIT HASH CHAIN INTEGRITY (VERIFY PROVENANCE)': {
+            const inputGrid = await global.LIBRARY.hunt(UPDATE_GRID, {
+                x: 0,
+                y: 4,
+                xSpan: 4,
+                ySpan: 4,
+            })
+            const inputBit = await global.LIBRARY.hunt(OPEN_INPUT, {
+                dat: { clr0: Color.BLACK, clr1: Color.YELLOW },
+                src: Align.VERTICAL,
+                lst: [],
+                txt: 'Enter repo slug to verify chain (default: astro-kahn-it-com/001.goblin-lore):',
+                net: inputGrid.grdBit.dat,
+            })
+
+            const targetRepo =
+                inputBit.putBit?.src?.trim() ||
+                'astro-kahn-it-com/001.goblin-lore'
+            await ste.hunt(ActGth.AUDIT_HASH_CHAIN_INTEGRITY, {
+                src: targetRepo,
+            })
+            await new Promise((r) => setTimeout(r, 2500))
+            break
+        }
+
+        case 'INSPECT D1 AUDIT TRAIL (LAST 20)': {
+            await ste.hunt(ActGth.INSPECT_D1_AUDIT_LOG, {})
+            await new Promise((r) => setTimeout(r, 2500))
+            break
+        }
+
+        case 'TRIGGER MANUAL COLD DRAINAGE FLUSH': {
+            await ste.hunt(ActGth.TRIGGER_COLD_DRAINAGE, {})
             await new Promise((r) => setTimeout(r, 2500))
             break
         }

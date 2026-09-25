@@ -11,7 +11,7 @@ const REDACTION_PATTERNS: Array<[RegExp, string]> = [
     ],
     [/Bearer\s+[a-zA-Z0-9\-_.]+/gi, 'Bearer [REDACTED_AUTH_TOKEN]'],
     [
-        /(["']?(?:secret|token|password|apiKey|authorization)["']?\s*:\s*["'])([^"']+)(["'])/gi,
+        /(["']?(?:secret|token|password|apiKey|authorization)["']?\s*:\s*["'])(?!\[REDACTED_)([^"']+)(["'])/gi,
         '$1[REDACTED_FIELD]$3',
     ],
 ]
