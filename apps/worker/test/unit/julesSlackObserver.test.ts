@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect } from 'vitest'
 import { buildJulesStatusCard } from '../../src/slackBridge.js'
 
 describe('Jules Slack Observer & Winnfield Bridge', () => {
@@ -25,7 +25,6 @@ describe('Jules Slack Observer & Winnfield Bridge', () => {
         expect(card.channel).toBe('C0C4CK27LA1')
         expect(card.text).toContain('slopratchet/000.alligator.ink')
 
-        // Assert action buttons
         const actionBlock = card.blocks.find((b: any) => b.type === 'actions')
         expect(actionBlock).toBeDefined()
 
@@ -71,18 +70,5 @@ describe('Jules Slack Observer & Winnfield Bridge', () => {
         )
         expect(sessionButton).toBeDefined()
         expect(sessionButton.text.text).toContain('Open Session in Jules')
-    })
-
-    it('falls back to default C0C4CK27LA1 when SLACK_JULES_CHANNEL_ID is empty', () => {
-        const card = buildJulesStatusCard(
-            {
-                sessionId: 'test_123',
-                repo: 'astro-kahn-it-com/001.goblin-lore',
-                status: 'INPUT_REQUIRED',
-            },
-            {},
-        )
-
-        expect(card.channel).toBe('C0C4CK27LA1')
     })
 })

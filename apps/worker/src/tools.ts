@@ -16,15 +16,16 @@ export interface Env {
     GH_WEBHOOK_SECRET?: string
     GITHUB_WEBHOOK_SECRET?: string
     JULES_API_KEY?: string
+    ARCHIVE_REPO?: string
     AI: any
-    REPO_BOT_DO: DurableObjectNamespace<RepoBotDO>
+    REPO_BOT_DO?: any
 
-    // :: Slack Bridge Credentials (FEAT-04)
+    // Slack Bridge Credentials
     SLACK_BOT_TOKEN?: string
     SLACK_SIGNING_SECRET?: string
-    SLACK_CHANNEL_ID?: string
+    SLACK_CHANNEL_ID?: string // Main ops channel: C0C40FMRQ9H (#ops-bridge)
     SLACK_JULES_CHANNEL_ID?: string // Dedicated Jules channel: C0C4CK27LA1 (#jules-winnfield)
-    SLACK_AUTHORIZED_APPROVERS?: string // Comma-separated Slack User IDs (e.g. "U01234,U56789")
+    SLACK_AUTHORIZED_APPROVERS?: string
 }
 
 // Helper: GitHub REST API fetcher with deterministic headers

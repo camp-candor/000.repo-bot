@@ -30,9 +30,6 @@ const getBaseUrl = (): string => {
     ).replace(/\/$/, '')
 }
 
-/**
- * Computes authentic Slack HMAC-SHA256 signature: v0=hex(hmac(v0:ts:body))
- */
 export function createSlackSignature(
     rawBody: string,
     timestamp: number,
@@ -54,9 +51,6 @@ export const updateSlack = (cpy: SlackModel, bal: slackBit, ste: State) => {
     return cpy
 }
 
-/**
- * Probes the URL verification challenge handshake.
- */
 export const probeHandshake = async (
     cpy: SlackModel,
     bal: slackBit,
@@ -93,7 +87,7 @@ export const probeHandshake = async (
             : '[FAIL] CHALLENGE MISMATCH'
 
         await logConsole(
-            `>> [HTTP ${res.status}] :: ${rtt}ms RTT :: ${statusTag}`,
+            `>> [HTTP ${res.status}] :: ${rtt}ms RTT ::${statusTag}`,
         )
         await logConsole(
             '>> --------------------------------------------------',
@@ -113,7 +107,7 @@ export const probeHandshake = async (
             })
     } catch (err: any) {
         const rtt = Date.now() - t0
-        await logConsole(`>> [CONN_ERROR] (${rtt}ms): ${err.message}`)
+        await logConsole(`>> [CONN_ERROR] (${rtt}ms):${err.message}`)
         if (bal.slv)
             bal.slv({
                 olmBit: {
@@ -127,9 +121,6 @@ export const probeHandshake = async (
     return cpy
 }
 
-/**
- * Simulates signed Block Kit interactions (Approve, Reject, Unauthorized, Forged).
- */
 export const simulateInteraction = async (
     cpy: SlackModel,
     bal: slackBit,
@@ -161,7 +152,7 @@ export const simulateInteraction = async (
             id: userId,
             name: mode === 'UNAUTHORIZED' ? 'intruder' : 'lead_architect',
         },
-        channel: { id: 'C08OPSBRIDGE', name: 'ops-bridge' },
+        channel: { id: 'C0C40FMRQ9H', name: 'ops-bridge' },
         message: { ts: '1727184000.000100' },
         response_url: 'https://hooks.slack.com/actions/test/response',
         actions: [
@@ -187,10 +178,10 @@ export const simulateInteraction = async (
 
     await logConsole('>> ==================================================')
     await logConsole(
-        `>> [SIMULATE ${mode}] Dispatching interaction to: ${endpoint}`,
+        `>> [SIMULATE ${mode}] Dispatching interaction to:${endpoint}`,
     )
     await logConsole(
-        `>> Actor: <@${userId}> | Action: ${actionId} | Task: ${taskId}`,
+        `>> Actor: <@${userId}> | Action: ${actionId} | Task:${taskId}`,
     )
 
     const t0 = Date.now()
@@ -213,7 +204,7 @@ export const simulateInteraction = async (
         } catch {}
 
         await logConsole(
-            `>> [HTTP ${res.status}] :: ${rtt}ms RTT :: Fast-Exit (<50ms): ${rtt < 50 ? 'YES [OK]' : 'NO'}`,
+            `>> [HTTP ${res.status}] :: ${rtt}ms RTT :: Fast-Exit (<50ms):${rtt < 50 ? 'YES [OK]' : 'NO'}`,
         )
         await logConsole(
             '>> --------------------------------------------------',
@@ -233,7 +224,7 @@ export const simulateInteraction = async (
             })
     } catch (err: any) {
         const rtt = Date.now() - t0
-        await logConsole(`>> [SIMULATION ERROR] (${rtt}ms): ${err.message}`)
+        await logConsole(`>> [SIMULATION ERROR] (${rtt}ms):${err.message}`)
         if (bal.slv)
             bal.slv({
                 olmBit: {
@@ -247,16 +238,13 @@ export const simulateInteraction = async (
     return cpy
 }
 
-/**
- * Dispatches a live test Block Kit card directly to Slack via chat.postMessage.
- */
 export const dispatchTestCard = async (
     cpy: SlackModel,
     bal: slackBit,
     ste: State,
 ) => {
     const token = process.env.SLACK_BOT_TOKEN
-    const channel = process.env.SLACK_CHANNEL_ID || '#ops-bridge'
+    const channel = process.env.SLACK_CHANNEL_ID || 'C0C40FMRQ9H'
 
     if (!token) {
         await logConsole(
@@ -274,7 +262,7 @@ export const dispatchTestCard = async (
 
     await logConsole('>> ==================================================')
     await logConsole(
-        `>> [LIVE DISPATCH] Sending Block Kit card to ${channel}...`,
+        `>> [LIVE DISPATCH] Sending #ops-bridge approval card to ${channel}...`,
     )
 
     const buttonPayload = JSON.stringify({
@@ -351,13 +339,18 @@ export const dispatchTestCard = async (
 
         if (data.ok) {
             await logConsole(
-                `>> [HTTP 200 OK] :: ${rtt}ms RTT :: CARD DELIVERED TO SLACK`,
+                `>> [HTTP 200 OK] :: ${rtt}ms RTT :: CARD DELIVERED TO #ops-bridge`,
             )
             await logConsole(
-                `>> Message TS: ${data.ts} | Channel: ${data.channel}`,
+                `>> Message TS: ${data.ts} | Channel:${data.channel}`,
             )
         } else {
-            await logConsole(`>> [SLACK API ERROR] (${rtt}ms): ${data.error}`)
+            await logConsole(`>> [SLACK API ERROR] (${rtt}ms):${data.error}`)
+            if (data.error === 'not_in_channel') {
+                await logConsole(
+                    '>> [REMEDY] Run /invite @repo-bot inside #ops-bridge',
+                )
+            }
         }
         await logConsole(
             '>> ==================================================',
@@ -382,13 +375,155 @@ export const dispatchTestCard = async (
     return cpy
 }
 
-/**
- * Runs the complete automated smoke test gauntlet:
- * 1. URL Handshake Challenge
- * 2. Negative Control: Forged HMAC Signature -> 401
- * 3. Negative Control: Unauthorized User ID -> [FAIL] Unauthorized
- * 4. Positive Control: Authentic Approve Interaction -> 200 Fast Exit
- */
+export const dispatchJulesTestCard = async (
+    cpy: SlackModel,
+    bal: slackBit,
+    ste: State,
+) => {
+    const token = process.env.SLACK_BOT_TOKEN
+    const channel = process.env.SLACK_JULES_CHANNEL_ID || 'C0C4CK27LA1'
+    const repo = bal.src || 'camp-candor/000.repo-bot'
+    const sessionId = 'test-session-live-001'
+    const prUrl = 'https://github.com/camp-candor/000.repo-bot'
+
+    if (!token) {
+        await logConsole(
+            '>> [ERROR] SLACK_BOT_TOKEN is not configured in local environment.',
+        )
+        if (bal.slv)
+            bal.slv({
+                olmBit: {
+                    idx: 'dispatch-jules-card-err',
+                    src: 'MISSING_SLACK_BOT_TOKEN',
+                },
+            })
+        return cpy
+    }
+
+    await logConsole('>> ==================================================')
+    await logConsole(
+        `>> [JULES BRIDGE DISPATCH] Sending test card to ${channel}...`,
+    )
+
+    const payload = {
+        channel,
+        text: `Jules Update [READY_FOR_REVIEW]: ${repo}`,
+        blocks: [
+            {
+                type: 'header',
+                text: {
+                    type: 'plain_text',
+                    text: ':: Jules Code Ready for Review (TEST)',
+                    emoji: false,
+                },
+            },
+            {
+                type: 'section',
+                fields: [
+                    { type: 'mrkdwn', text: `*Repository:*\n\`${repo}\`` },
+                    { type: 'mrkdwn', text: '*Status:*\n`READY_FOR_REVIEW`' },
+                    {
+                        type: 'mrkdwn',
+                        text: '*Branch:*\n`feat/jules-observer-test`',
+                    },
+                    {
+                        type: 'mrkdwn',
+                        text: '*Channel Target:*\n`#jules-winnfield`',
+                    },
+                ],
+            },
+            {
+                type: 'section',
+                text: {
+                    type: 'mrkdwn',
+                    text: '*Task Overview:*\n> Verification payload verifying that PR and session buttons render cleanly without bleeding into #ops-bridge.',
+                },
+            },
+            {
+                type: 'actions',
+                elements: [
+                    {
+                        type: 'button',
+                        text: {
+                            type: 'plain_text',
+                            text: 'View Pull Request [GitHub]',
+                            emoji: false,
+                        },
+                        url: prUrl,
+                        style: 'primary',
+                    },
+                    {
+                        type: 'button',
+                        text: {
+                            type: 'plain_text',
+                            text: 'Open Session in Jules >>',
+                            emoji: false,
+                        },
+                        url: `https://jules.google.com/session/${sessionId}`,
+                    },
+                ],
+            },
+        ],
+    }
+
+    const t0 = Date.now()
+    try {
+        const res = await fetch('https://slack.com/api/chat.postMessage', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(payload),
+        })
+
+        const rtt = Date.now() - t0
+        const data: any = await res.json()
+
+        if (data.ok) {
+            await logConsole(
+                `>> [HTTP 200 OK] :: ${rtt}ms RTT :: CARD DELIVERED TO #jules-winnfield`,
+            )
+            await logConsole(
+                `>> Message TS: ${data.ts} | Channel: ${data.channel}`,
+            )
+        } else {
+            await logConsole(`>> [SLACK API ERROR] (${rtt}ms): ${data.error}`)
+            if (data.error === 'not_in_channel') {
+                await logConsole(
+                    '>> [REMEDY] Run /invite @repo-bot inside #jules-winnfield',
+                )
+            }
+        }
+        await logConsole(
+            '>> ==================================================',
+        )
+
+        if (bal.slv)
+            bal.slv({
+                olmBit: {
+                    idx: 'dispatch-jules-test-card',
+                    val: data.ok ? 1 : 0,
+                    dat: data,
+                },
+            })
+    } catch (err: any) {
+        await logConsole(`>> [DISPATCH ERROR]: ${err.message}`)
+        await logConsole(
+            '>> ==================================================',
+        )
+        if (bal.slv)
+            bal.slv({
+                olmBit: {
+                    idx: 'dispatch-jules-test-card-err',
+                    src: err.message,
+                },
+            })
+    }
+
+    return cpy
+}
+
 export const testSlack = async (cpy: SlackModel, bal: slackBit, ste: State) => {
     await logConsole('>> ==================================================')
     await logConsole('>> STARTING SLACK GOVERNANCE GATE SMOKE BATTERY')
@@ -414,7 +549,7 @@ export const testSlack = async (cpy: SlackModel, bal: slackBit, ste: State) => {
 }
 
 export const listSlack = async (cpy: SlackModel, bal: slackBit, ste: State) => {
-    const channels = ['#ops-bridge', '#general', '#devops']
+    const channels = ['#ops-bridge', '#jules-winnfield', '#general']
     if (bal.slv != null)
         bal.slv({ olmBit: { idx: 'list-slack', lst: channels } })
     return cpy
