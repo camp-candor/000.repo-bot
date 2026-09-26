@@ -72,11 +72,13 @@ export async function handleSlackEvents(c: Context<{ Bindings: Env }>) {
                 return c.json({ ok: true }, 200)
             }
 
+            const prompt = normalizeDirectivePrompt(parsed.prompt)
+
             // Offload asynchronous execution to satisfy <3000ms SLA
             c.executionCtx.waitUntil(
                 processAskJulesPrompt(
                     parsed.rawPath,
-                    parsed.prompt,
+                    prompt,
                     askJulesChannel,
                     c.env,
                 ),
@@ -87,6 +89,28 @@ export async function handleSlackEvents(c: Context<{ Bindings: Env }>) {
     }
 
     return c.json({ ok: true }, 200)
+}
+
+/**
+ * Normalizes operator prompt into an execute directive if pointing to data/directive.
+ */
+export function normalizeDirectivePrompt(rawPrompt: string): string {
+    if (!rawPrompt) return rawPrompt
+
+    const trimmed = rawPrompt.trim()
+    const stripped = trimmed.replace(/^["']+|["']+$/g, '').trim()
+
+    if (/^execute\s*\[.+\]$/i.test(stripped)) {
+        return stripped
+    }
+
+    const normalized = stripped.replace(/\\+/g, '/').replace(/^(\.\/|\/)+/, '')
+
+    if (normalized.startsWith('data/directive/')) {
+        return `execute [${normalized}]`
+    }
+
+    return rawPrompt
 }
 
 /**

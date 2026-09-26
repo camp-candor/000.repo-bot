@@ -1,6 +1,5 @@
 import type { Env } from './tools.js'
 
-
 export type SlackChannelRole = 'ASK_JULES' | 'JULES_REVIEW' | 'OPS_BRIDGE'
 
 /**
@@ -564,6 +563,22 @@ export function buildJulesStatusCard(
         })
     }
 
+    elements.push({
+        type: 'button',
+        text: {
+            type: 'plain_text',
+            text: 'Dismiss Card',
+            emoji: false,
+        },
+        style: 'danger',
+        action_id: 'jules_dismiss_card',
+        value: JSON.stringify({
+            action: 'dismiss',
+            repo: params.repo,
+            sessionId: params.sessionId,
+        }),
+    })
+
     const headerText =
         params.status === 'INPUT_REQUIRED'
             ? ':: Jules Requires Operator Feedback'
@@ -631,7 +646,6 @@ export function buildJulesStatusCard(
         ],
     }
 }
-
 
 export async function postSlackJulesMessage(
     payload: any,

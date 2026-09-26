@@ -71,6 +71,24 @@ export async function handleSlackInteraction(c: Context<{ Bindings: Env }>) {
         return c.text('No action present in payload', 400)
     }
 
+    if (action.action_id === 'jules_dismiss_card') {
+        // If Slack provided a response_url, fire delete_original to ensure full removal
+        if (payload.response_url) {
+            const deletePromise = fetch(payload.response_url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ delete_original: true }),
+            }).catch((err) => console.error('[SLACK_DISMISS_ERROR]', err))
+
+            if (c.executionCtx?.waitUntil) {
+                c.executionCtx.waitUntil(deletePromise)
+            }
+        }
+
+        // Direct HTTP response acknowledging and instructing immediate card deletion
+        return c.json({ delete_original: true }, 200)
+    }
+
     let actionData: {
         taskId: string
         headSha: string

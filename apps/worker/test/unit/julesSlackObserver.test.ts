@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { buildJulesStatusCard } from '../../src/slackBridge.js'
 import { resolveJulesSource, buildSystemInstructions } from '../../src/jules.js'
+import { normalizeDirectivePrompt } from '../../src/routes/slackEvents.js'
+import { handleSlackInteraction } from '../../src/routes/slackInteractions.js'
 
 describe('Jules Slack Observer Card Colors & Button Architecture', () => {
     const mockEnv = {
@@ -40,6 +42,18 @@ describe('Jules Slack Observer Card Colors & Button Architecture', () => {
         expect(prButton).toBeDefined()
         expect(prButton.text.text).toBe('View Pull Request [GitHub]')
         expect(prButton.action_id).toBeUndefined() // Verified clean link button (zero backend overhead)
+
+        const dismissBtn = actionBlock.elements.find(
+            (el: any) => el.action_id === 'jules_dismiss_card',
+        )
+        expect(dismissBtn).toBeDefined()
+        expect(dismissBtn.text.text).toBe('Dismiss Card')
+        expect(dismissBtn.style).toBe('danger')
+        expect(JSON.parse(dismissBtn.value)).toEqual({
+            action: 'dismiss',
+            repo: 'slopratchet/000.alligator.ink',
+            sessionId: 'session_abc123',
+        })
     })
 
     it('builds MERGED card with Slate Grey (#86888A) attachment bar', () => {
@@ -73,6 +87,18 @@ describe('Jules Slack Observer Card Colors & Button Architecture', () => {
         )
         expect(prButton.text.text).toBe('View Merged PR [GitHub]')
         expect(prButton.action_id).toBeUndefined()
+
+        const dismissBtn = actionBlock.elements.find(
+            (el: any) => el.action_id === 'jules_dismiss_card',
+        )
+        expect(dismissBtn).toBeDefined()
+        expect(dismissBtn.text.text).toBe('Dismiss Card')
+        expect(dismissBtn.style).toBe('danger')
+        expect(JSON.parse(dismissBtn.value)).toEqual({
+            action: 'dismiss',
+            repo: 'camp-candor/000.repo-bot',
+            sessionId: 'session_abc123',
+        })
     })
 
     it('builds INPUT_REQUIRED card with Amber Yellow (#ECB22E) attachment bar', () => {
@@ -95,6 +121,18 @@ describe('Jules Slack Observer Card Colors & Button Architecture', () => {
             el.url.includes('13980471994167374037'),
         )
         expect(sessionButton.text.text).toContain('Open Session in Jules')
+
+        const dismissBtn = actionBlock.elements.find(
+            (el: any) => el.action_id === 'jules_dismiss_card',
+        )
+        expect(dismissBtn).toBeDefined()
+        expect(dismissBtn.text.text).toBe('Dismiss Card')
+        expect(dismissBtn.style).toBe('danger')
+        expect(JSON.parse(dismissBtn.value)).toEqual({
+            action: 'dismiss',
+            repo: 'camp-candor/000.repo-bot',
+            sessionId: '13980471994167374037',
+        })
     })
 })
 
@@ -251,5 +289,102 @@ describe('Jules buildSystemInstructions Boundary Invariance', () => {
             "REPOSITORY BOUNDARY: You are operating directly on 'camp-candor/995.library'",
         )
         expect(prompt).toContain('Preserve root configuration and CI files')
+    })
+})
+
+describe('normalizeDirectivePrompt auto-wrapping', () => {
+    it('converts Windows backslash directive path', () => {
+        expect(
+            normalizeDirectivePrompt('data\\directive\\day-001\\000.jules.md'),
+        ).toBe('execute [data/directive/day-001/000.jules.md]')
+    })
+
+    it('converts quoted directive path', () => {
+        expect(
+            normalizeDirectivePrompt('"data/directive/day-002/001.task.md"'),
+        ).toBe('execute [data/directive/day-002/001.task.md]')
+    })
+
+    it('converts leading backslash directive path', () => {
+        expect(
+            normalizeDirectivePrompt('\\data\\directive\\day-003\\002.task.md'),
+        ).toBe('execute [data/directive/day-003/002.task.md]')
+    })
+
+    it('does not double-wrap an already wrapped directive', () => {
+        expect(
+            normalizeDirectivePrompt(
+                'execute [data\\directive\\day-001\\000.jules.md]',
+            ),
+        ).toBe('execute [data\\directive\\day-001\\000.jules.md]')
+    })
+
+    it('leaves standard prompts untouched', () => {
+        expect(normalizeDirectivePrompt('bump main version')).toBe(
+            'bump main version',
+        )
+    })
+})
+
+describe('jules_dismiss_card Slack interaction handler', () => {
+    it('instructs Slack to delete the original card and posts delete_original to response_url', async () => {
+        let executedPromise: Promise<any> | null = null
+        const originalFetch = globalThis.fetch
+        globalThis.fetch = vi.fn().mockResolvedValue({
+            ok: true,
+            json: async () => ({}),
+        } as any)
+
+        const payload = {
+            type: 'block_actions',
+            user: { id: 'U12345', name: 'operator' },
+            channel: { id: 'C0C4CK27LA1', name: 'ask-jules' },
+            response_url: 'https://hooks.slack.com/actions/T123/B456/XYZ789',
+            actions: [
+                {
+                    action_id: 'jules_dismiss_card',
+                    value: JSON.stringify({
+                        action: 'dismiss',
+                        repo: 'camp-candor/000.repo-bot',
+                        sessionId: 'session_abc123',
+                    }),
+                },
+            ],
+        }
+
+        const encodedBody = `payload=${encodeURIComponent(JSON.stringify(payload))}`
+        const ctx: any = {
+            req: {
+                text: async () => encodedBody,
+                header: () => undefined,
+            },
+            env: {
+                SLACK_SIGNING_SECRET: undefined,
+            },
+            executionCtx: {
+                waitUntil: (p: Promise<any>) => {
+                    executedPromise = p
+                },
+            },
+            json: (body: any, status = 200) => ({ body, status }),
+            text: (msg: string, status = 200) => ({ body: msg, status }),
+        }
+
+        const res = await handleSlackInteraction(ctx)
+        expect(res.status).toBe(200)
+        expect(res.body).toEqual({ delete_original: true })
+        expect(executedPromise).not.toBeNull()
+        await executedPromise
+
+        expect(globalThis.fetch).toHaveBeenCalledWith(
+            'https://hooks.slack.com/actions/T123/B456/XYZ789',
+            expect.objectContaining({
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ delete_original: true }),
+            }),
+        )
+
+        globalThis.fetch = originalFetch
     })
 })
