@@ -94,7 +94,7 @@ Run test suite locally before pushing. Exit code 0 required.
         const sessionData: any = await julesRes.json()
         const sessionId = sessionData.sessionId || sessionData.id
 
-        // 5. Record to D1 Session Ledger
+        // 5. Record to D1 Session Ledger (If DB configured)
         if (c.env.DB && sessionId) {
             c.executionCtx.waitUntil(
                 recordJulesSession(c.env.DB, {
@@ -170,7 +170,6 @@ export async function pollActiveJulesSessions(env: Env): Promise<void> {
                 currentStatus === 'NEEDS_ATTENTION' ||
                 currentStatus === 'PAUSED'
 
-            // If Jules is blocked waiting for feedback and we haven't alerted yet
             if (needsUserInput && item.last_status !== currentStatus) {
                 const card = buildJulesStatusCard(
                     {
@@ -207,12 +206,6 @@ export async function pollActiveJulesSessions(env: Env): Promise<void> {
                 )
                     .bind(currentStatus, Date.now(), item.session_id)
                     .run()
-            } else if (currentStatus !== item.status) {
-                await env.DB.prepare(
-                    'UPDATE jules_sessions SET status = ?, updated_at = ? WHERE session_id = ?',
-                )
-                    .bind(currentStatus, Date.now(), item.session_id)
-                    .run()
             }
         } catch (err: any) {
             console.error(
@@ -221,60 +214,4 @@ export async function pollActiveJulesSessions(env: Env): Promise<void> {
             )
         }
     }
-}
-
-
-export async function archiveJulesPlatformSession(
-  sessionId: string,
-  apiKey: string,
-): Promise<{ ok: boolean; status: number; error?: string }> {
-  if (!apiKey) {
-    return { ok: false, status: 500, error: 'MISSING_JULES_API_KEY' }
-  }
-
-  try {
-    // Primary: Custom Google RPC archive verb
-    let res = await fetch(
-      `https://jules.google/api/v1/sessions/${sessionId}:archive`,
-      {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
-        },
-      },
-    )
-
-    // Fallback: Standard REST resource mutation
-    if (!res.ok && res.status !== 404) {
-      res = await fetch(
-        `https://jules.google/api/v1/sessions/${sessionId}`,
-        {
-          method: 'PATCH',
-          headers: {
-            'Authorization': `Bearer ${apiKey}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ archived: true, status: 'ARCHIVED' }),
-        },
-      )
-    }
-
-    if (!res.ok) {
-      const errText = await res.text().catch(() => '')
-      console.error(`>> [JULES ARCHIVE FAILED] (${res.status}): ${errText}`)
-      return { ok: false, status: res.status, error: errText }
-    }
-
-    console.log(
-      `>> [JULES ARCHIVED] Native platform session ${sessionId} moved to archive.`,
-    )
-    return { ok: true, status: res.status }
-  } catch (err: any) {
-    console.error(
-      `>> [JULES ARCHIVE NETWORK ERROR] Session ${sessionId}:`,
-      err.message,
-    )
-    return { ok: false, status: 500, error: err.message }
-  }
 }
