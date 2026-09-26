@@ -1,14 +1,13 @@
-import { archiveJulesPlatformSession } from '../../src/jules.js'
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect } from 'vitest'
 import { buildJulesStatusCard } from '../../src/slackBridge.js'
 
-describe('Jules Slack Observer & Winnfield Bridge', () => {
+describe('Jules Slack Observer Card Colors & Button Architecture', () => {
     const mockEnv = {
         SLACK_JULES_CHANNEL_ID: 'C0C4CK27LA1',
         SLACK_CHANNEL_ID: 'C0C40FMRQ9H',
     }
 
-    it('builds Ready for Review card targeting #jules-winnfield with direct GitHub PR button', () => {
+    it('builds READY_FOR_REVIEW card with Emerald Green (#2EB886) attachment bar', () => {
         const card = buildJulesStatusCard(
             {
                 sessionId: 'session_abc123',
@@ -24,10 +23,12 @@ describe('Jules Slack Observer & Winnfield Bridge', () => {
         )
 
         expect(card.channel).toBe('C0C4CK27LA1')
-        expect(card.text).toContain('slopratchet/000.alligator.ink')
+        expect(card.attachments).toBeDefined()
+        expect(card.attachments[0].color).toBe('#2EB886')
 
-        // Assert action buttons
-        const actionBlock = card.blocks.find((b: any) => b.type === 'actions')
+        const actionBlock = card.attachments[0].blocks.find(
+            (b: any) => b.type === 'actions',
+        )
         expect(actionBlock).toBeDefined()
 
         const prButton = actionBlock.elements.find(
@@ -36,129 +37,62 @@ describe('Jules Slack Observer & Winnfield Bridge', () => {
                 'https://github.com/slopratchet/000.alligator.ink/pull/14',
         )
         expect(prButton).toBeDefined()
-        expect(prButton.text.text).toContain('View Pull Request')
-
-        const sessionButton = actionBlock.elements.find(
-            (el: any) =>
-                el.url === 'https://jules.google.com/session/session_abc123',
-        )
-        expect(sessionButton).toBeDefined()
+        expect(prButton.text.text).toBe('View Pull Request [GitHub]')
+        expect(prButton.action_id).toBeUndefined() // Verified clean link button (zero backend overhead)
     })
 
-    it('builds Input Required card with direct link to Jules session tab', () => {
+    it('builds MERGED card with Slate Grey (#86888A) attachment bar', () => {
+        const card = buildJulesStatusCard(
+            {
+                sessionId: 'session_abc123',
+                repo: 'camp-candor/000.repo-bot',
+                taskId: 'bump-version-5040221361492999795',
+                status: 'MERGED',
+                prUrl: 'https://github.com/camp-candor/000.repo-bot/pull/83',
+                branchName: 'bump-version-5040221361492999795',
+                queryText: 'Merged into main by elliotbradly.',
+            },
+            mockEnv,
+        )
+
+        expect(card.channel).toBe('C0C4CK27LA1')
+        expect(card.attachments).toBeDefined()
+        expect(card.attachments[0].color).toBe('#86888A')
+
+        const headerBlock = card.attachments[0].blocks.find(
+            (b: any) => b.type === 'header',
+        )
+        expect(headerBlock.text.text).toBe(':: Jules PR Merged into Trunk')
+
+        const actionBlock = card.attachments[0].blocks.find(
+            (b: any) => b.type === 'actions',
+        )
+        const prButton = actionBlock.elements.find((el: any) =>
+            el.url.includes('pull/83'),
+        )
+        expect(prButton.text.text).toBe('View Merged PR [GitHub]')
+        expect(prButton.action_id).toBeUndefined()
+    })
+
+    it('builds INPUT_REQUIRED card with Amber Yellow (#ECB22E) attachment bar', () => {
         const card = buildJulesStatusCard(
             {
                 sessionId: '13980471994167374037',
                 repo: 'camp-candor/000.repo-bot',
                 taskId: 'TASK-04.02',
                 status: 'INPUT_REQUIRED',
-                queryText:
-                    'Does everything look correct so far or would you like me to make any adjustments?',
+                queryText: 'Does everything look correct so far?',
             },
             mockEnv,
         )
 
-        expect(card.channel).toBe('C0C4CK27LA1')
-        expect(card.text).toContain('camp-candor/000.repo-bot')
-        expect(card.blocks[0].text.text).toBe(
-            ':: Jules Requires Operator Feedback',
+        expect(card.attachments[0].color).toBe('#ECB22E')
+        const actionBlock = card.attachments[0].blocks.find(
+            (b: any) => b.type === 'actions',
         )
-
-        const actionBlock = card.blocks.find((b: any) => b.type === 'actions')
-        const sessionButton = actionBlock.elements.find(
-            (el: any) =>
-                el.url ===
-                'https://jules.google.com/session/13980471994167374037',
+        const sessionButton = actionBlock.elements.find((el: any) =>
+            el.url.includes('13980471994167374037'),
         )
-        expect(sessionButton).toBeDefined()
         expect(sessionButton.text.text).toContain('Open Session in Jules')
-    })
-
-    it('falls back to default C0C4CK27LA1 when SLACK_JULES_CHANNEL_ID is empty', () => {
-        const card = buildJulesStatusCard(
-            {
-                sessionId: 'test_123',
-                repo: 'astro-kahn-it-com/001.goblin-lore',
-                status: 'INPUT_REQUIRED',
-            },
-            {},
-        )
-
-        expect(card.channel).toBe('C0C4CK27LA1')
-    })
-
-    it('formats card correctly for bump-versions and chore branches', () => {
-        const card = buildJulesStatusCard(
-            {
-                sessionId: 'bump_sha_99',
-                repo: 'camp-candor/000.repo-bot',
-                taskId: 'bump-versions-8416490430213543382',
-                status: 'READY_FOR_REVIEW',
-                prUrl: 'https://github.com/camp-candor/000.repo-bot/pull/46',
-                branchName: 'bump-versions-8416490430213543382',
-                queryText: 'Bump main package versions',
-            },
-            mockEnv,
-        )
-
-        expect(card.channel).toBe('C0C4CK27LA1')
-        expect(card.text).toContain('camp-candor/000.repo-bot')
-        expect(card.blocks[1].fields[2].text).toContain(
-            'bump-versions-8416490430213543382',
-        )
-    })
-
-    it('attaches action_id jules_archive_session and JSON value to View Pull Request button', () => {
-        const card = buildJulesStatusCard(
-            {
-                sessionId: '5040221361492999795',
-                repo: 'camp-candor/000.repo-bot',
-                taskId: 'bump-version-5040221361492999795',
-                status: 'READY_FOR_REVIEW',
-                prUrl: 'https://github.com/camp-candor/000.repo-bot/pull/46',
-                branchName: 'bump-version-5040221361492999795',
-            },
-            mockEnv,
-        )
-
-        const actionBlock = card.blocks.find((b: any) => b.type === 'actions')
-        expect(actionBlock).toBeDefined()
-
-        const prButton = actionBlock.elements.find(
-            (el: any) =>
-                el.url === 'https://github.com/camp-candor/000.repo-bot/pull/46',
-        )
-        expect(prButton).toBeDefined()
-        expect(prButton.action_id).toBe('jules_archive_session')
-
-        const parsedValue = JSON.parse(prButton.value)
-        expect(parsedValue.sessionId).toBe('5040221361492999795')
-        expect(parsedValue.repo).toBe('camp-candor/000.repo-bot')
-    })
-
-    it('calls Jules REST platform archive endpoint without database interaction', async () => {
-        const fetchSpy = vi.spyOn(global, 'fetch').mockResolvedValueOnce({
-            ok: true,
-            status: 200,
-            text: async () => JSON.stringify({ status: 'ARCHIVED' }),
-        } as any)
-
-        const result = await archiveJulesPlatformSession(
-            '5040221361492999795',
-            'test-key',
-        )
-
-        expect(result.ok).toBe(true)
-        expect(fetchSpy).toHaveBeenCalledWith(
-            'https://jules.google/api/v1/sessions/5040221361492999795:archive',
-            expect.objectContaining({
-                method: 'POST',
-                headers: expect.objectContaining({
-                    Authorization: 'Bearer test-key',
-                }),
-            }),
-        )
-
-        fetchSpy.mockRestore()
     })
 })

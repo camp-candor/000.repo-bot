@@ -1,4 +1,3 @@
-import { archiveJulesPlatformSession } from '../jules.js'
 import type { Context } from 'hono'
 import { verifySlackSignature, updateSlackMessage } from '../slackBridge.js'
 import { githubRequest, type Env } from '../tools.js'
@@ -72,30 +71,6 @@ export async function handleSlackInteraction(c: Context<{ Bindings: Env }>) {
     const action = payload.actions?.[0]
     if (!action) {
         return c.text('No action present in payload', 400)
-    }
-
-    // --- NATIVE JULES SESSION ARCHIVE TRIGGER (ZERO D1) ---
-    if (action.action_id === 'jules_archive_session') {
-        let meta: { sessionId?: string; repo?: string } = {}
-        try {
-            meta = JSON.parse(action.value || '{}')
-        } catch {}
-
-        const sessionId = meta.sessionId
-        const apiKey = c.env.JULES_API_KEY
-
-        if (sessionId && apiKey) {
-            c.executionCtx.waitUntil(
-                archiveJulesPlatformSession(sessionId, apiKey).catch((err) =>
-                    console.error('[JULES_BACKGROUND_ARCHIVE_ERROR]', err),
-                ),
-            )
-        } else {
-            console.warn('>> [JULES ARCHIVE SKIP] Missing sessionId or JULES_API_KEY')
-        }
-
-        // Immediately return HTTP 200 (<50ms) so browser smoothly opens GitHub PR URL
-        return c.text('', 200)
     }
 
     let actionData: {
