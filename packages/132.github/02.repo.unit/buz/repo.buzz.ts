@@ -13,12 +13,13 @@ const logConsole = async (src: string) => {
     }
 }
 
-const getBaseUrl = () => {
+const getBaseUrl = (): string => {
     return (
         (global as any).agentBaseUrl ||
-        process.env.LOCAL_WORKER_URL ||
+        (global as any).githubBaseUrl ||
+        process.env.LIVE_WORKER_URL ||
         process.env.WORKER_URL ||
-        'http://127.0.0.1:8787'
+        'https://repo-bot-00.berad4000.workers.dev'
     ).replace(/\/$/, '')
 }
 
@@ -39,9 +40,10 @@ export const writeRepo = async (cpy: RepoModel, bal: RepoBit, ste: State) => {
         return cpy
     }
 
-    const targetUrl = `${getBaseUrl()}/api/repos/watch`
+    const baseUrl = getBaseUrl()
+    const targetUrl = `${baseUrl}/api/repos/watch`
     await logConsole(
-        `>> [REGISTER] Sending watch request for: ${bal.src.trim()}`,
+        `>> [REGISTER] Sending watch request to [${baseUrl}] for: ${bal.src.trim()}`,
     )
 
     try {
@@ -75,7 +77,12 @@ export const writeRepo = async (cpy: RepoModel, bal: RepoBit, ste: State) => {
 }
 
 export const listRepo = async (cpy: RepoModel, bal: RepoBit, ste: State) => {
-    const targetUrl = `${getBaseUrl()}/api/repos/watch`
+    const baseUrl = getBaseUrl()
+    const targetUrl = `${baseUrl}/api/repos/watch`
+
+    await logConsole(
+        `>> [WATCHED REPOSITORIES] Querying active fleet from edge DO (${baseUrl})...`,
+    )
 
     try {
         const res = await fetch(targetUrl)
@@ -110,8 +117,11 @@ export const deleteRepo = async (cpy: RepoModel, bal: RepoBit, ste: State) => {
         return cpy
     }
 
-    const targetUrl = `${getBaseUrl()}/api/repos/watch`
-    await logConsole(`>> [UNWATCH] Removing repository: ${bal.src.trim()}`)
+    const baseUrl = getBaseUrl()
+    const targetUrl = `${baseUrl}/api/repos/watch`
+    await logConsole(
+        `>> [UNWATCH] Removing repository via [${baseUrl}]: ${bal.src.trim()}`,
+    )
 
     try {
         const res = await fetch(targetUrl, {

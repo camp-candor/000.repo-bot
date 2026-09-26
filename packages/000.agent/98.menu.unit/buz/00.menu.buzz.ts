@@ -84,7 +84,11 @@ export const initMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
     if (bal.slv != null) rootSlv = bal.slv
 
     if (!cpy.activeBaseUrl) cpy.activeBaseUrl = getLiveUrl()
-    ;(global as any).agentBaseUrl = cpy.activeBaseUrl
+    if (cpy.targetMode === 'LOCAL') {
+        ;(global as any).agentBaseUrl = cpy.activeBaseUrl
+    } else {
+        delete (global as any).agentBaseUrl
+    }
 
     bit = await global.LIBRARY.hunt(UPDATE_GRID, {
         x: 4,
@@ -213,7 +217,7 @@ export const toggleTargetMode = async (
             cpy.localProcess = null
             cpy.targetMode = 'LIVE'
             cpy.activeBaseUrl = LIVE_URL
-            ;(global as any).agentBaseUrl = LIVE_URL
+            delete (global as any).agentBaseUrl
             const errDetail = stderrData.trim()
                 ? `\n>> Details: ${stderrData.trim().slice(0, 300)}`
                 : ''
@@ -242,7 +246,7 @@ export const toggleTargetMode = async (
 
         cpy.targetMode = 'LIVE'
         cpy.activeBaseUrl = LIVE_URL
-        ;(global as any).agentBaseUrl = LIVE_URL
+        delete (global as any).agentBaseUrl
         await global.LIBRARY.hunt(UPDATE_CONSOLE, {
             idx: 'cns00',
             src: `>> [SWITCHED] Target set to LIVE (${LIVE_URL})`,
@@ -290,8 +294,15 @@ export const updateMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
     const src = choiceBit.chcBit.src
 
     if (src === toggleLabel) {
-        await ste.hunt(ActMnu.TOGGLE_TARGET_MODE, {})
-        setTimeout(() => updateMenu(cpy, bal, ste), 300)
+        const toggleRes: any = await ste.hunt(ActMnu.TOGGLE_TARGET_MODE, {})
+        if (toggleRes?.mnuBit?.dat) {
+            cpy.targetMode = toggleRes.mnuBit.dat
+            cpy.activeBaseUrl =
+                cpy.targetMode === 'LOCAL'
+                    ? 'http://127.0.0.1:8787'
+                    : getLiveUrl()
+        }
+        await updateMenu(cpy, bal, ste)
         return cpy
     }
 

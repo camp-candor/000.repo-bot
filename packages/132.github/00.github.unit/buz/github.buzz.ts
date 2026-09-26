@@ -774,7 +774,7 @@ export const listWatchedRepos = async (
         '>> ==============================================================',
     )
     await logConsole(
-        '>> [WATCHED REPOSITORIES] Querying active fleet from edge DO...',
+        `>> [WATCHED REPOSITORIES] Querying active fleet from edge DO (${baseUrl})...`,
     )
 
     const t0 = Date.now()

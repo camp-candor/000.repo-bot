@@ -114,7 +114,7 @@ async function processAskJulesPrompt(
         let fleet: WatchedRepo[] = []
         if (env.REPO_BOT_DO) {
             try {
-                const doId = env.REPO_BOT_DO.idFromName('global-fleet-monitor')
+                const doId = env.REPO_BOT_DO.idFromName('global')
                 const stub = env.REPO_BOT_DO.get(doId)
                 const res = await stub.fetch('https://internal/repos')
                 if (res.ok) {
@@ -154,6 +154,12 @@ async function processAskJulesPrompt(
                     owner: 'astro-kahn-it-com',
                     repo: '001.goblin-lore',
                     url: 'https://github.com/astro-kahn-it-com/001.goblin-lore',
+                },
+                {
+                    id: 'camp-candor/995.library',
+                    owner: 'camp-candor',
+                    repo: '995.library',
+                    url: 'https://github.com/camp-candor/995.library',
                 },
             ]
         }

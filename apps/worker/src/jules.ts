@@ -105,6 +105,30 @@ export async function resolveJulesSource(
     )
 }
 
+/**
+ * Compiles the system instructions attention anchor for a Jules task session.
+ * Special-cases 'camp-candor/995.library' to avoid self-referential boundary lock.
+ */
+export function buildSystemInstructions(
+    repo: string,
+    fileWhitelist: string[],
+    branchName: string,
+): string {
+    const isLibraryRepo = repo.toLowerCase().includes('995.library')
+    const boundaryLaw = isLibraryRepo
+        ? `1. REPOSITORY BOUNDARY: You are operating directly on '${repo}'. Preserve root configuration and CI files (.github/workflows/) unless explicitly requested.`
+        : `1. IMMUTABLE RUNNER BOUNDARY: Modifying ANY file inside 'apps/995.library/' is strictly prohibited.`
+
+    return `
+=== TOP ANCHOR: SYSTEM LAWS & BOUNDARIES ===
+${boundaryLaw}
+2. MONOREPO SCOPING: Do not recursively update package.json files across packages or apps. Unless targeted specifically, modify ONLY './package.json' at the workspace root.
+3. BOUNDED SCOPE: Allowed modification list: ${JSON.stringify(fileWhitelist)}
+4. FORBIDDEN: Do not alter .github/workflows/, tests/, or sibling subpackages without explicit instructions.
+5. Target Branch: ${branchName}
+`.trim()
+}
+
 export const dispatchJulesJob = async (c: Context<{ Bindings: Env }>) => {
     const body = await c.req
         .json<{
@@ -161,13 +185,13 @@ export const dispatchJulesJob = async (c: Context<{ Bindings: Env }>) => {
         })
 
         // 4. Compile Attention Sandwich Prompt
+        const systemInstructions = buildSystemInstructions(
+            repo,
+            fileWhitelist,
+            branchName,
+        )
         const attentionSandwichPrompt = `
-=== TOP ANCHOR: SYSTEM LAWS & BOUNDARIES ===
-1. IMMUTABLE RUNNER BOUNDARY: Modifying ANY file inside 'apps/995.library/' is strictly prohibited.
-2. MONOREPO SCOPING: Do not recursively update package.json files across packages or apps. Unless targeted specifically, modify ONLY './package.json' at the workspace root.
-3. BOUNDED SCOPE: Allowed modification list: ${JSON.stringify(fileWhitelist)}
-4. FORBIDDEN: Do not alter .github/workflows/, tests/, or sibling subpackages without explicit instructions.
-5. Target Branch: ${branchName}
+${systemInstructions}
 
 === MIDDLE ANCHOR: SURGICAL DIRECTIVE ===
 ${body.prompt}

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { buildJulesStatusCard } from '../../src/slackBridge.js'
-import { resolveJulesSource } from '../../src/jules.js'
+import { resolveJulesSource, buildSystemInstructions } from '../../src/jules.js'
 
 describe('Jules Slack Observer Card Colors & Button Architecture', () => {
     const mockEnv = {
@@ -223,5 +223,33 @@ describe('resolveJulesSource Dynamic Entity Resolution', () => {
         ).rejects.toThrow(
             /Failed to query Jules sources \(403\): API key invalid/,
         )
+    })
+})
+
+describe('Jules buildSystemInstructions Boundary Invariance', () => {
+    it('enforces strict immutable runner boundary for standard repos', () => {
+        const prompt = buildSystemInstructions(
+            '000.repo-bot',
+            ['package.json'],
+            'spec/task-01-abcdef1',
+        )
+        expect(prompt).toContain('IMMUTABLE RUNNER BOUNDARY')
+        expect(prompt).toContain(
+            "Modifying ANY file inside 'apps/995.library/' is strictly prohibited.",
+        )
+        expect(prompt).not.toContain('REPOSITORY BOUNDARY')
+    })
+
+    it('exempts camp-candor/995.library from apps/995.library ban and applies repository boundary', () => {
+        const prompt = buildSystemInstructions(
+            'camp-candor/995.library',
+            ['package.json'],
+            'spec/task-02-1234567',
+        )
+        expect(prompt).not.toContain('IMMUTABLE RUNNER BOUNDARY')
+        expect(prompt).toContain(
+            "REPOSITORY BOUNDARY: You are operating directly on 'camp-candor/995.library'",
+        )
+        expect(prompt).toContain('Preserve root configuration and CI files')
     })
 })

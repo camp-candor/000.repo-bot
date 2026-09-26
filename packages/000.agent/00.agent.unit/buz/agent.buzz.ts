@@ -65,15 +65,22 @@ export const listagent = async (cpy: AgentModel, bal: agentBit, ste: State) => {
 
 export const connectagent = (cpy: AgentModel, bal: agentBit, ste: State) => {
     const isLocal = bal.src === 'LOCAL'
-    const wsUrl = isLocal
-        ? 'ws://localhost:8787/ws'
-        : 'wss://worker-agent.berad4000.workers.dev/ws'
+    const liveUrl = (
+        process.env.LIVE_WORKER_URL ||
+        process.env.WORKER_URL ||
+        'https://repo-bot-00.berad4000.workers.dev'
+    ).replace(/\/$/, '')
+    const wsHost = liveUrl.replace(/^https?:\/\//, '')
+    const wsUrl = isLocal ? 'ws://localhost:8787/ws' : `wss://${wsHost}/ws`
     const prefix = isLocal ? '[LOCAL WORKER]' : '[REMOTE WORKER]'
 
-    // @ts-ignore
-    global.agentBaseUrl = isLocal
-        ? 'http://localhost:8787'
-        : 'https://worker-agent.berad4000.workers.dev'
+    if (isLocal) {
+        // @ts-ignore
+        global.agentBaseUrl = 'http://localhost:8787'
+    } else {
+        // @ts-ignore
+        delete global.agentBaseUrl
+    }
 
     // @ts-ignore
     const ws = new WebSocket(wsUrl)
