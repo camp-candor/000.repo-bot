@@ -494,6 +494,7 @@ export interface JulesCardParams {
     sessionId: string
     repo: string
     taskId?: string
+    /** @deprecated MERGED status is deprecated; merge announcements are handled by postSlackMergeAnnouncement */
     status: 'INPUT_REQUIRED' | 'READY_FOR_REVIEW' | 'MERGED' | 'FAILED'
     queryText?: string
     prUrl?: string
@@ -504,10 +505,18 @@ export interface JulesCardParams {
 export function buildJulesStatusCard(
     params: JulesCardParams,
     env: Partial<Env>,
-) {
+): {
+    channel: string
+    text: string
+    attachments: any[]
+} | null {
+    // Deprecated & suppressed: redundant MERGED status cards are discarded
+    if (params.status === 'MERGED') {
+        return null
+    }
+
     const julesUrl = `https://jules.google.com/session/${params.sessionId}`
     const isInput = params.status === 'INPUT_REQUIRED'
-    const isMerged = params.status === 'MERGED'
 
     // Determine target channel based on status or explicit override
     const targetChannel =
@@ -520,11 +529,9 @@ export function buildJulesStatusCard(
     const statusColor =
         params.status === 'READY_FOR_REVIEW'
             ? '#2EB886' // Emerald Green
-            : params.status === 'MERGED'
-              ? '#86888A' // Neutral Slate Grey
-              : params.status === 'INPUT_REQUIRED'
-                ? '#ECB22E' // Amber Yellow
-                : '#E01E5A' // Crimson Red
+            : params.status === 'INPUT_REQUIRED'
+              ? '#ECB22E' // Amber Yellow
+              : '#E01E5A' // Crimson Red
 
     const elements: any[] = []
 
@@ -544,13 +551,11 @@ export function buildJulesStatusCard(
             type: 'button',
             text: {
                 type: 'plain_text',
-                text: isMerged
-                    ? 'View Merged PR [GitHub]'
-                    : 'View Pull Request [GitHub]',
+                text: 'View Pull Request [GitHub]',
                 emoji: false,
             },
             url: params.prUrl,
-            style: isMerged ? undefined : 'primary',
+            style: 'primary',
         })
         elements.push({
             type: 'button',
@@ -582,9 +587,7 @@ export function buildJulesStatusCard(
     const headerText =
         params.status === 'INPUT_REQUIRED'
             ? ':: Jules Requires Operator Feedback'
-            : params.status === 'MERGED'
-              ? ':: Jules PR Merged into Trunk'
-              : ':: Jules Code Ready for Review'
+            : ':: Jules Code Ready for Review'
 
     const blocks: any[] = [
         {
@@ -651,6 +654,10 @@ export async function postSlackJulesMessage(
     payload: any,
     env: any,
 ): Promise<{ ok: boolean; ts?: string; error?: string }> {
+    if (!payload) {
+        return { ok: false, error: 'NO_PAYLOAD' }
+    }
+
     if (!env.SLACK_BOT_TOKEN) {
         console.warn(
             '>> [SLACK WARNING] SLACK_BOT_TOKEN missing. Jules message skipped.',

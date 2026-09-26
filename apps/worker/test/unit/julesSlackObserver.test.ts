@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
+import app from '../../src/index.js'
 import { buildJulesStatusCard } from '../../src/slackBridge.js'
 import { resolveJulesSource, buildSystemInstructions } from '../../src/jules.js'
 import { normalizeDirectivePrompt } from '../../src/routes/slackEvents.js'
@@ -25,9 +26,10 @@ describe('Jules Slack Observer Card Colors & Button Architecture', () => {
             mockEnv,
         )
 
-        expect(card.channel).toBe('C0C4CK27LA1')
-        expect(card.attachments).toBeDefined()
-        expect(card.attachments[0].color).toBe('#2EB886')
+        expect(card).not.toBeNull()
+        expect(card!.channel).toBe('C0C4CK27LA1')
+        expect(card!.attachments).toBeDefined()
+        expect(card!.attachments[0].color).toBe('#2EB886')
 
         const actionBlock = card.attachments[0].blocks.find(
             (b: any) => b.type === 'actions',
@@ -56,7 +58,7 @@ describe('Jules Slack Observer Card Colors & Button Architecture', () => {
         })
     })
 
-    it('builds MERGED card with Slate Grey (#86888A) attachment bar', () => {
+    it('returns null for MERGED status to suppress redundant card generation', () => {
         const card = buildJulesStatusCard(
             {
                 sessionId: 'session_abc123',
@@ -70,35 +72,7 @@ describe('Jules Slack Observer Card Colors & Button Architecture', () => {
             mockEnv,
         )
 
-        expect(card.channel).toBe('C0C4CK27LA1')
-        expect(card.attachments).toBeDefined()
-        expect(card.attachments[0].color).toBe('#86888A')
-
-        const headerBlock = card.attachments[0].blocks.find(
-            (b: any) => b.type === 'header',
-        )
-        expect(headerBlock.text.text).toBe(':: Jules PR Merged into Trunk')
-
-        const actionBlock = card.attachments[0].blocks.find(
-            (b: any) => b.type === 'actions',
-        )
-        const prButton = actionBlock.elements.find((el: any) =>
-            el.url.includes('pull/83'),
-        )
-        expect(prButton.text.text).toBe('View Merged PR [GitHub]')
-        expect(prButton.action_id).toBeUndefined()
-
-        const dismissBtn = actionBlock.elements.find(
-            (el: any) => el.action_id === 'jules_dismiss_card',
-        )
-        expect(dismissBtn).toBeDefined()
-        expect(dismissBtn.text.text).toBe('Dismiss Card')
-        expect(dismissBtn.style).toBe('danger')
-        expect(JSON.parse(dismissBtn.value)).toEqual({
-            action: 'dismiss',
-            repo: 'camp-candor/000.repo-bot',
-            sessionId: 'session_abc123',
-        })
+        expect(card).toBeNull()
     })
 
     it('builds INPUT_REQUIRED card with Amber Yellow (#ECB22E) attachment bar', () => {
@@ -113,7 +87,8 @@ describe('Jules Slack Observer Card Colors & Button Architecture', () => {
             mockEnv,
         )
 
-        expect(card.attachments[0].color).toBe('#ECB22E')
+        expect(card).not.toBeNull()
+        expect(card!.attachments[0].color).toBe('#ECB22E')
         const actionBlock = card.attachments[0].blocks.find(
             (b: any) => b.type === 'actions',
         )
@@ -384,6 +359,112 @@ describe('jules_dismiss_card Slack interaction handler', () => {
                 body: JSON.stringify({ delete_original: true }),
             }),
         )
+
+        globalThis.fetch = originalFetch
+    })
+})
+
+describe('GitHub Webhook Merged PR Jules Card Suppression', () => {
+    it('does not dispatch redundant postSlackJulesMessage card to #ask-jules or #jules-winnfield on merged PR', async () => {
+        const postedMessages: any[] = []
+        const originalFetch = globalThis.fetch
+        globalThis.fetch = vi
+            .fn()
+            .mockImplementation(async (url: string, init?: any) => {
+                if (url.includes('slack.com/api/chat.postMessage')) {
+                    postedMessages.push(JSON.parse(init.body))
+                    return {
+                        ok: true,
+                        json: async () => ({ ok: true, ts: '12345.6789' }),
+                    }
+                }
+                return {
+                    ok: true,
+                    json: async () => ({}),
+                    text: async () => '',
+                }
+            }) as any
+
+        const waitUntilPromises: Promise<any>[] = []
+        const mockEnv = {
+            SLACK_BOT_TOKEN: 'xoxb-mock-token',
+            SLACK_CHANNEL_ID: 'C0C40FMRQ9H', // #ops-bridge
+            SLACK_ASK_JULES_CHANNEL_ID: 'C0C4M8K7LV8', // #ask-jules
+            SLACK_JULES_CHANNEL_ID: 'C0C4CK27LA1', // #jules-winnfield
+            REPO_BOT_DO: {
+                idFromName: () => 'mock-id',
+                get: () => ({
+                    fetch: async () =>
+                        new Response(JSON.stringify({ ok: true })),
+                }),
+            },
+        }
+
+        const executionCtx = {
+            waitUntil: (p: Promise<any>) => waitUntilPromises.push(p),
+        }
+
+        const webhookPayload = {
+            action: 'closed',
+            repository: {
+                name: '000.repo-bot',
+                full_name: 'camp-candor/000.repo-bot',
+                owner: { login: 'camp-candor' },
+            },
+            pull_request: {
+                number: 83,
+                merged: true,
+                html_url: 'https://github.com/camp-candor/000.repo-bot/pull/83',
+                merge_commit_sha: '3a9f1bc111122223333444455556666777788889',
+                head: {
+                    sha: '1234567890abcdef1234567890abcdef12345678',
+                    ref: 'jules/feat-merge-test',
+                },
+                base: {
+                    ref: 'main',
+                },
+                user: {
+                    login: 'google-jules[bot]',
+                },
+                merged_by: {
+                    login: 'repo-bot',
+                },
+                title: 'feat: jules automated enhancement',
+                body: 'squash merge completed by repo-bot',
+            },
+        }
+
+        const req = new Request('http://localhost/webhook', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'x-github-event': 'pull_request',
+            },
+            body: JSON.stringify(webhookPayload),
+        })
+
+        const res = await app.fetch(req, mockEnv as any, executionCtx as any)
+        expect(res.status).toBe(200)
+
+        await Promise.all(waitUntilPromises)
+
+        // Verify #ask-jules and #jules-winnfield received 0 cards
+        const askJulesCards = postedMessages.filter(
+            (m) => m.channel === 'C0C4M8K7LV8',
+        )
+        const julesWinnfieldCards = postedMessages.filter(
+            (m) => m.channel === 'C0C4CK27LA1',
+        )
+        expect(askJulesCards).toHaveLength(0)
+        expect(julesWinnfieldCards).toHaveLength(0)
+
+        // Verify canonical #ops-bridge release announcement was dispatched
+        const opsBridgeMessages = postedMessages.filter(
+            (m) => m.channel === 'C0C40FMRQ9H',
+        )
+        expect(opsBridgeMessages.length).toBeGreaterThan(0)
+        expect(opsBridgeMessages[0].text).toContain('[RELEASE]')
+        expect(opsBridgeMessages[0].text).toContain('merged into main')
 
         globalThis.fetch = originalFetch
     })

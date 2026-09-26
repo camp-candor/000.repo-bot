@@ -115,11 +115,13 @@ const handleGitHubWebhook = async (c: any) => {
                 c.env,
             )
 
-            c.executionCtx.waitUntil(
-                postSlackJulesMessage(card, c.env).catch((err) =>
-                    console.error('[SLACK_JULES_PR_CARD_ERROR]', err),
-                ),
-            )
+            if (card) {
+                c.executionCtx.waitUntil(
+                    postSlackJulesMessage(card, c.env).catch((err) =>
+                        console.error('[SLACK_JULES_PR_CARD_ERROR]', err),
+                    ),
+                )
+            }
         }
     }
 
@@ -132,7 +134,6 @@ const handleGitHubWebhook = async (c: any) => {
         const pr = payload.pull_request
         const repo = payload.repository?.name || '000.repo-bot'
         const owner = payload.repository?.owner?.login || 'camp-candor'
-        const repoFullName = payload.repository?.full_name || `${owner}/${repo}`
         const pullNumber = pr.number
         const mergeCommitSha = pr.merge_commit_sha || ''
         const headSha = pr.head?.sha || ''
@@ -155,13 +156,7 @@ const handleGitHubWebhook = async (c: any) => {
         )
         const taskId = specMatch ? specMatch[1] : `PR-${pullNumber}`
 
-        const isJulesBranch =
-            headRef.startsWith('jules/') ||
-            (pr.user?.login || '').toLowerCase().includes('jules') ||
-            (pr.body || '').toLowerCase().includes('jules') ||
-            (pr.title || '').toLowerCase().includes('jules')
-
-        // 3a. Distribute release announcement to #ops-bridge
+        // 3a. Distribute canonical release announcement to #ops-bridge
         c.executionCtx.waitUntil(
             postSlackMergeAnnouncement(
                 {
@@ -180,28 +175,6 @@ const handleGitHubWebhook = async (c: any) => {
                 c.env,
             ),
         )
-
-        // 3b. If Jules PR, also dispatch the MERGED card to #jules-winnfield with Slate Grey accent bar (#86888A)
-        if (isJulesBranch && c.env.SLACK_BOT_TOKEN) {
-            const julesMergedCard = buildJulesStatusCard(
-                {
-                    sessionId: pr.head?.sha?.slice(0, 10) || 'active',
-                    repo: repoFullName,
-                    taskId: headRef,
-                    status: 'MERGED',
-                    prUrl: pr.html_url || '',
-                    branchName: headRef,
-                    queryText: `Merged into ${baseRef} by ${mergedBy} (${mergeCommitSha.slice(0, 7)}).`,
-                },
-                c.env,
-            )
-
-            c.executionCtx.waitUntil(
-                postSlackJulesMessage(julesMergedCard, c.env).catch((err) =>
-                    console.error('[SLACK_JULES_MERGED_CARD_ERROR]', err),
-                ),
-            )
-        }
 
         // Dispatch terminal event to FSM if available
         if (c.env.REPO_BOT_DO && pullNumber > 0) {

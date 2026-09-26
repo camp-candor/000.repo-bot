@@ -339,7 +339,9 @@ export async function pollActiveJulesSessions(env: Env): Promise<void> {
                     env,
                 )
 
-                await postSlackJulesMessage(card, env)
+                if (card) {
+                    await postSlackJulesMessage(card, env)
+                }
 
                 await env.DB.prepare(
                     'UPDATE jules_sessions SET status = ?, last_status = ?, updated_at = ? WHERE session_id = ?',
