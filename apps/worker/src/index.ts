@@ -4,6 +4,7 @@ import { executeColdDrainage } from './audit/drainageEngine.js'
 
 import { Hono } from 'hono'
 import { handleSlackInteraction } from './routes/slackInteractions.js'
+import { handleSlackEvents } from './routes/slackEvents.js'
 import { generateCommitMessage } from './commitGenerator.js'
 import {
     dispatchJulesJob,
@@ -336,6 +337,9 @@ app.post('/api/webhooks/github', handleGitHubWebhook)
 app.post('/api/slack/interactions', async (c) => {
     return await handleSlackInteraction(c)
 })
+
+// Register Slack Events API webhook route
+app.post('/api/slack/events', handleSlackEvents)
 
 // Proxy Fleet Repository Management to RepoBotDO
 app.all('/repos', async (c) => {

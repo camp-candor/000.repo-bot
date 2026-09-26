@@ -468,6 +468,28 @@ export async function postSlackEmergencyAlert(
     }
 }
 
+export type SlackChannelRole = 'ASK_JULES' | 'JULES_REVIEW' | 'OPS_BRIDGE'
+
+/**
+ * Resolves Slack channel IDs dynamically from environment bindings with safe sanitization.
+ */
+export function getTargetSlackChannel(
+    role: SlackChannelRole,
+    env: Partial<Env>,
+): string {
+    const sanitize = (val?: string) =>
+        (val || '').trim().replace(/^["']|["']$/g, '')
+
+    switch (role) {
+        case 'ASK_JULES':
+            return sanitize(env.SLACK_ASK_JULES_CHANNEL_ID) || 'C0C4M8K7LV8'
+        case 'JULES_REVIEW':
+            return sanitize(env.SLACK_JULES_CHANNEL_ID) || 'C0C4CK27LA1'
+        case 'OPS_BRIDGE':
+            return sanitize(env.SLACK_CHANNEL_ID) || 'C0C40FMRQ9H'
+    }
+}
+
 export interface JulesCardParams {
     sessionId: string
     repo: string
@@ -476,15 +498,23 @@ export interface JulesCardParams {
     queryText?: string
     prUrl?: string
     branchName?: string
+    targetChannel?: string // Optional override for explicit routing
 }
 
-export function buildJulesStatusCard(params: JulesCardParams, env: any) {
-    const julesUrl = `https://jules.google.com/session/${params.sessionId}`
+export function buildJulesStatusCard(
+    params: JulesCardParams,
+    env: Partial<Env>,
+) {
+    const julesUrl = `https://jules.google/session/${params.sessionId}`
     const isInput = params.status === 'INPUT_REQUIRED'
     const isMerged = params.status === 'MERGED'
+
+    // Determine target channel based on status or explicit override
     const targetChannel =
-        (env.SLACK_JULES_CHANNEL_ID || '').trim().replace(/^["']|["']$/g, '') ||
-        'C0C4CK27LA1'
+        params.targetChannel ||
+        (isInput
+            ? getTargetSlackChannel('ASK_JULES', env)
+            : getTargetSlackChannel('JULES_REVIEW', env))
 
     // Status Accent Colors for the left vertical bar
     const statusColor =
@@ -552,13 +582,22 @@ export function buildJulesStatusCard(params: JulesCardParams, env: any) {
         {
             type: 'section',
             fields: [
-                { type: 'mrkdwn', text: `*Repository:*\n\`${params.repo}\`` },
-                { type: 'mrkdwn', text: `*Status:*\n\`${params.status}\`` },
+                {
+                    type: 'mrkdwn',
+                    text: `*Repository:*
+\`${params.repo}\``,
+                },
+                {
+                    type: 'mrkdwn',
+                    text: `*Status:*
+\`${params.status}\``,
+                },
                 ...(params.taskId
                     ? [
                           {
                               type: 'mrkdwn',
-                              text: `*Task ID:*\n\`${params.taskId}\``,
+                              text: `*Task ID:*
+\`${params.taskId}\``,
                           },
                       ]
                     : []),
@@ -566,7 +605,8 @@ export function buildJulesStatusCard(params: JulesCardParams, env: any) {
                     ? [
                           {
                               type: 'mrkdwn',
-                              text: `*Branch:*\n\`${params.branchName}\``,
+                              text: `*Branch:*
+\`${params.branchName}\``,
                           },
                       ]
                     : []),
@@ -578,7 +618,8 @@ export function buildJulesStatusCard(params: JulesCardParams, env: any) {
                       type: 'section',
                       text: {
                           type: 'mrkdwn',
-                          text: `*Latest Message from Jules:*\n> _${params.queryText.slice(0, 300)}_`,
+                          text: `*Latest Message from Jules:*
+> _${params.queryText.slice(0, 300)}_`,
                       },
                   },
               ]
