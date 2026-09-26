@@ -44,8 +44,9 @@ jobs:
                   # --- Deploy Worker with Plain Config Variables ---
                   npx wrangler deploy --env staging \
                     --var GITHUB_DEFAULT_OWNER:"$DEFAULT_OWNER" \
-                    --var SLACK_CHANNEL_ID:"$SLACK_CHANNEL" \
-                    --var SLACK_JULES_CHANNEL_ID:"C0C4CK27LA1" \
+                    --var SLACK_CHANNEL_ID:"$OPS_BRIDGE_CHANNEL" \
+                    --var SLACK_JULES_CHANNEL_ID:"$JULES_CHANNEL" \
+                    --var SLACK_ASK_JULES_CHANNEL_ID:"$ASK_JULES_CHANNEL" \
                     --var SLACK_AUTHORIZED_APPROVERS:"$SLACK_APPROVERS"
               env:
                   CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -53,7 +54,9 @@ jobs:
                   RUNTIME_GITHUB_TOKEN: ${{ secrets.REPO_BOT_GITHUB_TOKEN || secrets.GITHUB_TOKEN }}
                   D1_DATABASE_ID: ${{ vars.D1_DATABASE_ID || secrets.D1_DATABASE_ID || '' }}
                   DEFAULT_OWNER: ${{ vars.GITHUB_DEFAULT_OWNER || 'camp-candor' }}
-                  SLACK_CHANNEL: ${{ vars.SLACK_CHANNEL_ID || '#ops-bridge' }}
+                  OPS_BRIDGE_CHANNEL: ${{ vars.SLACK_CHANNEL_ID || 'C0C40FMRQ9H' }}
+                  JULES_CHANNEL: ${{ vars.SLACK_JULES_CHANNEL_ID || 'C0C4CK27LA1' }}
+                  ASK_JULES_CHANNEL: ${{ vars.SLACK_ASK_JULES_CHANNEL_ID || 'C0C4M8K7LV8' }}
                   SLACK_APPROVERS: ${{ vars.SLACK_AUTHORIZED_APPROVERS || '' }}
 
             # 4. AUDIT
