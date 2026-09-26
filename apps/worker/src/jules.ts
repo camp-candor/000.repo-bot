@@ -171,6 +171,10 @@ export async function pollActiveJulesSessions(env: Env): Promise<void> {
                 currentStatus === 'PAUSED'
 
             if (needsUserInput && item.last_status !== currentStatus) {
+                const askJulesChannel =
+                    (env.SLACK_ASK_JULES_CHANNEL_ID || '').trim().replace(/^["']|["']$/g, '') ||
+                    'C0C4M8K7LV8'
+
                 const card = buildJulesStatusCard(
                     {
                         sessionId: item.session_id,
@@ -178,6 +182,7 @@ export async function pollActiveJulesSessions(env: Env): Promise<void> {
                         taskId: item.task_id,
                         status: 'INPUT_REQUIRED',
                         branchName: item.branch_name,
+                        targetChannel: askJulesChannel, // In-flight input routed to #ask-jules
                         queryText:
                             latestPrompt ||
                             'Jules is waiting for your input to continue.',

@@ -3,6 +3,7 @@ import { appendAuditEvent } from './audit/auditLedger.js'
 import { executeColdDrainage } from './audit/drainageEngine.js'
 
 import { Hono } from 'hono'
+import { handleSlackEvents } from './routes/slackEvents.js'
 import { handleSlackInteraction } from './routes/slackInteractions.js'
 import { generateCommitMessage } from './commitGenerator.js'
 import {
@@ -253,6 +254,9 @@ const handleGitHubWebhook = async (c: any) => {
 }
 
 const app = new Hono<{ Bindings: Env }>()
+
+// Register Slack Events API webhook route
+app.post('/api/slack/events', handleSlackEvents)
 
 const getRepoBotStub = (env: Env) => {
     const id = env.REPO_BOT_DO.idFromName('global')

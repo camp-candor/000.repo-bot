@@ -24,6 +24,7 @@ export interface Env {
     SLACK_SIGNING_SECRET?: string
     SLACK_CHANNEL_ID?: string
     SLACK_JULES_CHANNEL_ID?: string // Dedicated Jules channel: C0C4CK27LA1 (#jules-winnfield)
+    SLACK_ASK_JULES_CHANNEL_ID?: string
     SLACK_AUTHORIZED_APPROVERS?: string // Comma-separated Slack User IDs (e.g. "U01234,U56789")
 }
 
