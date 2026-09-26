@@ -1,4 +1,3 @@
-import { archiveJulesPlatformSession } from '../jules.js'
 import type { Context } from 'hono'
 import { verifySlackSignature, updateSlackMessage } from '../slackBridge.js'
 import { githubRequest, type Env } from '../tools.js'
@@ -11,12 +10,12 @@ export interface SlackInteractionPayload {
     response_url: string
     actions: Array<{
         action_id: string
-        value: string
+        value?: string
     }>
 }
 
 /**
- * Handles incoming Slack interactive component webhooks (button clicks).
+ * Handles incoming Slack interactive component webhooks.
  */
 export async function handleSlackInteraction(c: Context<{ Bindings: Env }>) {
     const rawBody = await c.req.text()
@@ -49,9 +48,7 @@ export async function handleSlackInteraction(c: Context<{ Bindings: Env }>) {
             if (jsonBody.type === 'url_verification') {
                 return c.json({ challenge: jsonBody.challenge }, 200)
             }
-        } catch {
-            // Not a JSON payload; continue to form-urlencoded parsing
-        }
+        } catch {}
     }
 
     // 3. Parse application/x-www-form-urlencoded body
@@ -74,30 +71,6 @@ export async function handleSlackInteraction(c: Context<{ Bindings: Env }>) {
         return c.text('No action present in payload', 400)
     }
 
-    // --- NATIVE JULES SESSION ARCHIVE TRIGGER (ZERO D1) ---
-    if (action.action_id === 'jules_archive_session') {
-        let meta: { sessionId?: string; repo?: string } = {}
-        try {
-            meta = JSON.parse(action.value || '{}')
-        } catch {}
-
-        const sessionId = meta.sessionId
-        const apiKey = c.env.JULES_API_KEY
-
-        if (sessionId && apiKey) {
-            c.executionCtx.waitUntil(
-                archiveJulesPlatformSession(sessionId, apiKey).catch((err) =>
-                    console.error('[JULES_BACKGROUND_ARCHIVE_ERROR]', err),
-                ),
-            )
-        } else {
-            console.warn('>> [JULES ARCHIVE SKIP] Missing sessionId or JULES_API_KEY')
-        }
-
-        // Immediately return HTTP 200 (<50ms) so browser smoothly opens GitHub PR URL
-        return c.text('', 200)
-    }
-
     let actionData: {
         taskId: string
         headSha: string
@@ -106,7 +79,7 @@ export async function handleSlackInteraction(c: Context<{ Bindings: Env }>) {
         pullNumber?: number
     }
     try {
-        actionData = JSON.parse(action.value)
+        actionData = JSON.parse(action.value || '{}')
     } catch {
         return c.text('Invalid action value JSON', 400)
     }
@@ -135,21 +108,17 @@ export async function handleSlackInteraction(c: Context<{ Bindings: Env }>) {
         })
     }
 
-    // 5. Sub-3-Second Fast Exit: Offload execution to waitUntil
+    // 5. Fast Exit: Offload execution to waitUntil
     c.executionCtx.waitUntil(
         executeHumanDecision(c.env, payload, actionData, isApprove),
     )
 
-    // Immediate acknowledgement to satisfy Slack timeout SLA
     return c.json({
         response_type: 'ephemeral',
         text: `>> [PROCESSING] Request received from <@${userId}>. Executing ${isApprove ? 'APPROVAL' : 'REJECTION'}...`,
     })
 }
 
-/**
- * Asynchronous execution of human approval/rejection decision.
- */
 async function executeHumanDecision(
     env: Env,
     payload: SlackInteractionPayload,
@@ -171,7 +140,7 @@ async function executeHumanDecision(
     const userId = payload.user?.id || 'UNKNOWN_USER'
 
     console.log(
-        `>> [SLACK INTERACTION] Actor: <@${userId}> | Task: ${taskId} | Action: ${isApprove ? 'APPROVE' : 'REJECT'}`,
+        `>> [SLACK INTERACTION] Actor: <@${userId}> | Task: ${taskId} | Action:${isApprove ? 'APPROVE' : 'REJECT'}`,
     )
 
     // A. Atomic Idempotency Check via D1
@@ -209,14 +178,11 @@ async function executeHumanDecision(
                 return
             }
         } catch (err: any) {
-            console.warn(
-                'D1 task_approvals ledger check bypassed:',
-                err.message,
-            )
+            console.warn('D1 task_approvals check bypassed:', err.message)
         }
     }
 
-    // B. Dual-Authority: Submit Authenticated GitHub PR Review (Skip safely if pullNumber <= 0)
+    // B. Submit Authenticated GitHub PR Review
     if (pullNumber > 0) {
         try {
             await githubRequest(
@@ -239,10 +205,6 @@ async function executeHumanDecision(
         } catch (err: any) {
             console.error('Failed to submit GitHub PR review:', err.message)
         }
-    } else {
-        console.log(
-            `>> [SIMULATED TEST] Skipping GitHub PR review (pullNumber = ${pullNumber})`,
-        )
     }
 
     // C. Forward Decision to Durable Object FSM
@@ -251,7 +213,7 @@ async function executeHumanDecision(
             const doId = env.REPO_BOT_DO.idFromName(taskId)
             const taskDO = env.REPO_BOT_DO.get(doId)
 
-            const fsmRes = await taskDO.fetch(
+            await taskDO.fetch(
                 new Request('https://internal/fsm/transition', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -265,32 +227,22 @@ async function executeHumanDecision(
                     }),
                 }),
             )
-
-            if (!fsmRes.ok) {
-                console.error(
-                    'DO state transition failed:',
-                    await fsmRes.text(),
-                )
-            } else {
-                console.log(`>> [DO TRANSITION] Status: ${fsmRes.status}`)
-            }
         } catch (err: any) {
             console.error('Failed to contact RepoBotDO:', err.message)
         }
     }
 
-    // D. Update Original Slack Message in Place
+    // D. Update Original Slack Card in Place
     if (payload.channel?.id && payload.message?.ts) {
         const updateText = isApprove
             ? `*:: PR APPROVED & RATIFIED*\nTask: \`${taskId}\` | SHA: \`${headSha.slice(0, 7)}\`\nApprover: <@${userId}> | Status: Advancing to MERGING`
             : `*:: PR REJECTED*\nTask: \`${taskId}\` | SHA: \`${headSha.slice(0, 7)}\`\nDecider: <@${userId}> | Status: Rolling back ephemeral branch`
 
-        const updated = await updateSlackMessage(
+        await updateSlackMessage(
             payload.channel.id,
             payload.message.ts,
             updateText,
             env,
         )
-        console.log(`>> [SLACK CARD UPDATE] Success: ${updated}`)
     }
 }

@@ -84,7 +84,7 @@ const handleGitHubWebhook = async (c: any) => {
         )
     }
 
-    // 2. Jules PR Opened Interception -> Route to #jules-winnfield (C0C4CK27LA1)
+    // 2. Jules PR Opened Interception -> Route to #jules-winnfield
     if (githubEvent === 'pull_request' && payload.action === 'opened') {
         const pr = payload.pull_request
         const repoFullName = payload.repository?.full_name || 'unknown'
@@ -92,30 +92,15 @@ const handleGitHubWebhook = async (c: any) => {
         const prUrl = pr.html_url || ''
 
         const isJulesBranch =
-            headRef.startsWith('feat/') ||
-            headRef.startsWith('spec/') ||
-            headRef.startsWith('bump-') ||
-            headRef.startsWith('chore/') ||
             headRef.startsWith('jules/') ||
             (pr.user?.login || '').toLowerCase().includes('jules') ||
             (pr.body || '').toLowerCase().includes('jules') ||
             (pr.title || '').toLowerCase().includes('jules')
 
         if (isJulesBranch && c.env.SLACK_BOT_TOKEN) {
-            // Extract the native Jules task/session numeric ID from the PR body link or branch name
-            const bodyIdMatch = (pr.body || '').match(
-                /jules\.google\.com\/(?:task|session)\/([0-9a-zA-Z_-]+)/,
-            )
-            const branchIdMatch = headRef.match(/(?:^|[_-])(\d{15,})/)
-            const resolvedSessionId = bodyIdMatch
-                ? bodyIdMatch[1]
-                : branchIdMatch
-                  ? branchIdMatch[1]
-                  : pr.head?.sha?.slice(0, 10) || 'active'
-
             const card = buildJulesStatusCard(
                 {
-                    sessionId: resolvedSessionId,
+                    sessionId: pr.head?.sha?.slice(0, 10) || 'active',
                     repo: repoFullName,
                     taskId: headRef,
                     status: 'READY_FOR_REVIEW',
@@ -137,7 +122,7 @@ const handleGitHubWebhook = async (c: any) => {
         }
     }
 
-    // 3. Process Pull Request Closed & Merged Event -> Route to #ops-bridge (C0C40FMRQ9H)
+    // 3. Process Pull Request Closed & Merged Event
     if (
         githubEvent === 'pull_request' &&
         payload.action === 'closed' &&
@@ -146,6 +131,7 @@ const handleGitHubWebhook = async (c: any) => {
         const pr = payload.pull_request
         const repo = payload.repository?.name || '000.repo-bot'
         const owner = payload.repository?.owner?.login || 'camp-candor'
+        const repoFullName = payload.repository?.full_name || `${owner}/${repo}`
         const pullNumber = pr.number
         const mergeCommitSha = pr.merge_commit_sha || ''
         const headSha = pr.head?.sha || ''
@@ -155,7 +141,6 @@ const handleGitHubWebhook = async (c: any) => {
             pr.merged_by?.login || payload.sender?.login || 'unknown'
         const prTitle = pr.title || ''
 
-        // Distinguish between Repo-Bot CAS squash merge and Direct Manual GitHub UI merge
         const commitMessage = pr.body || ''
         const isRepoBotCAS =
             commitMessage.includes('squash merge completed by repo-bot') ||
@@ -163,17 +148,19 @@ const handleGitHubWebhook = async (c: any) => {
             mergedBy.includes('repo-bot')
 
         const origin = isRepoBotCAS ? 'REPO_BOT_CAS' : 'GITHUB_MANUAL_UI'
-        console.log(
-            `>> [GITHUB WEBHOOK] Ingested PR #${pullNumber} closed & merged. Origin: ${origin} (Merged by: ${mergedBy})`,
-        )
 
-        // Extract taskId from headRef if following spec/{taskId}-{sha} convention
         const specMatch = headRef.match(
             /^spec\/([a-zA-Z0-9._-]+?)(-[a-f0-9]{7,40})?$/,
         )
         const taskId = specMatch ? specMatch[1] : `PR-${pullNumber}`
 
-        // A. Broadcast announcement to #ops-bridge
+        const isJulesBranch =
+            headRef.startsWith('jules/') ||
+            (pr.user?.login || '').toLowerCase().includes('jules') ||
+            (pr.body || '').toLowerCase().includes('jules') ||
+            (pr.title || '').toLowerCase().includes('jules')
+
+        // 3a. Distribute release announcement to #ops-bridge
         c.executionCtx.waitUntil(
             postSlackMergeAnnouncement(
                 {
@@ -190,63 +177,69 @@ const handleGitHubWebhook = async (c: any) => {
                     origin,
                 },
                 c.env,
-            ).then(async (res) => {
-                if (c.env.REPO_BOT_DO) {
-                    try {
-                        const id = c.env.REPO_BOT_DO.idFromName('global')
-                        const stub = c.env.REPO_BOT_DO.get(id)
-                        await stub.fetch(
-                            new Request('https://internal/api/slack/receipt', {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({
-                                    timestamp: Date.now(),
-                                    channel:
-                                        (c.env.SLACK_CHANNEL_ID || '')
-                                            .trim()
-                                            .replace(/^["']|["']$/g, '') ||
-                                        'C0C40FMRQ9H',
-                                    event: `MERGE_ANNOUNCEMENT (${origin})`,
-                                    ok: res.ok,
-                                    error: res.error,
-                                    ts: res.ts,
-                                }),
-                            }),
-                        )
-                    } catch {}
-                }
-            }),
+            ),
         )
 
-        // B. Reconcile with RepoBotDO to prevent stranded FSM states
-        if (c.env.REPO_BOT_DO) {
+        // 3b. If Jules PR, also dispatch the MERGED card to #jules-winnfield with Slate Grey accent bar (#86888A)
+        if (isJulesBranch && c.env.SLACK_BOT_TOKEN) {
+            const julesMergedCard = buildJulesStatusCard(
+                {
+                    sessionId: pr.head?.sha?.slice(0, 10) || 'active',
+                    repo: repoFullName,
+                    taskId: headRef,
+                    status: 'MERGED',
+                    prUrl: pr.html_url || '',
+                    branchName: headRef,
+                    queryText: `Merged into ${baseRef} by ${mergedBy} (${mergeCommitSha.slice(0, 7)}).`,
+                },
+                c.env,
+            )
+
             c.executionCtx.waitUntil(
-                (async () => {
-                    try {
-                        const doId = c.env.REPO_BOT_DO.idFromName(taskId)
-                        const taskDO = c.env.REPO_BOT_DO.get(doId)
-                        await taskDO.fetch(
-                            new Request('https://internal/fsm/transition', {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({
-                                    type: 'MERGE_SUCCEEDED',
-                                    taskId,
-                                    headSha,
-                                    mergeCommitSha,
-                                    actor: `GITHUB_UI:${mergedBy}`,
-                                }),
-                            }),
-                        )
-                    } catch (doErr: any) {
-                        console.warn(
-                            `DO state reconcile bypass for ${taskId}:`,
-                            doErr.message,
-                        )
-                    }
-                })(),
+                postSlackJulesMessage(julesMergedCard, c.env).catch((err) =>
+                    console.error('[SLACK_JULES_MERGED_CARD_ERROR]', err),
+                ),
             )
         }
+
+        // Dispatch terminal event to FSM if available
+        if (c.env.REPO_BOT_DO && pullNumber > 0) {
+            const doId = c.env.REPO_BOT_DO.idFromName(taskId)
+            const taskDO = c.env.REPO_BOT_DO.get(doId)
+            c.executionCtx.waitUntil(
+                taskDO
+                    .fetch(
+                        new Request('https://internal/fsm/transition', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                type: 'MERGE_SUCCEEDED',
+                                taskId,
+                                headSha,
+                                actor: mergedBy,
+                                timestamp: Date.now(),
+                            }),
+                        }),
+                    )
+                    .catch((err) =>
+                        console.error('[DO_MERGE_TRANSITION_ERROR]', err),
+                    ),
+            )
+        }
+
+        // Notify Slack App API about merge receipt (fire and forget)
+        c.executionCtx.waitUntil(
+            fetch(
+                `https://${c.env.WORKER_HOSTNAME}/api/slack/receipt?taskId=${taskId}`,
+                {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ event: 'merged', sha: headSha }),
+                },
+            ).catch((err) =>
+                console.error('[SLACK_RECEIPT_WEBHOOK_FAILED]', err),
+            ),
+        )
 
         return c.json({
             ok: true,
