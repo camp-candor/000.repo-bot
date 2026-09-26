@@ -13,6 +13,98 @@ import {
 
 const JULES_BASE_URL = 'https://jules.googleapis.com/v1alpha'
 
+export interface JulesSource {
+    name: string
+    id?: string
+    githubRepo?: {
+        owner?: string
+        repo?: string
+    }
+    githubRepoContext?: {
+        owner?: string
+        repo?: string
+    }
+    github?: {
+        owner?: string
+        repo?: string
+    }
+    repository?: string
+}
+
+/**
+ * Dynamically resolves the canonical Jules source resource name for a given repository.
+ */
+export async function resolveJulesSource(
+    owner: string,
+    repo: string,
+    apiKey: string,
+): Promise<string> {
+    const res = await fetch(`${JULES_BASE_URL}/sources`, {
+        headers: {
+            'x-goog-api-key': apiKey,
+            'Content-Type': 'application/json',
+        },
+    })
+
+    if (!res.ok) {
+        const errorText = await res.text()
+        throw new Error(
+            `Failed to query Jules sources (${res.status}): ${errorText}`,
+        )
+    }
+
+    const data: any = await res.json()
+    const sources: JulesSource[] = data.sources || []
+
+    // 1. Look for exact owner & repo match in GitHub context
+    for (const s of sources) {
+        const gh = s.githubRepo || s.githubRepoContext || s.github
+        if (
+            gh &&
+            gh.owner?.toLowerCase() === owner.toLowerCase() &&
+            gh.repo?.toLowerCase() === repo.toLowerCase()
+        ) {
+            return s.name
+        }
+
+        // Check alternate flat repository string (e.g. "camp-candor/000.repo-bot")
+        if (
+            s.repository &&
+            s.repository.toLowerCase() === `${owner}/${repo}`.toLowerCase()
+        ) {
+            return s.name
+        }
+
+        // Check source id (e.g. "github/camp-candor/000.repo-bot")
+        if (
+            s.id &&
+            s.id.toLowerCase() === `github/${owner}/${repo}`.toLowerCase()
+        ) {
+            return s.name
+        }
+
+        // Segment match on source name (e.g., sources/.../000.repo-bot)
+        if (s.name.toLowerCase().includes(repo.toLowerCase())) {
+            return s.name
+        }
+    }
+
+    // 2. Format actionable error if repository is not connected
+    const available = sources
+        .map((s) => {
+            const gh = s.githubRepo || s.githubRepoContext || s.github
+            const slug = gh ? `${gh.owner}/${gh.repo}` : s.repository || s.name
+            return `* \`${slug}\` (${s.name})`
+        })
+        .join('\n')
+
+    throw new Error(
+        `Repository '${owner}/${repo}' is not connected in Google Jules.\n` +
+            `Please connect the repository at https://jules.google.com/settings/sources\n\n` +
+            `*Currently Connected Sources:*\n${available || '_(None)_'}`,
+    )
+}
+
 export const dispatchJulesJob = async (c: Context<{ Bindings: Env }>) => {
     const body = await c.req
         .json<{
@@ -43,7 +135,14 @@ export const dispatchJulesJob = async (c: Context<{ Bindings: Env }>) => {
     }
 
     try {
-        // 1. Capture base commit SHA (S_clean)
+        // 1. Resolve canonical source resource dynamically
+        const sourceResourceName = await resolveJulesSource(
+            owner,
+            repo,
+            c.env.JULES_API_KEY,
+        )
+
+        // 2. Capture base commit SHA (S_clean)
         const mainRef: any = await githubRequest(
             `/repos/${owner}/${repo}/git/ref/heads/main`,
             c.env,
@@ -51,7 +150,7 @@ export const dispatchJulesJob = async (c: Context<{ Bindings: Env }>) => {
         const sClean = mainRef.object.sha
         const shortSha = sClean.slice(0, 7)
 
-        // 2. Cut ephemeral tracking branch
+        // 3. Cut ephemeral tracking branch
         const branchName = `spec/${taskId.toLowerCase()}-${shortSha}`
         await githubRequest(`/repos/${owner}/${repo}/git/refs`, c.env, {
             method: 'POST',
@@ -61,7 +160,7 @@ export const dispatchJulesJob = async (c: Context<{ Bindings: Env }>) => {
             }),
         })
 
-        // 3. Compile Attention Sandwich Prompt
+        // 4. Compile Attention Sandwich Prompt
         const attentionSandwichPrompt = `
 === TOP ANCHOR: SYSTEM LAWS & BOUNDARIES ===
 1. BOUNDED REPO MODIFICATION: Whitelist: ${JSON.stringify(fileWhitelist)}
@@ -75,12 +174,11 @@ ${body.prompt}
 Run test suite locally before pushing. Exit code 0 required.
 `.trim()
 
-        // 4. Construct canonical v1alpha payload
-        const sourceResource = `sources/github-${owner}-${repo}`
+        // 5. Construct canonical v1alpha payload with resolved source
         const julesPayload = {
             prompt: attentionSandwichPrompt,
             sourceContext: {
-                source: sourceResource,
+                source: sourceResourceName,
                 githubRepoContext: {
                     startingBranch: branchName,
                 },

@@ -1,5 +1,6 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi, afterEach } from 'vitest'
 import { buildJulesStatusCard } from '../../src/slackBridge.js'
+import { resolveJulesSource } from '../../src/jules.js'
 
 describe('Jules Slack Observer Card Colors & Button Architecture', () => {
     const mockEnv = {
@@ -94,5 +95,133 @@ describe('Jules Slack Observer Card Colors & Button Architecture', () => {
             el.url.includes('13980471994167374037'),
         )
         expect(sessionButton.text.text).toContain('Open Session in Jules')
+    })
+})
+
+describe('resolveJulesSource Dynamic Entity Resolution', () => {
+    const originalFetch = globalThis.fetch
+
+    afterEach(() => {
+        globalThis.fetch = originalFetch
+    })
+
+    it('resolves canonical source matching githubRepo owner and repo', async () => {
+        globalThis.fetch = vi.fn().mockResolvedValue({
+            ok: true,
+            json: async () => ({
+                sources: [
+                    {
+                        name: 'sources/github/camp-candor/000.repo-bot',
+                        id: 'github/camp-candor/000.repo-bot',
+                        githubRepo: {
+                            owner: 'camp-candor',
+                            repo: '000.repo-bot',
+                        },
+                    },
+                ],
+            }),
+        } as any)
+
+        const sourceName = await resolveJulesSource(
+            'camp-candor',
+            '000.repo-bot',
+            'test-api-key',
+        )
+        expect(sourceName).toBe('sources/github/camp-candor/000.repo-bot')
+        expect(globalThis.fetch).toHaveBeenCalledWith(
+            'https://jules.googleapis.com/v1alpha/sources',
+            expect.objectContaining({
+                headers: {
+                    'x-goog-api-key': 'test-api-key',
+                    'Content-Type': 'application/json',
+                },
+            }),
+        )
+    })
+
+    it('resolves canonical source matching githubRepoContext or github', async () => {
+        globalThis.fetch = vi.fn().mockResolvedValue({
+            ok: true,
+            json: async () => ({
+                sources: [
+                    {
+                        name: 'sources/98765',
+                        githubRepoContext: {
+                            owner: 'camp-candor',
+                            repo: '000.repo-bot',
+                        },
+                    },
+                ],
+            }),
+        } as any)
+
+        const sourceName = await resolveJulesSource(
+            'camp-candor',
+            '000.repo-bot',
+            'test-api-key',
+        )
+        expect(sourceName).toBe('sources/98765')
+    })
+
+    it('resolves canonical source matching id or source name segment', async () => {
+        globalThis.fetch = vi.fn().mockResolvedValue({
+            ok: true,
+            json: async () => ({
+                sources: [
+                    {
+                        name: 'sources/github/camp-candor/995.library',
+                        id: 'github/camp-candor/995.library',
+                    },
+                ],
+            }),
+        } as any)
+
+        const sourceName = await resolveJulesSource(
+            'camp-candor',
+            '995.library',
+            'test-api-key',
+        )
+        expect(sourceName).toBe('sources/github/camp-candor/995.library')
+    })
+
+    it('throws fail-closed error with connected sources when repo is unmapped', async () => {
+        globalThis.fetch = vi.fn().mockResolvedValue({
+            ok: true,
+            json: async () => ({
+                sources: [
+                    {
+                        name: 'sources/github/camp-candor/995.library',
+                        githubRepo: {
+                            owner: 'camp-candor',
+                            repo: '995.library',
+                        },
+                    },
+                ],
+            }),
+        } as any)
+
+        await expect(
+            resolveJulesSource(
+                'camp-candor',
+                'unconnected-repo',
+                'test-api-key',
+            ),
+        ).rejects.toThrow(
+            /Repository 'camp-candor\/unconnected-repo' is not connected in Google Jules/,
+        )
+    })
+
+    it('throws descriptive error when Jules API query fails', async () => {
+        globalThis.fetch = vi.fn().mockResolvedValue({
+            ok: false,
+            status: 403,
+            text: async () => 'API key invalid',
+        } as any)
+
+        await expect(
+            resolveJulesSource('camp-candor', '000.repo-bot', 'bad-key'),
+        ).rejects.toThrow(
+            /Failed to query Jules sources \(403\): API key invalid/,
+        )
     })
 })
