@@ -163,15 +163,17 @@ export const dispatchJulesJob = async (c: Context<{ Bindings: Env }>) => {
         // 4. Compile Attention Sandwich Prompt
         const attentionSandwichPrompt = `
 === TOP ANCHOR: SYSTEM LAWS & BOUNDARIES ===
-1. BOUNDED REPO MODIFICATION: Whitelist: ${JSON.stringify(fileWhitelist)}
-2. FORBIDDEN: Do not modify .github/workflows/, package.json, or tests/ unless explicitly whitelisted.
-3. Target Branch: ${branchName}
+1. IMMUTABLE RUNNER BOUNDARY: Modifying ANY file inside 'apps/995.library/' is strictly prohibited.
+2. MONOREPO SCOPING: Do not recursively update package.json files across packages or apps. Unless targeted specifically, modify ONLY './package.json' at the workspace root.
+3. BOUNDED SCOPE: Allowed modification list: ${JSON.stringify(fileWhitelist)}
+4. FORBIDDEN: Do not alter .github/workflows/, tests/, or sibling subpackages without explicit instructions.
+5. Target Branch: ${branchName}
 
 === MIDDLE ANCHOR: SURGICAL DIRECTIVE ===
 ${body.prompt}
 
 === BOTTOM ANCHOR: VERIFICATION MANDATE ===
-Run test suite locally before pushing. Exit code 0 required.
+Run local tests before commit. Exit code 0 required.
 `.trim()
 
         // 5. Construct canonical v1alpha payload with resolved source

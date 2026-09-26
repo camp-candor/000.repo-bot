@@ -4,6 +4,7 @@ import {
     resolveFleetRepo,
     type WatchedRepo,
 } from '../../src/pathNormalizer.js'
+import { extractFileWhitelist } from '../../src/routes/slackEvents.js'
 
 describe('Path Normalizer & Slack #ask-jules Parser', () => {
     const mockFleet: WatchedRepo[] = [
@@ -80,5 +81,22 @@ describe('Path Normalizer & Slack #ask-jules Parser', () => {
     it('returns null when input does not match any fleet repo', () => {
         const result = resolveFleetRepo('D:\\unknown\\foreign-repo', mockFleet)
         expect(result).toBeNull()
+    })
+})
+
+describe('Slack Ingress Whitelist Extraction', () => {
+    it('restricts scope to root package.json for version bump commands', () => {
+        expect(extractFileWhitelist('bump main version')).toEqual([
+            'package.json',
+        ])
+        expect(
+            extractFileWhitelist('bump root package version to 1.0.0'),
+        ).toEqual(['package.json'])
+    })
+
+    it('returns empty array when prompt does not imply root version bump', () => {
+        expect(
+            extractFileWhitelist('refactor the slack bridge router'),
+        ).toEqual([])
     })
 })
