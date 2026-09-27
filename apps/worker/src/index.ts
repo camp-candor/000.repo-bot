@@ -104,10 +104,7 @@ const handleGitHubWebhook = async (c: any) => {
         const headCommit = payload.head_commit
         const headCommitSha = headCommit.id || headCommit.sha || ''
         const commitMessage = headCommit.message || ''
-        const compareUrl =
-            payload.compare ||
-            headCommit.url ||
-            `https://github.com/${repo}/commit/${headCommitSha}`
+        const commitUrl = `https://github.com/${repo}/commit/${headCommitSha}`
 
         const addedCount = Array.isArray(headCommit.added)
             ? headCommit.added.length
@@ -126,7 +123,8 @@ const handleGitHubWebhook = async (c: any) => {
                 pusher,
                 headCommitSha,
                 commitMessage,
-                compareUrl,
+                compareUrl: commitUrl,
+                commitUrl,
                 addedCount,
                 modifiedCount,
                 removedCount,

@@ -735,7 +735,8 @@ export interface LocalPushParams {
     pusher: string
     headCommitSha: string
     commitMessage: string
-    compareUrl: string
+    compareUrl?: string
+    commitUrl?: string
     addedCount: number
     modifiedCount: number
     removedCount: number
@@ -756,6 +757,13 @@ export function buildLocalPushCard(
     const shortSha = (params.headCommitSha || '0000000').slice(0, 7)
     const firstLine = (params.commitMessage || '').split('\n')[0]
     const fallbackText = `:: [PUSH] Direct workstation push to ${params.repo} (${params.branch}) by ${params.pusher}: ${firstLine}`
+    const commitUrl =
+        params.commitUrl ||
+        (params.compareUrl && params.compareUrl.includes('/commit/')
+            ? params.compareUrl
+            : params.headCommitSha && params.repo
+              ? `https://github.com/${params.repo}/commit/${params.headCommitSha}`
+              : params.compareUrl || '')
 
     return {
         channel,
@@ -817,7 +825,7 @@ export function buildLocalPushCard(
                                     text: 'View Commit Diff [GitHub]',
                                     emoji: false,
                                 },
-                                url: params.compareUrl,
+                                url: commitUrl,
                                 style: 'primary',
                             },
                         ],

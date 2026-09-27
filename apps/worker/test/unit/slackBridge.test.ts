@@ -321,7 +321,7 @@ describe('FEAT-04: Human Approval Gate & Slack Review Bridge', () => {
     })
 
     describe('6. Local Workstation Push Notification Card', () => {
-        it('formats the card with #36C5F0 color, points to #ops-bridge, and includes compare URL and commit summary', () => {
+        it('formats the card with #36C5F0 color, points to #ops-bridge, and includes commit diff URL and commit summary', () => {
             const params = {
                 repo: 'camp-candor/000.repo-bot',
                 branch: 'main',
@@ -330,7 +330,7 @@ describe('FEAT-04: Human Approval Gate & Slack Review Bridge', () => {
                 commitMessage:
                     'feat(slack): workstation push alert\n\nDetailed commit body here',
                 compareUrl:
-                    'https://github.com/camp-candor/000.repo-bot/compare/1234567...4ba70a9',
+                    'https://github.com/camp-candor/000.repo-bot/commit/4ba70a9c9bece5dc5a23965a3df54d6595466e99',
                 addedCount: 2,
                 modifiedCount: 3,
                 removedCount: 1,
@@ -383,7 +383,9 @@ describe('FEAT-04: Human Approval Gate & Slack Review Bridge', () => {
             expect(blocks[4].elements[0].text.text).toBe(
                 'View Commit Diff [GitHub]',
             )
-            expect(blocks[4].elements[0].url).toBe(params.compareUrl)
+            expect(blocks[4].elements[0].url).toBe(
+                `https://github.com/${params.repo}/commit/${params.headCommitSha}`,
+            )
         })
 
         it('handles push webhook event and dispatches local push notification', async () => {
@@ -444,6 +446,9 @@ describe('FEAT-04: Human Approval Gate & Slack Review Bridge', () => {
             expect(postedPayload).not.toBeNull()
             expect(postedPayload.attachments[0].color).toBe('#36C5F0')
             expect(postedPayload.channel).toBe('C0C40FMRQ9H')
+            expect(postedPayload.attachments[0].blocks[4].elements[0].url).toBe(
+                'https://github.com/camp-candor/000.repo-bot/commit/def4567890abcdef',
+            )
 
             globalThis.fetch = originalFetch
         })
