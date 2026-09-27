@@ -3,6 +3,7 @@ import {
     verifySlackSignature,
     buildApprovalBlockKit,
     sanitizeChannelId,
+    buildLocalPushCard,
 } from '../../src/slackBridge.js'
 import { handleSlackInteraction } from '../../src/routes/slackInteractions.js'
 import * as tools from '../../src/tools.js'
@@ -316,6 +317,135 @@ describe('FEAT-04: Human Approval Gate & Slack Review Bridge', () => {
             expect(sanitizeChannelId('#ops-bridge')).toBe('C0C40FMRQ9H')
             expect(sanitizeChannelId('')).toBe('C0C40FMRQ9H')
             expect(sanitizeChannelId(undefined)).toBe('C0C40FMRQ9H')
+        })
+    })
+
+    describe('6. Local Workstation Push Notification Card', () => {
+        it('formats the card with #36C5F0 color, points to #ops-bridge, and includes compare URL and commit summary', () => {
+            const params = {
+                repo: 'camp-candor/000.repo-bot',
+                branch: 'main',
+                pusher: 'elliotbradly',
+                headCommitSha: '4ba70a9c9bece5dc5a23965a3df54d6595466e99',
+                commitMessage:
+                    'feat(slack): workstation push alert\n\nDetailed commit body here',
+                compareUrl:
+                    'https://github.com/camp-candor/000.repo-bot/compare/1234567...4ba70a9',
+                addedCount: 2,
+                modifiedCount: 3,
+                removedCount: 1,
+            }
+
+            const card = buildLocalPushCard(params, mockEnv)
+
+            expect(card.channel).toBe('C0C40FMRQ9H') // #ops-bridge
+            expect(card.attachments).toHaveLength(1)
+            expect(card.attachments[0].color).toBe('#36C5F0') // Electric Cyan
+
+            const blocks = card.attachments[0].blocks
+            expect(blocks).toBeDefined()
+
+            // Header block
+            expect(blocks[0].type).toBe('header')
+            expect(blocks[0].text.text).toBe(
+                ':: DIRECT WORKSTATION PUSH DETECTED',
+            )
+
+            // Context section
+            expect(blocks[1].type).toBe('section')
+            expect(blocks[1].text.text).toBe(
+                '*ORIGIN:* `LOCAL WORKBENCH (CLI PUSH)`',
+            )
+
+            // Section fields
+            expect(blocks[2].type).toBe('section')
+            expect(blocks[2].fields).toBeDefined()
+            const fieldsText = blocks[2].fields
+                .map((f: any) => f.text)
+                .join(' ')
+            expect(fieldsText).toContain(
+                '*Repository:* `camp-candor/000.repo-bot`',
+            )
+            expect(fieldsText).toContain('*Branch:* `main`')
+            expect(fieldsText).toContain('*Pusher:* `elliotbradly`')
+            expect(fieldsText).toContain('*Commit:* `4ba70a9`')
+
+            // Commit summary block
+            expect(blocks[3].type).toBe('section')
+            expect(blocks[3].text.text).toBe(
+                '>feat(slack): workstation push alert',
+            )
+
+            // Action elements
+            expect(blocks[4].type).toBe('actions')
+            expect(blocks[4].elements).toHaveLength(1)
+            expect(blocks[4].elements[0].type).toBe('button')
+            expect(blocks[4].elements[0].text.text).toBe(
+                'View Commit Diff [GitHub]',
+            )
+            expect(blocks[4].elements[0].url).toBe(params.compareUrl)
+        })
+
+        it('handles push webhook event and dispatches local push notification', async () => {
+            const { default: app } = await import('../../src/index.js')
+            const originalFetch = globalThis.fetch
+            let postedPayload: any = null
+
+            globalThis.fetch = vi
+                .fn()
+                .mockImplementation(async (url: string, init?: any) => {
+                    if (url.includes('slack.com/api/chat.postMessage')) {
+                        postedPayload = JSON.parse(init.body)
+                        return {
+                            ok: true,
+                            json: async () => ({ ok: true, ts: '123.456' }),
+                        }
+                    }
+                    return { ok: true, json: async () => ({}) }
+                }) as any
+
+            const waitUntilPromises: Promise<any>[] = []
+            const executionCtx = {
+                waitUntil: (p: Promise<any>) => waitUntilPromises.push(p),
+            }
+
+            const req = new Request('http://localhost/webhook', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'x-github-event': 'push',
+                },
+                body: JSON.stringify({
+                    ref: 'refs/heads/main',
+                    repository: { full_name: 'camp-candor/000.repo-bot' },
+                    pusher: { name: 'developer' },
+                    compare:
+                        'https://github.com/camp-candor/000.repo-bot/compare/abc...def',
+                    head_commit: {
+                        id: 'def4567890abcdef',
+                        message: 'feat: add local card',
+                        added: ['file1.ts'],
+                        modified: ['file2.ts'],
+                        removed: [],
+                    },
+                }),
+            })
+
+            const res = await app.fetch(
+                req,
+                { ...mockEnv, GH_WEBHOOK_SECRET: undefined } as any,
+                executionCtx as any,
+            )
+            expect(res.status).toBe(200)
+            const data: any = await res.json()
+            expect(data.status).toBe('LOCAL_PUSH_NOTIFIED')
+
+            await Promise.all(waitUntilPromises)
+            expect(postedPayload).not.toBeNull()
+            expect(postedPayload.attachments[0].color).toBe('#36C5F0')
+            expect(postedPayload.channel).toBe('C0C40FMRQ9H')
+
+            globalThis.fetch = originalFetch
         })
     })
 })

@@ -685,7 +685,7 @@ export function buildJulesStatusCard(
     }
 }
 
-export async function postSlackJulesMessage(
+export async function postSlackMessage(
     payload: any,
     env: any,
 ): Promise<{ ok: boolean; ts?: string; error?: string }> {
@@ -695,7 +695,7 @@ export async function postSlackJulesMessage(
 
     if (!env.SLACK_BOT_TOKEN) {
         console.warn(
-            '>> [SLACK WARNING] SLACK_BOT_TOKEN missing. Jules message skipped.',
+            '>> [SLACK WARNING] SLACK_BOT_TOKEN missing. Slack message skipped.',
         )
         return { ok: false, error: 'MISSING_SLACK_BOT_TOKEN' }
     }
@@ -705,19 +705,125 @@ export async function postSlackJulesMessage(
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${env.SLACK_BOT_TOKEN}`,
-                'Content-Type': 'application/json',
+                'Content-Type': 'application/json; charset=utf-8',
             },
             body: JSON.stringify(payload),
         })
 
         const data: any = await res.json()
         if (!data.ok) {
-            console.error('>> [SLACK JULES POST FAILED]:', data.error)
+            console.error('>> [SLACK POST FAILED]:', data.error)
             return { ok: false, error: data.error }
         }
         return { ok: true, ts: data.ts }
     } catch (err: any) {
-        console.error('>> [SLACK JULES NETWORK ERROR]:', err.message)
+        console.error('>> [SLACK NETWORK ERROR]:', err.message)
         return { ok: false, error: err.message }
+    }
+}
+
+export async function postSlackJulesMessage(
+    payload: any,
+    env: any,
+): Promise<{ ok: boolean; ts?: string; error?: string }> {
+    return postSlackMessage(payload, env)
+}
+
+export interface LocalPushParams {
+    repo: string
+    branch: string
+    pusher: string
+    headCommitSha: string
+    commitMessage: string
+    compareUrl: string
+    addedCount: number
+    modifiedCount: number
+    removedCount: number
+}
+
+/**
+ * Builds Slack Block Kit payload for direct workstation push notifications to #ops-bridge.
+ */
+export function buildLocalPushCard(
+    params: LocalPushParams,
+    env: Partial<Env>,
+): {
+    channel: string
+    text: string
+    attachments: any[]
+} {
+    const channel = getTargetSlackChannel('OPS_BRIDGE', env)
+    const shortSha = (params.headCommitSha || '0000000').slice(0, 7)
+    const firstLine = (params.commitMessage || '').split('\n')[0]
+    const fallbackText = `:: [PUSH] Direct workstation push to ${params.repo} (${params.branch}) by ${params.pusher}: ${firstLine}`
+
+    return {
+        channel,
+        text: fallbackText,
+        attachments: [
+            {
+                color: '#36C5F0',
+                blocks: [
+                    {
+                        type: 'header',
+                        text: {
+                            type: 'plain_text',
+                            text: ':: DIRECT WORKSTATION PUSH DETECTED',
+                            emoji: false,
+                        },
+                    },
+                    {
+                        type: 'section',
+                        text: {
+                            type: 'mrkdwn',
+                            text: '*ORIGIN:* `LOCAL WORKBENCH (CLI PUSH)`',
+                        },
+                    },
+                    {
+                        type: 'section',
+                        fields: [
+                            {
+                                type: 'mrkdwn',
+                                text: `*Repository:* \`${params.repo}\``,
+                            },
+                            {
+                                type: 'mrkdwn',
+                                text: `*Branch:* \`${params.branch}\``,
+                            },
+                            {
+                                type: 'mrkdwn',
+                                text: `*Pusher:* \`${params.pusher}\``,
+                            },
+                            {
+                                type: 'mrkdwn',
+                                text: `*Commit:* \`${shortSha}\``,
+                            },
+                        ],
+                    },
+                    {
+                        type: 'section',
+                        text: {
+                            type: 'mrkdwn',
+                            text: `>${firstLine}`,
+                        },
+                    },
+                    {
+                        type: 'actions',
+                        elements: [
+                            {
+                                type: 'button',
+                                text: {
+                                    type: 'plain_text',
+                                    text: 'View Commit Diff [GitHub]',
+                                    emoji: false,
+                                },
+                                url: params.compareUrl,
+                                style: 'primary',
+                            },
+                        ],
+                    },
+                ],
+            },
+        ],
     }
 }

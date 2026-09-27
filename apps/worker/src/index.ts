@@ -19,6 +19,8 @@ import {
     postSlackMergeAnnouncement,
     buildJulesStatusCard,
     postSlackJulesMessage,
+    buildLocalPushCard,
+    postSlackMessage,
 } from './slackBridge.js'
 import {
     fetchRepoChecks,
@@ -86,6 +88,65 @@ const handleGitHubWebhook = async (c: any) => {
                 },
             }).catch((err) => console.error('[AUDIT_LEDGER_ERROR]', err)),
         )
+    }
+
+    // Push Webhook Listener -> Direct Workstation Push Notifications to #ops-bridge
+    if (githubEvent === 'push') {
+        if (!payload.head_commit) {
+            return c.json({ ok: true, status: 'PUSH_IGNORED_NO_HEAD_COMMIT' })
+        }
+
+        const repo = payload.repository?.full_name || 'unknown'
+        const rawRef = payload.ref || ''
+        const branch = rawRef.replace(/^refs\/heads\//, '')
+        const pusher =
+            payload.pusher?.name || payload.sender?.login || 'unknown'
+        const headCommit = payload.head_commit
+        const headCommitSha = headCommit.id || headCommit.sha || ''
+        const commitMessage = headCommit.message || ''
+        const compareUrl =
+            payload.compare ||
+            headCommit.url ||
+            `https://github.com/${repo}/commit/${headCommitSha}`
+
+        const addedCount = Array.isArray(headCommit.added)
+            ? headCommit.added.length
+            : 0
+        const modifiedCount = Array.isArray(headCommit.modified)
+            ? headCommit.modified.length
+            : 0
+        const removedCount = Array.isArray(headCommit.removed)
+            ? headCommit.removed.length
+            : 0
+
+        const card = buildLocalPushCard(
+            {
+                repo,
+                branch,
+                pusher,
+                headCommitSha,
+                commitMessage,
+                compareUrl,
+                addedCount,
+                modifiedCount,
+                removedCount,
+            },
+            c.env,
+        )
+
+        c.executionCtx.waitUntil(
+            postSlackMessage(card, c.env).catch((err: any) =>
+                console.error('[SLACK_LOCAL_PUSH_ERROR]', err),
+            ),
+        )
+
+        return c.json({
+            ok: true,
+            status: 'LOCAL_PUSH_NOTIFIED',
+            repo,
+            branch,
+            sha: headCommitSha,
+        })
     }
 
     // 2. Jules PR Opened / Ready For Review Interception -> Route to #jules-winnfield
