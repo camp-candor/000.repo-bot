@@ -16,6 +16,14 @@ export interface WatchedRepo {
     addedAt: string
 }
 
+export interface SessionMetadata {
+    sessionId: string
+    branch: string
+    repo?: string
+    directive?: string | null
+    createdAt?: number
+}
+
 export interface FSMContext {
     taskId: string
     state: string
@@ -141,6 +149,101 @@ export class RepoBotDO extends DurableObject<Env> {
                 await recordSlackReceipt(this.ctx.storage, receipt)
             }
             return Response.json({ ok: true })
+        }
+
+        // 0.2 POST /sessions
+        if (request.method === 'POST' && path === '/sessions') {
+            const body: any = await request.json().catch(() => null)
+            if (!body || !body.branch) {
+                return new Response(
+                    JSON.stringify({ error: 'branch is required' }),
+                    {
+                        status: 400,
+                        headers: { 'Content-Type': 'application/json' },
+                    },
+                )
+            }
+
+            const sessionData: SessionMetadata = {
+                sessionId: body.sessionId || '',
+                branch: body.branch,
+                repo: body.repo,
+                directive: body.directive || null,
+                createdAt: Date.now(),
+            }
+
+            await this.ctx.storage.put(`session:${body.branch}`, sessionData)
+            if (body.sessionId) {
+                await this.ctx.storage.put(
+                    `session_id:${body.sessionId}`,
+                    sessionData,
+                )
+            }
+
+            return new Response(
+                JSON.stringify({ ok: true, session: sessionData }),
+                {
+                    status: 201,
+                    headers: { 'Content-Type': 'application/json' },
+                },
+            )
+        }
+
+        // 0.3 GET /sessions/:branch
+        if (request.method === 'GET' && path.startsWith('/sessions/')) {
+            const rawBranch = decodeURIComponent(
+                path.slice('/sessions/'.length),
+            )
+            if (!rawBranch) {
+                return new Response(
+                    JSON.stringify({ error: 'Branch or ref required' }),
+                    {
+                        status: 400,
+                        headers: { 'Content-Type': 'application/json' },
+                    },
+                )
+            }
+
+            let session = await this.ctx.storage.get<SessionMetadata>(
+                `session:${rawBranch}`,
+            )
+
+            if (!session && rawBranch.startsWith('refs/heads/')) {
+                const stripped = rawBranch.replace(/^refs\/heads\//, '')
+                session = await this.ctx.storage.get<SessionMetadata>(
+                    `session:${stripped}`,
+                )
+            }
+
+            if (!session) {
+                session = await this.ctx.storage.get<SessionMetadata>(
+                    `session:refs/heads/${rawBranch}`,
+                )
+            }
+
+            if (!session) {
+                session = await this.ctx.storage.get<SessionMetadata>(
+                    `session_id:${rawBranch}`,
+                )
+            }
+
+            if (!session) {
+                return new Response(
+                    JSON.stringify({
+                        error: 'SESSION_NOT_FOUND',
+                        branch: rawBranch,
+                    }),
+                    {
+                        status: 404,
+                        headers: { 'Content-Type': 'application/json' },
+                    },
+                )
+            }
+
+            return new Response(JSON.stringify(session), {
+                status: 200,
+                headers: { 'Content-Type': 'application/json' },
+            })
         }
 
         // 1. GET /repos

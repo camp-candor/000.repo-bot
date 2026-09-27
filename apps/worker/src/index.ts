@@ -3,7 +3,10 @@ import { appendAuditEvent } from './audit/auditLedger.js'
 import { executeColdDrainage } from './audit/drainageEngine.js'
 
 import { Hono } from 'hono'
-import { handleSlackEvents } from './routes/slackEvents.js'
+import {
+    handleSlackEvents,
+    extractDirectivePath,
+} from './routes/slackEvents.js'
 import { handleSlackInteraction } from './routes/slackInteractions.js'
 import { generateCommitMessage } from './commitGenerator.js'
 import {
@@ -85,8 +88,11 @@ const handleGitHubWebhook = async (c: any) => {
         )
     }
 
-    // 2. Jules PR Opened Interception -> Route to #jules-winnfield
-    if (githubEvent === 'pull_request' && payload.action === 'opened') {
+    // 2. Jules PR Opened / Ready For Review Interception -> Route to #jules-winnfield
+    if (
+        githubEvent === 'pull_request' &&
+        (payload.action === 'opened' || payload.action === 'ready_for_review')
+    ) {
         const pr = payload.pull_request
         const repoFullName = payload.repository?.full_name || 'unknown'
         const headRef = pr.head?.ref || ''
@@ -99,6 +105,35 @@ const handleGitHubWebhook = async (c: any) => {
             (pr.title || '').toLowerCase().includes('jules')
 
         if (isJulesBranch && c.env.SLACK_BOT_TOKEN) {
+            let directive: string | null = null
+
+            // Query RepoBotDO for associated session metadata
+            if (c.env.REPO_BOT_DO && headRef) {
+                try {
+                    const doId = c.env.REPO_BOT_DO.idFromName('global')
+                    const stub = c.env.REPO_BOT_DO.get(doId)
+                    const res = await stub.fetch(
+                        `https://internal/sessions/${encodeURIComponent(headRef)}`,
+                    )
+                    if (res.ok) {
+                        const sessionData: any = await res.json()
+                        directive = sessionData?.directive || null
+                    }
+                } catch (err: any) {
+                    console.warn(
+                        '[DO_SESSION_QUERY_WARN] Failed to query DO session:',
+                        err.message,
+                    )
+                }
+            }
+
+            // Fallback: extract directive from PR body or title
+            if (!directive) {
+                directive =
+                    extractDirectivePath(pr.body || '') ||
+                    extractDirectivePath(pr.title || '')
+            }
+
             const card = buildJulesStatusCard(
                 {
                     sessionId: pr.head?.sha?.slice(0, 10) || 'active',
@@ -111,6 +146,7 @@ const handleGitHubWebhook = async (c: any) => {
                         pr.body ||
                         pr.title ||
                         'Pull request ready for evaluation.',
+                    directive,
                 },
                 c.env,
             )
@@ -156,6 +192,26 @@ const handleGitHubWebhook = async (c: any) => {
         )
         const taskId = specMatch ? specMatch[1] : `PR-${pullNumber}`
 
+        let mergeDirective: string | null = null
+        if (c.env.REPO_BOT_DO && headRef) {
+            try {
+                const doId = c.env.REPO_BOT_DO.idFromName('global')
+                const stub = c.env.REPO_BOT_DO.get(doId)
+                const res = await stub.fetch(
+                    `https://internal/sessions/${encodeURIComponent(headRef)}`,
+                )
+                if (res.ok) {
+                    const sessionData: any = await res.json()
+                    mergeDirective = sessionData?.directive || null
+                }
+            } catch {}
+        }
+        if (!mergeDirective) {
+            mergeDirective =
+                extractDirectivePath(commitMessage) ||
+                extractDirectivePath(prTitle)
+        }
+
         // 3a. Distribute canonical release announcement to #ops-bridge
         c.executionCtx.waitUntil(
             postSlackMergeAnnouncement(
@@ -170,7 +226,9 @@ const handleGitHubWebhook = async (c: any) => {
                     owner,
                     repo,
                     prTitle,
+                    prBody: commitMessage,
                     origin,
+                    directive: mergeDirective,
                 },
                 c.env,
             ),
@@ -322,6 +380,19 @@ app.all('/repos', async (c) => {
 })
 
 app.all('/repos/*', async (c) => {
+    const id = c.env.REPO_BOT_DO.idFromName('global')
+    const stub = c.env.REPO_BOT_DO.get(id)
+    return stub.fetch(c.req.raw)
+})
+
+// Proxy Session Metadata Management to RepoBotDO
+app.all('/sessions', async (c) => {
+    const id = c.env.REPO_BOT_DO.idFromName('global')
+    const stub = c.env.REPO_BOT_DO.get(id)
+    return stub.fetch(c.req.raw)
+})
+
+app.all('/sessions/*', async (c) => {
     const id = c.env.REPO_BOT_DO.idFromName('global')
     const stub = c.env.REPO_BOT_DO.get(id)
     return stub.fetch(c.req.raw)

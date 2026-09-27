@@ -1,8 +1,14 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import app from '../../src/index.js'
-import { buildJulesStatusCard } from '../../src/slackBridge.js'
+import {
+    buildJulesStatusCard,
+    postSlackMergeAnnouncement,
+} from '../../src/slackBridge.js'
 import { resolveJulesSource, buildSystemInstructions } from '../../src/jules.js'
-import { normalizeDirectivePrompt } from '../../src/routes/slackEvents.js'
+import {
+    normalizeDirectivePrompt,
+    extractDirectivePath,
+} from '../../src/routes/slackEvents.js'
 import { handleSlackInteraction } from '../../src/routes/slackInteractions.js'
 
 describe('Jules Slack Observer Card Colors & Button Architecture', () => {
@@ -467,5 +473,296 @@ describe('GitHub Webhook Merged PR Jules Card Suppression', () => {
         expect(opsBridgeMessages[0].text).toContain('merged into main')
 
         globalThis.fetch = originalFetch
+    })
+})
+
+describe('Directive Indicator on Jules Slack Cards & Storage Association', () => {
+    const mockEnv = {
+        SLACK_JULES_CHANNEL_ID: 'C0C4CK27LA1',
+        SLACK_ASK_JULES_CHANNEL_ID: 'C0C4M8K7LV8',
+        SLACK_CHANNEL_ID: 'C0C40FMRQ9H',
+        SLACK_BOT_TOKEN: 'xoxb-mock-token',
+    }
+
+    it('extractDirectivePath extracts directive paths with forward slashes and backslashes', () => {
+        expect(
+            extractDirectivePath(
+                'execute [data/directive/day-001/000.jules.md]',
+            ),
+        ).toBe('data/directive/day-001/000.jules.md')
+        expect(
+            extractDirectivePath(
+                'execute [data\\directive\\day-005\\005.card-directive.md]',
+            ),
+        ).toBe('data/directive/day-005/005.card-directive.md')
+        expect(
+            extractDirectivePath('data\\directive\\day-002\\001.task.md'),
+        ).toBe('data/directive/day-002/001.task.md')
+        expect(extractDirectivePath('execute [./data/directive/foo.md]')).toBe(
+            'data/directive/foo.md',
+        )
+        expect(extractDirectivePath('bump version in package.json')).toBeNull()
+        expect(extractDirectivePath('')).toBeNull()
+    })
+
+    it('buildJulesStatusCard renders prominent *DIRECTIVE:* block directly beneath header when directive is provided', () => {
+        const directive = 'data/directive/day-005/005.card-directive.md'
+        const card = buildJulesStatusCard(
+            {
+                sessionId: 'session_directive_123',
+                repo: 'camp-candor/000.repo-bot',
+                taskId: 'spec/task-005',
+                status: 'READY_FOR_REVIEW',
+                branchName: 'spec/task-005',
+                directive,
+            },
+            mockEnv,
+        )
+
+        expect(card).not.toBeNull()
+        const blocks = card!.attachments[0].blocks
+        expect(blocks[0].type).toBe('header')
+        expect(blocks[1].type).toBe('section')
+        expect(blocks[1].text.text).toBe(`*DIRECTIVE:* \`${directive}\``)
+    })
+
+    it('buildJulesStatusCard fallback text includes directive snippet', () => {
+        const directive = 'data/directive/day-001/000.jules.md'
+        const card = buildJulesStatusCard(
+            {
+                sessionId: 'session_directive_456',
+                repo: 'camp-candor/000.repo-bot',
+                status: 'READY_FOR_REVIEW',
+                directive,
+            },
+            mockEnv,
+        )
+
+        expect(card).not.toBeNull()
+        expect(card!.text).toContain(`[${directive}]`)
+        expect(card!.text).toContain('Jules Update [READY_FOR_REVIEW]')
+    })
+
+    it('buildJulesStatusCard omits directive block when directive is not provided', () => {
+        const card = buildJulesStatusCard(
+            {
+                sessionId: 'session_nodirective',
+                repo: 'camp-candor/000.repo-bot',
+                status: 'READY_FOR_REVIEW',
+            },
+            mockEnv,
+        )
+
+        expect(card).not.toBeNull()
+        const blocks = card!.attachments[0].blocks
+        expect(blocks[0].type).toBe('header')
+        expect(blocks[1].type).toBe('section')
+        expect(blocks[1].fields).toBeDefined()
+        expect(card!.text).not.toContain('*DIRECTIVE:*')
+    })
+
+    it('postSlackMergeAnnouncement includes FULFILLED DIRECTIVE when directive is provided', async () => {
+        const originalFetch = globalThis.fetch
+        let postedPayload: any = null
+        globalThis.fetch = vi
+            .fn()
+            .mockImplementation(async (url: string, init?: any) => {
+                if (url.includes('slack.com/api/chat.postMessage')) {
+                    postedPayload = JSON.parse(init.body)
+                    return {
+                        ok: true,
+                        json: async () => ({ ok: true, ts: '111.222' }),
+                    }
+                }
+                return { ok: true, json: async () => ({}) }
+            }) as any
+
+        await postSlackMergeAnnouncement(
+            {
+                taskId: 'task-05',
+                pullNumber: 99,
+                mergeCommitSha: 'abcdef1234567890abcdef1234567890abcdef12',
+                auditedHeadSha: '1234567abcdef1234567890abcdef1234567890a',
+                directive: 'data/directive/day-005/005.card-directive.md',
+            },
+            mockEnv as any,
+        )
+
+        expect(postedPayload).not.toBeNull()
+        const sectionBlock = postedPayload.blocks.find(
+            (b: any) =>
+                b.type === 'section' &&
+                b.text?.text?.includes('>> FULFILLED DIRECTIVE:'),
+        )
+        expect(sectionBlock).toBeDefined()
+        expect(sectionBlock.text.text).toContain(
+            '>> FULFILLED DIRECTIVE: data/directive/day-005/005.card-directive.md',
+        )
+
+        globalThis.fetch = originalFetch
+    })
+
+    it('handles pull_request opened webhook with directive in PR body', async () => {
+        const originalFetch = globalThis.fetch
+        let postedCard: any = null
+        globalThis.fetch = vi
+            .fn()
+            .mockImplementation(async (url: string, init?: any) => {
+                if (url.includes('slack.com/api/chat.postMessage')) {
+                    postedCard = JSON.parse(init.body)
+                    return {
+                        ok: true,
+                        json: async () => ({ ok: true, ts: '999.888' }),
+                    }
+                }
+                return { ok: true, json: async () => ({}) }
+            }) as any
+
+        const waitUntilPromises: Promise<any>[] = []
+        const executionCtx = {
+            waitUntil: (p: Promise<any>) => waitUntilPromises.push(p),
+        }
+
+        const req = new Request('http://localhost/webhook', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'x-github-event': 'pull_request',
+            },
+            body: JSON.stringify({
+                action: 'opened',
+                repository: { full_name: 'camp-candor/000.repo-bot' },
+                pull_request: {
+                    number: 101,
+                    html_url:
+                        'https://github.com/camp-candor/000.repo-bot/pull/101',
+                    head: { ref: 'jules/directive-test', sha: 'a1b2c3d4e5f6' },
+                    user: { login: 'google-jules[bot]' },
+                    title: 'feat: apply directive',
+                    body: 'execute [data/directive/day-005/005.card-directive.md]',
+                },
+            }),
+        })
+
+        const res = await app.fetch(req, mockEnv as any, executionCtx as any)
+        expect(res.status).toBe(200)
+        await Promise.all(waitUntilPromises)
+
+        expect(postedCard).not.toBeNull()
+        const blocks = postedCard.attachments[0].blocks
+        expect(blocks[1].text.text).toBe(
+            '*DIRECTIVE:* `data/directive/day-005/005.card-directive.md`',
+        )
+
+        globalThis.fetch = originalFetch
+    })
+
+    it('RepoBotDO stores and retrieves session directive metadata via /sessions', async () => {
+        const { RepoBotDO } = await import('../../src/RepoBotDO.js')
+        const storageMap = new Map<string, any>()
+        const mockStorage: any = {
+            get: vi.fn(async (key: string) => storageMap.get(key)),
+            put: vi.fn(async (key: string, val: any) => {
+                storageMap.set(key, val)
+            }),
+        }
+        const mockContext = {
+            ctx: { storage: mockStorage, waitUntil: () => {} },
+            env: {} as any,
+        }
+
+        // 1. POST /sessions
+        const postReq = new Request('http://internal/sessions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                sessionId: 'session_12345',
+                branch: 'spec/test-branch-001',
+                repo: 'camp-candor/000.repo-bot',
+                directive: 'data/directive/day-005/005.card-directive.md',
+            }),
+        })
+        const postRes = await RepoBotDO.prototype.fetch.call(
+            mockContext as any,
+            postReq,
+        )
+        expect(postRes.status).toBe(201)
+        const postData: any = await postRes.json()
+        expect(postData.ok).toBe(true)
+        expect(postData.session.directive).toBe(
+            'data/directive/day-005/005.card-directive.md',
+        )
+
+        // 2. GET /sessions/:branch
+        const getReq = new Request(
+            'http://internal/sessions/spec%2Ftest-branch-001',
+            { method: 'GET' },
+        )
+        const getRes = await RepoBotDO.prototype.fetch.call(
+            mockContext as any,
+            getReq,
+        )
+        expect(getRes.status).toBe(200)
+        const getData: any = await getRes.json()
+        expect(getData.sessionId).toBe('session_12345')
+        expect(getData.branch).toBe('spec/test-branch-001')
+        expect(getData.directive).toBe(
+            'data/directive/day-005/005.card-directive.md',
+        )
+
+        // 3. GET /sessions/:branch with refs/heads prefix fallback
+        const getRefReq = new Request(
+            'http://internal/sessions/refs%2Fheads%2Fspec%2Ftest-branch-001',
+            { method: 'GET' },
+        )
+        const getRefRes = await RepoBotDO.prototype.fetch.call(
+            mockContext as any,
+            getRefReq,
+        )
+        expect(getRefRes.status).toBe(200)
+        const getRefData: any = await getRefRes.json()
+        expect(getRefData.directive).toBe(
+            'data/directive/day-005/005.card-directive.md',
+        )
+    })
+
+    it('app proxies /sessions to REPO_BOT_DO stub', async () => {
+        const mockStubFetch = vi.fn().mockResolvedValue(
+            new Response(
+                JSON.stringify({
+                    ok: true,
+                    session: {
+                        sessionId: 'sess_1',
+                        branch: 'spec/b1',
+                        directive: 'data/directive/foo.md',
+                    },
+                }),
+                {
+                    status: 200,
+                    headers: { 'Content-Type': 'application/json' },
+                },
+            ),
+        )
+        const envWithDO = {
+            ...mockEnv,
+            REPO_BOT_DO: {
+                idFromName: vi.fn().mockReturnValue('mock-id'),
+                get: vi.fn().mockReturnValue({ fetch: mockStubFetch }),
+            },
+        }
+
+        const req = new Request('http://localhost/sessions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                sessionId: 'sess_1',
+                branch: 'spec/b1',
+                directive: 'data/directive/foo.md',
+            }),
+        })
+
+        const res = await app.fetch(req, envWithDO as any)
+        expect(res.status).toBe(200)
+        expect(mockStubFetch).toHaveBeenCalled()
     })
 })

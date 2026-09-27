@@ -273,8 +273,10 @@ export interface MergeAnnouncementParams {
     repo?: string
     owner?: string
     prTitle?: string
+    prBody?: string
     branchName?: string
     origin?: 'REPO_BOT_CAS' | 'GITHUB_MANUAL_UI'
+    directive?: string | null
 }
 
 /**
@@ -305,6 +307,23 @@ export async function postSlackMergeAnnouncement(
     const prTitleText = params.prTitle ? ` - ${params.prTitle}` : ''
     const origin = params.origin || 'REPO_BOT_CAS'
 
+    const resolvedDirective =
+        params.directive ||
+        (params.prBody
+            ?.match(/data[/\\]+directive[/\\]+[^\s\]"'>]+/i)?.[0]
+            ?.replace(/\\+/g, '/')
+            .replace(/^(\.\/|\/)+/, '') ??
+            null) ||
+        (params.prTitle
+            ?.match(/data[/\\]+directive[/\\]+[^\s\]"'>]+/i)?.[0]
+            ?.replace(/\\+/g, '/')
+            .replace(/^(\.\/|\/)+/, '') ??
+            null)
+
+    const directiveBlock = resolvedDirective
+        ? `>> FULFILLED DIRECTIVE: ${resolvedDirective}\n`
+        : ''
+
     let blocks: any[] = []
     let fallbackText = ''
 
@@ -326,6 +345,7 @@ export async function postSlackMergeAnnouncement(
                     type: 'mrkdwn',
                     text:
                         `*[ORIGIN: DIRECT GITHUB WEB CONSOLE / EXTERNAL ACTOR]*\n` +
+                        directiveBlock +
                         `*Notice:* This merge was executed directly on GitHub, outside the Repo-Bot CAS verification executor.\n` +
                         `*Repository:* \`${repoSlug}\` | *PR:* <https://github.com/${repoSlug}/pull/${params.pullNumber}|#${params.pullNumber}${prTitleText}>\n` +
                         `*Merged By:* *${params.actor || 'GitHub UI'}*\n` +
@@ -356,6 +376,7 @@ export async function postSlackMergeAnnouncement(
                     type: 'mrkdwn',
                     text:
                         `*[ORIGIN: REPO-BOT CAS MERGE EXECUTOR]*\n` +
+                        directiveBlock +
                         `*Repository:* \`${repoSlug}\` | *PR:* <https://github.com/${repoSlug}/pull/${params.pullNumber}|#${params.pullNumber}>\n` +
                         `*Audited Commit:* \`${shortHeadSha}\` ──► *Squash Merge SHA:* \`${shortMergeSha}\`\n` +
                         `*Trunk Target:* \`${targetBranch}\` | *Author/Approver:* ${actorText}\n` +
@@ -500,6 +521,7 @@ export interface JulesCardParams {
     prUrl?: string
     branchName?: string
     targetChannel?: string
+    directive?: string | null
 }
 
 export function buildJulesStatusCard(
@@ -598,6 +620,17 @@ export function buildJulesStatusCard(
                 emoji: false,
             },
         },
+        ...(params.directive
+            ? [
+                  {
+                      type: 'section',
+                      text: {
+                          type: 'mrkdwn',
+                          text: `*DIRECTIVE:* \`${params.directive}\``,
+                      },
+                  },
+              ]
+            : []),
         {
             type: 'section',
             fields: [
@@ -640,7 +673,9 @@ export function buildJulesStatusCard(
 
     return {
         channel: targetChannel,
-        text: `Jules Update [${params.status}]:${params.repo}`,
+        text: params.directive
+            ? `Jules Update [${params.status}] [${params.directive}]: ${params.repo}`
+            : `Jules Update [${params.status}]:${params.repo}`,
         attachments: [
             {
                 color: statusColor,

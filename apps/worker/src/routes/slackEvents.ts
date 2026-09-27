@@ -114,6 +114,18 @@ export function normalizeDirectivePrompt(rawPrompt: string): string {
 }
 
 /**
+ * Extracts a directive path from a prompt string.
+ * Inspects prompt for patterns matching data[/\]directive[/\][^\s\]]+ (handling Windows \ and POSIX /).
+ * Normalizes backslashes to / and returns the clean relative path, or null if not targeting a directive.
+ */
+export function extractDirectivePath(prompt: string): string | null {
+    if (!prompt || typeof prompt !== 'string') return null
+    const match = prompt.match(/data[/\\]+directive[/\\]+[^\s\]"'>]+/i)
+    if (!match) return null
+    return match[0].replace(/\\+/g, '/').replace(/^(\.\/|\/)+/, '')
+}
+
+/**
  * Extracts automated file whitelist based on prompt semantics to enforce monorepo scoping.
  */
 export function extractFileWhitelist(prompt: string): string[] {
@@ -206,6 +218,7 @@ async function processAskJulesPrompt(
         // C. Dispatch Session to Jules REST API
         const taskId = `ask-${Date.now().toString(36)}`
         const fileWhitelist = extractFileWhitelist(prompt)
+        const directive = extractDirectivePath(prompt)
 
         const fakeContext: any = {
             req: {
@@ -234,6 +247,29 @@ async function processAskJulesPrompt(
             )
         }
 
+        // Record session and branch metadata into RepoBotDO
+        if (env.REPO_BOT_DO && dispatchResult.branch) {
+            try {
+                const doId = env.REPO_BOT_DO.idFromName('global')
+                const stub = env.REPO_BOT_DO.get(doId)
+                await stub.fetch('https://internal/sessions', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        sessionId: dispatchResult.sessionId,
+                        branch: dispatchResult.branch,
+                        repo: targetRepo.id,
+                        directive,
+                    }),
+                })
+            } catch (err: any) {
+                console.warn(
+                    '[DO_SESSION_RECORD_WARN] Failed to record session in DO:',
+                    err.message,
+                )
+            }
+        }
+
         // D. Post Initial Confirmation Card to #ask-jules
         await postSlackJulesMessage(
             {
@@ -251,6 +287,17 @@ async function processAskJulesPrompt(
                                     emoji: false,
                                 },
                             },
+                            ...(directive
+                                ? [
+                                      {
+                                          type: 'section',
+                                          text: {
+                                              type: 'mrkdwn',
+                                              text: `*DIRECTIVE:* \`${directive}\``,
+                                          },
+                                      },
+                                  ]
+                                : []),
                             {
                                 type: 'section',
                                 fields: [
