@@ -63,6 +63,7 @@ export interface TelemetryPacket {
         | 'PR_EVENT'
         | 'JULES_EVENT'
         | 'SLACK_RECEIPT'
+        | 'TELEMETRY_HISTORY'
     source: string
     payload: Record<string, any>
     ascii: string
@@ -100,8 +101,11 @@ export function parseRepoIdentifier(
 export class RepoBotDO extends DurableObject<Env> {
     private telemetrySeq = 0
 
+    private recentTelemetry: TelemetryPacket[] = []
+
     constructor(ctx: DurableObjectState, env: Env) {
         super(ctx, env)
+        this.recentTelemetry = []
     }
 
     async broadcastTelemetry(
@@ -110,9 +114,6 @@ export class RepoBotDO extends DurableObject<Env> {
         payload: any,
         asciiMsg: string,
     ): Promise<void> {
-        const sockets = this.ctx.getWebSockets('operator')
-        if (sockets.length === 0) return
-
         const packet: TelemetryPacket = {
             seq: ++this.telemetrySeq,
             ts: Date.now(),
@@ -121,6 +122,20 @@ export class RepoBotDO extends DurableObject<Env> {
             payload: payload || {},
             ascii: asciiMsg,
         }
+
+        // K=10 ring buffer
+        if (!this.recentTelemetry || this.recentTelemetry.length === 0) {
+            this.recentTelemetry =
+                (await this.ctx.storage.get<TelemetryPacket[]>('recent_telemetry')) || []
+        }
+        this.recentTelemetry.push(packet)
+        if (this.recentTelemetry.length > 10) {
+            this.recentTelemetry.shift()
+        }
+        await this.ctx.storage.put('recent_telemetry', this.recentTelemetry)
+
+        const sockets = this.ctx.getWebSockets('operator')
+        if (sockets.length === 0) return
 
         const raw = JSON.stringify(packet)
         for (const socket of sockets) {
@@ -247,6 +262,31 @@ export class RepoBotDO extends DurableObject<Env> {
             try {
                 server.send(JSON.stringify(initPacket))
             } catch {}
+
+            // 1.2 Hydrate and Replay Last 10 Telemetry Events (K=10)
+            if (!this.recentTelemetry || this.recentTelemetry.length === 0) {
+                this.recentTelemetry =
+                    (await this.ctx.storage.get<TelemetryPacket[]>('recent_telemetry')) ||
+                    []
+            }
+
+            if (this.recentTelemetry.length > 0) {
+                const historyPacket: TelemetryPacket = {
+                    seq: this.telemetrySeq,
+                    ts: Date.now(),
+                    type: 'TELEMETRY_HISTORY',
+                    source: 'RepoBotDO',
+                    payload: {
+                        count: this.recentTelemetry.length,
+                        items: [...this.recentTelemetry],
+                    },
+                    ascii: `>> [TELEMETRY] Replaying last ${this.recentTelemetry.length} edge event(s)...`,
+                }
+                try {
+                    server.send(JSON.stringify(historyPacket))
+                } catch {}
+            }
+
             return new Response(null, { status: 101, webSocket: client })
         }
 
