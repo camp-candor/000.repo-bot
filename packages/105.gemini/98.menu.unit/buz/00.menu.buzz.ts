@@ -65,6 +65,7 @@ export const updateMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
         ActOlm.UPDATE_GEMINI.split(']')[1],
         ActOlm.TEST_GEMINI.split(']')[1],
         ActOlm.LIST_GEMINI.split(']')[1],
+        'OPEN GEMINI NOTEBOOK',
         'ROOT MENU',
     ]
 
@@ -84,6 +85,17 @@ export const updateMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
     src = bit.chcBit.src
 
     switch (src) {
+        case 'OPEN GEMINI NOTEBOOK':
+            await global.LIBRARY.hunt(UPDATE_CONSOLE, {
+                idx: 'cns00',
+                src: '>> Opening Gemini Notebook in browser...',
+            })
+            bit = await ste.hunt(ActOlm.OPEN_GEMINI, {
+                src: 'https://gemini.google.com/notebook/25fcd56e-a95d-46f8-9b11-c9bace81da4b',
+                val: 2800,
+            })
+            break
+
         case ActOlm.UPDATE_GEMINI.split(']')[1]:
             bit = await ste.hunt(ActOlm.UPDATE_GEMINI, {
                 content: 'Gemini Menu Selected',

@@ -1,7 +1,5 @@
-import { Action } from '../99.core/interface/action.interface.js'
-import HotkeyBit from './fce/hotkey.bit.js'
-
-// hotkey actions
+import type { Action } from '../99.core/interface/action.interface.js'
+import type HotkeyBit from './fce/hotkey.bit.js'
 
 export const INIT_HOTKEY = '[Hotkey action] Init Hotkey'
 export class InitHotkey implements Action {
@@ -12,6 +10,12 @@ export class InitHotkey implements Action {
 export const UPDATE_HOTKEY = '[Hotkey action] Update Hotkey'
 export class UpdateHotkey implements Action {
     readonly type = UPDATE_HOTKEY
+    constructor(public bale: HotkeyBit) {}
+}
+
+export const EXECUTE_HOTKEY = '[Hotkey action] Execute Hotkey'
+export class ExecuteHotkey implements Action {
+    readonly type = EXECUTE_HOTKEY
     constructor(public bale: HotkeyBit) {}
 }
 
@@ -39,17 +43,11 @@ export class ListHotkey implements Action {
     constructor(public bale: HotkeyBit) {}
 }
 
-export const EXECUTE_HOTKEY = '[Execute action] Execute Hotkey'
-export class ExecuteHotkey implements Action {
-    readonly type = EXECUTE_HOTKEY
-    constructor(public bale: undefined) {}
-}
-
 export type Actions =
     | InitHotkey
     | UpdateHotkey
+    | ExecuteHotkey
     | TestHotkey
     | IntellectHotkey
     | VisionHotkey
     | ListHotkey
-    | ExecuteHotkey

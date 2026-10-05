@@ -2,7 +2,12 @@ export default interface GeminiBit {
     idx: string
     src?: string
     val?: number
-    dat?: any
-    lst?: any
-    slv?: Function
+    dat?: {
+        notebookId?: string
+        appMode?: boolean
+        newWindow?: boolean
+        promptText?: string
+        [key: string]: any
+    }
+    slv?: (val?: any) => void
 }

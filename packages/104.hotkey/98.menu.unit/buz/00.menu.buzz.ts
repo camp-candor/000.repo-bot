@@ -1,142 +1,166 @@
-/* eslint-disable */
+import fs from 'node:fs'
+import path from 'node:path'
 import * as ActMnu from '../menu.action.js'
-//import * as ActAgt from '../../00.agent.unit/agent.action.js';
-import * as ActOlm from '../../00.hotkey.unit/hotkey.action.js'
+import * as ActHtk from '../../00.hotkey.unit/hotkey.action.js'
 
 import type { MenuModel } from '../menu.model.js'
 import type MenuBit from '../fce/menu.bit.js'
 import type State from '../../99.core/state.js'
 
-import * as Grid from '../../val/grid.js'
 import * as Align from '../../val/align.js'
 import * as Color from '../../val/console-color.js'
-
-import * as SHAPE from '../../val/shape.js'
-import * as FOCUS from '../../val/focus.js'
-
-let bit, lst, dex, idx, dat, src, val
-let rootSlv
-
-let SOWER, AGENT, CLICKUP, HOTKEY
 
 const UPDATE_GRID = '[Grid action] Update Grid'
 const WRITE_CONSOLE = '[Write action] Write Console'
 const UPDATE_CONSOLE = '[Console action] Update Console'
 const OPEN_CHOICE = '[Open action] Open Choice'
+const OPEN_INPUT = '[Open action] Open Input'
 const CLOSE_TERMINAL = '[Close action] Close Terminal'
-const PRINT_MENU = '[Render action] Print Menu'
 
 export const initMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
-    if (bal.slv != null) rootSlv = bal.slv
-
-    bit = await global.LIBRARY.hunt(UPDATE_GRID, {
-        x: 4,
-        y: 0,
-        xSpan: 8,
-        ySpan: 12,
-    })
-    bit = await global.LIBRARY.hunt(WRITE_CONSOLE, {
-        idx: 'cns00',
-        src: '',
-        dat: { net: bit.grdBit.dat, src: 'alligaor0' },
-    })
-
-    bit = await global.LIBRARY.hunt(UPDATE_CONSOLE, {
-        idx: 'cns00',
-        src: '-----------',
-    })
-    bit = await global.LIBRARY.hunt(UPDATE_CONSOLE, {
-        idx: 'cns00',
-        src: 'HOTKEY MENU',
-    })
-
-    bit = await global.LIBRARY.hunt(UPDATE_CONSOLE, {
-        idx: 'cns00',
-        src: '-----------',
-    })
+    const lib = (globalThis as any).LIBRARY
+    if (lib) {
+        const bit = await lib.hunt(UPDATE_GRID, {
+            x: 4,
+            y: 0,
+            xSpan: 8,
+            ySpan: 12,
+        })
+        await lib.hunt(WRITE_CONSOLE, {
+            idx: 'cns00',
+            src: '',
+            dat: { net: bit.grdBit.dat, src: 'hotkey0' },
+        })
+        await lib.hunt(UPDATE_CONSOLE, { idx: 'cns00', src: '-----------' })
+        await lib.hunt(UPDATE_CONSOLE, {
+            idx: 'cns00',
+            src: 'HOTKEY WORKSPACE & AUTOMATION DECK',
+        })
+        await lib.hunt(UPDATE_CONSOLE, { idx: 'cns00', src: '-----------' })
+    }
 
     await updateMenu(cpy, bal, ste)
-
+    if (bal?.slv) bal.slv({ mnuBit: { idx: 'init-menu' } })
     return cpy
 }
 
 export const updateMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
-    lst = [
-        ActOlm.UPDATE_HOTKEY.split(']')[1],
-        ActOlm.TEST_HOTKEY.split(']')[1],
-        ActOlm.LIST_HOTKEY.split(']')[1],
+    const lib = (globalThis as any).LIBRARY
+    if (!lib) return cpy
+
+    const lst = [
+        'RUN DEFAULT HOTKEY (000..ahk)',
+        'EXECUTE CUSTOM HOTKEY SCRIPT...',
+        'LIST DATA/HOTKEY SCRIPTS',
         'ROOT MENU',
     ]
 
-    bit = await global.LIBRARY.hunt(UPDATE_GRID, {
+    const descriptions: Record<string, string> = {
+        'RUN DEFAULT HOTKEY (000..ahk)':
+            'Execute 000..ahk from data/hotkey/.\nAuto-creates center mouse test if missing.',
+        'EXECUTE CUSTOM HOTKEY SCRIPT...':
+            'Prompt for script name in data/hotkey/\nand trigger execution.',
+        'LIST DATA/HOTKEY SCRIPTS':
+            'Scan data/hotkey/ and display all\navailable .ahk files in cns00.',
+        'ROOT MENU': 'Return to the main flight deck.',
+    }
+
+    const gridBit = await lib.hunt(UPDATE_GRID, {
         x: 0,
         y: 4,
         xSpan: 4,
         ySpan: 8,
     })
-    bit = await global.LIBRARY.hunt(OPEN_CHOICE, {
-        dat: { clr0: Color.BLACK, clr1: Color.YELLOW },
+    const choiceBit = await lib.hunt(OPEN_CHOICE, {
+        dat: {
+            clr0: Color.BLACK,
+            clr1: Color.YELLOW,
+            cb: (choice: string) => {
+                const text = descriptions[choice] || 'No description available.'
+                text.split('\n').forEach((s) =>
+                    lib.hunt(UPDATE_CONSOLE, { idx: 'cns00', src: s }),
+                )
+            },
+        },
         src: Align.VERTICAL,
         lst,
-        net: bit.grdBit.dat,
+        net: gridBit.grdBit.dat,
     })
 
-    src = bit.chcBit.src
+    const src = choiceBit.chcBit.src
 
     switch (src) {
-        case ActOlm.UPDATE_HOTKEY.split(']')[1]:
-            bit = await ste.hunt(ActOlm.UPDATE_HOTKEY, {
-                content: 'Hotkey Menu Selected',
-            })
-            bit = await global.LIBRARY.hunt(PRINT_MENU, bit)
+        case 'RUN DEFAULT HOTKEY (000..ahk)':
+            await ste.hunt(ActHtk.EXECUTE_HOTKEY, { src: '000..ahk' })
+            await new Promise((r) => setTimeout(r, 1200))
             break
 
-        case ActOlm.TEST_HOTKEY.split(']')[1]:
-            bit = await ste.hunt(ActOlm.TEST_HOTKEY, {
-                content: 'Hotkey Menu Selected',
+        case 'EXECUTE CUSTOM HOTKEY SCRIPT...': {
+            const inputGrid = await lib.hunt(UPDATE_GRID, {
+                x: 0,
+                y: 4,
+                xSpan: 4,
+                ySpan: 4,
             })
-            bit = await global.LIBRARY.hunt(PRINT_MENU, bit)
+            const inputBit = await lib.hunt(OPEN_INPUT, {
+                dat: { clr0: Color.BLACK, clr1: Color.YELLOW },
+                src: Align.VERTICAL,
+                lst: [],
+                txt: 'Enter Script Name in data/hotkey (e.g. test):',
+                net: inputGrid.grdBit.dat,
+            })
+
+            const scriptTarget = inputBit.putBit?.src?.trim()
+            if (scriptTarget) {
+                await ste.hunt(ActHtk.EXECUTE_HOTKEY, { src: scriptTarget })
+                await new Promise((r) => setTimeout(r, 1200))
+            }
             break
+        }
 
-        case ActOlm.LIST_HOTKEY.split(']')[1]:
-            bit = await ste.hunt(ActOlm.LIST_HOTKEY, {})
-            lst = bit.olmBit.lst
+        case 'LIST DATA/HOTKEY SCRIPTS': {
+            let current = process.cwd()
+            while (current && current !== path.dirname(current)) {
+                if (fs.existsSync(path.join(current, 'package.json'))) break
+                current = path.dirname(current)
+            }
+            const hotkeyPath = path.join(current, 'data', 'hotkey')
 
-            if (lst.length === 0) {
-                bit = await global.LIBRARY.hunt(UPDATE_CONSOLE, {
+            if (fs.existsSync(hotkeyPath)) {
+                const files = fs
+                    .readdirSync(hotkeyPath)
+                    .filter((f) => f.endsWith('.ahk'))
+                await lib.hunt(UPDATE_CONSOLE, {
                     idx: 'cns00',
-                    src: 'No Hotkey Models Found',
+                    src: `>> Found ${files.length} script(s) in data/hotkey/:`,
                 })
-            } else {
-                bit = await global.LIBRARY.hunt(UPDATE_CONSOLE, {
-                    idx: 'cns00',
-                    src: 'Listing Hotkey Models...',
-                })
-                lst.forEach((a: string) =>
-                    global.LIBRARY.hunt(UPDATE_CONSOLE, {
+                files.forEach((f) =>
+                    lib.hunt(UPDATE_CONSOLE, {
                         idx: 'cns00',
-                        src: a,
+                        src: `   - ${f}`,
                     }),
                 )
+            } else {
+                await lib.hunt(UPDATE_CONSOLE, {
+                    idx: 'cns00',
+                    src: '>> data/hotkey/ does not exist yet.',
+                })
             }
-
-            await new Promise((resolve) => setTimeout(resolve, 3000))
+            await new Promise((r) => setTimeout(r, 2000))
             break
+        }
 
         case 'ROOT MENU':
-            if (rootSlv != null) rootSlv({ mnuBit: { idx: 'root-menu' } })
             return cpy
 
         default:
-            bit = await ste.hunt(CLOSE_TERMINAL, {})
+            await ste.hunt(CLOSE_TERMINAL, {})
             break
     }
 
-    setTimeout(async () => {
-        bit = await ste.hunt(ActMnu.UPDATE_MENU, {})
+    setTimeout(() => {
+        ste.hunt(ActMnu.UPDATE_MENU, {})
     }, 333)
 
     return cpy
 }
-
-const patch = (ste, type, bale) => ste.dispatch({ type, bale })

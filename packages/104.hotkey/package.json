@@ -19,6 +19,18 @@
         }
     },
     "scripts": {
-        "test": "vitest run"
+        "test": "ava"
+    },
+    "ava": {
+        "files": [
+            "test/**/*.test.ts"
+        ],
+        "extensions": {
+            "ts": "commonjs",
+            "tsx": "commonjs"
+        },
+        "nodeArguments": [
+            "--import=tsx"
+        ]
     }
 }
