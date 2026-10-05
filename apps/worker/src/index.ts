@@ -312,7 +312,7 @@ const handleGitHubWebhook = async (c: any) => {
                             }),
                         }),
                     )
-                    .catch((err) =>
+                    .catch((err: any) =>
                         console.error('[DO_MERGE_TRANSITION_ERROR]', err),
                     ),
             )
@@ -352,6 +352,25 @@ const getRepoBotStub = (env: Env) => {
     const id = env.REPO_BOT_DO.idFromName('global')
     return env.REPO_BOT_DO.get(id)
 }
+
+// WebSocket Telemetry Ingress & Operator Bridge
+app.get('/ws/telemetry', async (c) => {
+    if (c.req.header('Upgrade') !== 'websocket') {
+        return c.text('Expected Upgrade: websocket', 426)
+    }
+    const id = c.env.REPO_BOT_DO.idFromName('global')
+    const stub = c.env.REPO_BOT_DO.get(id)
+    return stub.fetch(c.req.raw)
+})
+
+app.get('/ws', async (c) => {
+    if (c.req.header('Upgrade') !== 'websocket') {
+        return c.text('Expected Upgrade: websocket', 426)
+    }
+    const id = c.env.REPO_BOT_DO.idFromName('global')
+    const stub = c.env.REPO_BOT_DO.get(id)
+    return stub.fetch(c.req.raw)
+})
 
 app.get('/', (c) => c.text('REPO-BOT EDGE CONTROL PLANE IS LIVE.'))
 
@@ -800,6 +819,12 @@ app.get('/api/audit/verify-chain', async (c) => {
             400,
         )
     }
+    if (!c.env.DB) {
+        return c.json(
+            { ok: false, error: 'D1 binding DB is not configured' },
+            500,
+        )
+    }
 
     const { results } = await c.env.DB.prepare(
         'SELECT * FROM audit_events WHERE repository = ? ORDER BY sequence_id ASC',
@@ -829,7 +854,7 @@ app.post('/api/audit/drain', async (c) => {
 // -----------------------------------------------------------------------------
 export default {
     fetch: app.fetch,
-    async scheduled(event: any, env: any, ctx: any) {
+    async scheduled(_event: any, env: any, ctx: any) {
         ctx.waitUntil(
             Promise.all([
                 executeColdDrainage(env.DB, {

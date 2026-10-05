@@ -53,6 +53,21 @@ export interface OutboundSlackReceipt {
     ts?: string
 }
 
+export interface TelemetryPacket {
+    seq: number
+    ts: number
+    type:
+        | 'HEARTBEAT'
+        | 'TASK_TRANSITION'
+        | 'AUDIT_LOG'
+        | 'PR_EVENT'
+        | 'JULES_EVENT'
+        | 'SLACK_RECEIPT'
+    source: string
+    payload: Record<string, any>
+    ascii: string
+}
+
 export async function recordSlackReceipt(
     storage: DurableObjectStorage,
     receipt: OutboundSlackReceipt,
@@ -83,8 +98,77 @@ export function parseRepoIdentifier(
 }
 
 export class RepoBotDO extends DurableObject<Env> {
+    private telemetrySeq = 0
+
     constructor(ctx: DurableObjectState, env: Env) {
         super(ctx, env)
+    }
+
+    async broadcastTelemetry(
+        type: TelemetryPacket['type'],
+        source: string,
+        payload: any,
+        asciiMsg: string,
+    ): Promise<void> {
+        const sockets = this.ctx.getWebSockets('operator')
+        if (sockets.length === 0) return
+
+        const packet: TelemetryPacket = {
+            seq: ++this.telemetrySeq,
+            ts: Date.now(),
+            type,
+            source,
+            payload: payload || {},
+            ascii: asciiMsg,
+        }
+
+        const raw = JSON.stringify(packet)
+        for (const socket of sockets) {
+            try {
+                socket.send(raw)
+            } catch {
+                try {
+                    socket.close(1011, 'Broadcast transmission failure')
+                } catch {}
+            }
+        }
+    }
+
+    async webSocketMessage(
+        socket: WebSocket,
+        message: string | ArrayBuffer,
+    ): Promise<void> {
+        const text =
+            typeof message === 'string'
+                ? message
+                : new TextDecoder().decode(message)
+        let isPing = text.trim().toUpperCase() === 'PING'
+        if (!isPing) {
+            try {
+                const parsed = JSON.parse(text)
+                if (parsed?.type === 'PING') isPing = true
+            } catch {}
+        }
+        if (isPing) {
+            socket.send(JSON.stringify({ type: 'PONG', ts: Date.now() }))
+        }
+    }
+
+    async webSocketClose(
+        socket: WebSocket,
+        code: number,
+        reason: string,
+        _wasClean: boolean,
+    ): Promise<void> {
+        try {
+            socket.close(code, reason)
+        } catch {}
+    }
+
+    async webSocketError(socket: WebSocket, _error: unknown): Promise<void> {
+        try {
+            socket.close(1011, 'WebSocket error')
+        } catch {}
     }
 
     /**
@@ -122,6 +206,37 @@ export class RepoBotDO extends DurableObject<Env> {
         const url = new URL(request.url)
         const path = url.pathname
 
+        // WebSocket Ingress & Hibernation Handshake
+        if (path === '/ws/telemetry' || path === '/ws') {
+            if (request.headers.get('Upgrade') !== 'websocket') {
+                return new Response('Expected Upgrade: websocket', {
+                    status: 426,
+                })
+            }
+            const pair = new WebSocketPair()
+            const [client, server] = Object.values(pair)
+            this.ctx.acceptWebSocket(server, ['operator'])
+            server.serializeAttachment({
+                connectedAt: Date.now(),
+                role: url.searchParams.get('role') || 'operator',
+            })
+            const initPacket: TelemetryPacket = {
+                seq: ++this.telemetrySeq,
+                ts: Date.now(),
+                type: 'HEARTBEAT',
+                source: 'RepoBotDO',
+                payload: {
+                    status: 'ONLINE',
+                    role: url.searchParams.get('role') || 'operator',
+                },
+                ascii: '>> [TELEMETRY] Edge tunnel established. Live streaming engaged.',
+            }
+            try {
+                server.send(JSON.stringify(initPacket))
+            } catch {}
+            return new Response(null, { status: 101, webSocket: client })
+        }
+
         // 0. GET /api/slack/status
         if (request.method === 'GET' && path === '/api/slack/status') {
             const lastReceipt =
@@ -144,7 +259,9 @@ export class RepoBotDO extends DurableObject<Env> {
 
         // 0.1 POST /api/slack/receipt
         if (request.method === 'POST' && path === '/api/slack/receipt') {
-            const receipt = await request.json().catch(() => null)
+            const receipt = (await request
+                .json()
+                .catch(() => null)) as OutboundSlackReceipt | null
             if (receipt) {
                 await recordSlackReceipt(this.ctx.storage, receipt)
             }
@@ -581,6 +698,18 @@ export class RepoBotDO extends DurableObject<Env> {
             context.state = nextState
             context.updatedAt = Date.now()
             await this.ctx.storage.put('fsm_context', context)
+
+            this.broadcastTelemetry(
+                'TASK_TRANSITION',
+                'RepoBotDO',
+                {
+                    taskId: context.taskId,
+                    previousState,
+                    state: nextState,
+                    headSha: context.auditedHeadSha,
+                },
+                `>> [FSM] Task ${context.taskId} transition: ${previousState} -> ${nextState}`,
+            )
 
             // Trigger SHA-Pinned Merge Execution via Outbox
             if (shouldTriggerMerge) {

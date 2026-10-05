@@ -21,7 +21,7 @@ describe('FEAT-06: Compensating Saga Rollback Engine', () => {
     it('Tier-1 Pre-Merge: closes PR, posts tombstone, obliterates spec branch, and mutates Slack card', async () => {
         const githubSpy = vi
             .spyOn(tools, 'githubRequest')
-            .mockImplementation(async (path, env, opts) => {
+            .mockImplementation(async (path, _env, opts) => {
                 if (path.includes('/pulls/42') && opts?.method === 'PATCH') {
                     return { state: 'closed' }
                 }
@@ -140,7 +140,7 @@ describe('FEAT-06: Compensating Saga Rollback Engine', () => {
 
     it('Idempotency & Resilience: absorbs 404 branch deletion and 422 PR closed errors cleanly', async () => {
         vi.spyOn(tools, 'githubRequest').mockImplementation(
-            async (path, env, opts) => {
+            async (path, _env, _opts) => {
                 if (path.includes('/pulls/42')) {
                     throw new Error('HTTP 422: Pull request already closed')
                 }
