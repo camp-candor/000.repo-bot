@@ -98,11 +98,11 @@ export function resolveAutoHotkeyBinary(): string | null {
 }
 
 /**
- * Deterministic default script body for screen center calibration.
+ * Deterministic default script body for screen center calibration via native stdin pipe.
  */
-export const DEFAULT_000_AHK_BODY = `; -----------------------------------------------------------------------------
-; 000..ahk - Auto-generated Default Test Script
-; Target: Screen Center Calibration
+export const DEFAULT_CENTER_MOUSE_SCRIPT = `; -----------------------------------------------------------------------------
+; In-Memory Screen Center Calibration Script
+; Target: Screen Center Calibration via native stdin pipe
 ; -----------------------------------------------------------------------------
 #NoEnv
 #SingleInstance Force
@@ -116,115 +116,89 @@ CenterY := A_ScreenHeight // 2
 
 MouseMove, %CenterX%, %CenterY%, 5
 
-ToolTip, >> [HOTKEY] 000..ahk Calibrated at Center (%CenterX%x%CenterY%), %CenterX%, %CenterY%
+ToolTip, >> [HOTKEY] In-Memory Screen Center Calibrated (%CenterX%x%CenterY%), %CenterX%, %CenterY%
 Sleep, 1200
 ToolTip
 
 ExitApp
 `
 
+export const DEFAULT_000_AHK_BODY = DEFAULT_CENTER_MOUSE_SCRIPT
+
 export const executeHotkey = async (
     cpy: HotkeyModel,
     bal: HotkeyBit,
     ste: State,
 ): Promise<HotkeyModel> => {
-    const repoRoot = resolveRepoRoot()
-    const hotkeyDir = path.join(repoRoot, 'data', 'hotkey')
+    // 1. Resolve in-memory script content
+    let scriptText = (
+        bal?.src ||
+        bal?.dat?.script ||
+        bal?.dat?.scriptText ||
+        ''
+    ).trim()
 
-    // 1. Ensure target directory exists
-    if (!fs.existsSync(hotkeyDir)) {
-        fs.mkdirSync(hotkeyDir, { recursive: true })
-        await logConsole(
-            '>> [STORAGE] Created missing directory: data/hotkey/',
-            ste,
-        )
-    }
-
-    // 2. Resolve script filename (default: 000..ahk)
-    let scriptName = (bal?.src || bal?.dat?.scriptName || '000..ahk').trim()
     if (
-        !scriptName ||
-        scriptName === '000' ||
-        scriptName === '000.' ||
-        scriptName === '000.ahk'
+        !scriptText ||
+        scriptText === '000' ||
+        scriptText === '000.' ||
+        scriptText === '000..ahk' ||
+        scriptText === '000.ahk' ||
+        scriptText === 'DEFAULT' ||
+        scriptText === 'RUN IN-MEMORY CALIBRATION (CENTER MOUSE)'
     ) {
-        scriptName = '000..ahk'
-    } else if (!scriptName.endsWith('.ahk')) {
-        scriptName = `${scriptName}.ahk`
+        scriptText = DEFAULT_CENTER_MOUSE_SCRIPT
     }
 
-    const scriptPath = path.join(hotkeyDir, scriptName)
+    await logConsole(
+        '>> [HOTKEY] Executing script via in-memory stdin stream',
+        ste,
+    )
 
-    // 3. Auto-scaffold 000..ahk if missing
-    if (!fs.existsSync(scriptPath)) {
-        if (scriptName === '000..ahk') {
-            fs.writeFileSync(scriptPath, DEFAULT_000_AHK_BODY, 'utf8')
-            await logConsole(
-                '>> [SCAFFOLD] Created default test script: data/hotkey/000..ahk',
-                ste,
-            )
-        } else {
-            const errorMsg = `Script file not found: data/hotkey/${scriptName}`
-            await logConsole(`>> [FAIL] ${errorMsg}`, ste)
-            if (bal?.slv) {
-                bal.slv({
-                    htkBit: {
-                        idx: 'execute-hotkey-error',
-                        src: errorMsg,
-                        val: 0,
-                    },
-                })
-            }
-            return cpy
-        }
-    }
+    cpy.lastExecutedScript = 'STDIN_IN_MEMORY'
 
-    await logConsole(`>> [HOTKEY] Executing: data/hotkey/${scriptName}`, ste)
-
-    cpy.lastExecutedScript = scriptName
-
-    // 4. Execution dispatcher
+    // 2. Execution dispatcher
     try {
         if (process.platform === 'win32') {
             const ahkBin = resolveAutoHotkeyBinary() || 'AutoHotkey.exe'
 
             await new Promise<void>((resolve, reject) => {
-                const child = spawn(ahkBin, [scriptPath], {
-                    detached: true,
-                    stdio: 'ignore',
+                const child = spawn(ahkBin, ['*'], {
+                    stdio: ['pipe', 'ignore', 'ignore'],
                 })
 
                 child.on('error', (err) => reject(err))
-                child.unref()
+                child.stdin.write(scriptText)
+                child.stdin.end()
 
                 setTimeout(() => resolve(), 300)
             })
 
-            await logConsole(
-                `>> [OK] Dispatched: ${scriptName} (PID active)`,
-                ste,
-            )
+            await logConsole('>> [OK] Dispatched via in-memory stdin pipe', ste)
 
             if (bal?.slv) {
                 bal.slv({
                     htkBit: {
                         idx: 'execute-hotkey-success',
-                        src: scriptPath,
+                        src: scriptText,
                         val: 1,
-                        dat: { scriptName, path: scriptPath },
+                        dat: { mode: 'STDIN_IN_MEMORY' },
                     },
                 })
             }
         } else {
-            const mockMsg = `[PLATFORM_BYPASS] Non-Windows OS (${process.platform}): AutoHotkey execution simulated for ${scriptName}`
+            const mockMsg = `[PLATFORM_BYPASS] Non-Windows OS (${process.platform}): AutoHotkey in-memory stdin execution simulated`
             await logConsole(`>> ${mockMsg}`, ste)
             if (bal?.slv) {
                 bal.slv({
                     htkBit: {
                         idx: 'execute-hotkey-bypassed',
-                        src: scriptPath,
+                        src: scriptText,
                         val: 1,
-                        dat: { scriptName, platform: process.platform },
+                        dat: {
+                            mode: 'STDIN_IN_MEMORY',
+                            platform: process.platform,
+                        },
                     },
                 })
             }
