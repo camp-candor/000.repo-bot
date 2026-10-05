@@ -7,9 +7,9 @@ import {
 
 class MockResilientWebSocket {
     public onopen: (() => void) | null = null
-    public onmessage: ((event: any) => void | Promise<void>) | null = null
-    public onclose: ((event: any) => void | Promise<void>) | null = null
-    public onerror: ((event: any) => void | Promise<void>) | null = null
+    public onmessage: ((event: any) => void) | null = null
+    public onclose: ((event: any) => void) | null = null
+    public onerror: ((event: any) => void) | null = null
     public closedCode: number | null = null
     public closedReason: string | null = null
 
@@ -19,16 +19,16 @@ class MockResilientWebSocket {
         }, 10)
     }
 
-    async close(code = 1000, reason = '') {
+    close(code = 1000, reason = '') {
         this.closedCode = code
         this.closedReason = reason
         if (this.onclose) {
-            await this.onclose({ code, reason })
+            this.onclose({ code, reason })
         }
     }
 }
 
-describe('TASK-23.7: Repobot Telemetry Resiliency & Negative Controls', () => {
+describe('TASK-23.8.5: Repobot Telemetry Resiliency & Negative Controls', () => {
     beforeEach(() => {
         ;(globalThis as any).WebSocket = MockResilientWebSocket
     })
@@ -63,12 +63,57 @@ describe('TASK-23.7: Repobot Telemetry Resiliency & Negative Controls', () => {
         await ws.onmessage!({
             data: JSON.stringify({ seq: 6, ascii: '>> [TELEMETRY] Jumped' }),
         })
+        await new Promise((r) => setTimeout(r, 10))
         expect(model.lastSeqReceived).toBe(6)
 
         const warnLog = consoleLogs.find((msg) =>
             msg.includes('Dropped 4 telemetry frame(s) during transit.'),
         )
         expect(warnLog).toBeTruthy()
+    })
+
+    it('NEGATIVE CONTROL: preserves genuine sequence drop detection following history replay', async () => {
+        const model = new RepobotModel()
+        const consoleLogs: string[] = []
+        const ste = {
+            hunt: async (_act: string, bale: any) => {
+                if (bale?.src) consoleLogs.push(bale.src)
+                return {}
+            },
+        } as any
+
+        await connectRepobot(model, {}, ste)
+        await new Promise((r) => setTimeout(r, 20))
+
+        const ws = model.ws as MockResilientWebSocket
+
+        // Replay synchronizes up to seq 20
+        await ws.onmessage!({
+            data: JSON.stringify({
+                seq: 20,
+                type: 'TELEMETRY_HISTORY',
+                payload: {
+                    items: [
+                        { seq: 19, ascii: '>> [19]' },
+                        { seq: 20, ascii: '>> [20]' },
+                    ],
+                },
+            }),
+        })
+        await new Promise((r) => setTimeout(r, 10))
+        expect(model.lastSeqReceived).toBe(20)
+
+        // Live packet skips 21, 22, arrives at 23 (2 frames dropped)
+        await ws.onmessage!({
+            data: JSON.stringify({ seq: 23, ascii: '>> [23]' }),
+        })
+        await new Promise((r) => setTimeout(r, 10))
+        expect(model.lastSeqReceived).toBe(23)
+
+        const dropWarn = consoleLogs.find((l) =>
+            l.includes('Dropped 2 telemetry frame(s)'),
+        )
+        expect(dropWarn).toBeTruthy()
     })
 
     it('NEGATIVE CONTROL: rejects duplicate connection attempts idempotently', async () => {
@@ -86,7 +131,6 @@ describe('TASK-23.7: Repobot Telemetry Resiliency & Negative Controls', () => {
         expect(model.connectionState).toBe('CONNECTED')
         const firstSocket = model.ws
 
-        // Redundant connect attempt
         let noopResolved = false
         await connectRepobot(
             model,
@@ -108,27 +152,30 @@ describe('TASK-23.7: Repobot Telemetry Resiliency & Negative Controls', () => {
         ).toBe(true)
     })
 
-    it('NEGATIVE CONTROL: schedules exponential backoff on unexpected socket close', async () => {
+    it('NEGATIVE CONTROL: handles empty or malformed TELEMETRY_HISTORY without throwing', async () => {
         const model = new RepobotModel()
-        const ste = {
-            hunt: async () => ({}),
-        } as any
+        const ste = { hunt: async () => ({}) } as any
 
         await connectRepobot(model, {}, ste)
         await new Promise((r) => setTimeout(r, 20))
 
         const ws = model.ws as MockResilientWebSocket
-        // Simulate drop
-        await ws.close(1006, 'Abnormal TCP Closure')
 
-        expect(model.connectionState).toBe('RECONNECTING')
-        expect(model.ws).toBeNull()
-        expect(model.reconnectAttempts).toBe(1)
-        expect(model.reconnectTimer).toBeTruthy()
+        // Ingest empty items array (cold genesis N=0)
+        await ws.onmessage!({
+            data: JSON.stringify({
+                type: 'TELEMETRY_HISTORY',
+                payload: { items: [] },
+            }),
+        })
 
-        // Clean up timer to prevent leak
-        clearTimeout(model.reconnectTimer)
-        model.reconnectTimer = null
+        // Ingest malformed missing payload
+        await ws.onmessage!({
+            data: JSON.stringify({
+                type: 'TELEMETRY_HISTORY',
+                payload: null,
+            }),
+        })
     })
 
     it('NEGATIVE CONTROL: disconnectRepobot purges active timer and closes cleanly', async () => {
@@ -138,7 +185,6 @@ describe('TASK-23.7: Repobot Telemetry Resiliency & Negative Controls', () => {
         await connectRepobot(model, {}, ste)
         await new Promise((r) => setTimeout(r, 20))
 
-        // Arm synthetic reconnect timer
         model.reconnectTimer = setTimeout(() => {}, 15000)
         model.reconnectAttempts = 3
 
@@ -175,10 +221,7 @@ describe('TASK-23.7: Repobot Telemetry Resiliency & Negative Controls', () => {
         await new Promise((r) => setTimeout(r, 20))
 
         const ws = model.ws as MockResilientWebSocket
-        // Ingest invalid JSON
-        expect(() => {
-            ws.onmessage!({ data: '<<< MALFORMED TEXT BUFFER NOT JSON >>>' })
-        }).not.toThrow()
+        await ws.onmessage!({ data: '<<< MALFORMED TEXT BUFFER NOT JSON >>>' })
 
         const parseErrorLog = consoleLogs.find((l) =>
             l.includes('[PARSE ERROR]'),

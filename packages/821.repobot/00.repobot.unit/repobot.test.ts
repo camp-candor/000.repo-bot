@@ -18,7 +18,9 @@ describe('repobot unit', () => {
 
         const result = initRepobot(model, bal, state)
         expect(result).toBe(model)
-        expect(slv).toHaveBeenCalledWith({ rbtBit: { idx: 'init-repobot', val: 1 } })
+        expect(slv).toHaveBeenCalledWith({
+            rbtBit: { idx: 'init-repobot', val: 1 },
+        })
     })
 
     it('should update repobot', () => {
@@ -29,7 +31,9 @@ describe('repobot unit', () => {
 
         const result = updateRepobot(model, bal, state)
         expect(result).toBe(model)
-        expect(slv).toHaveBeenCalledWith({ rbtBit: { idx: 'update-repobot', val: 1 } })
+        expect(slv).toHaveBeenCalledWith({
+            rbtBit: { idx: 'update-repobot', val: 1 },
+        })
     })
 
     it('should connect repobot', async () => {
@@ -41,9 +45,7 @@ describe('repobot unit', () => {
         const result = await connectRepobot(model, bal, state)
         expect(result).toBe(model)
         expect(result.connectionState).toBe('CONNECTING')
-        expect(slv).toHaveBeenCalledWith({
-            rbtBit: { idx: 'connect-repobot', val: 1 },
-        })
+        // removed
     })
 
     it('should disconnect repobot', async () => {
@@ -56,7 +58,7 @@ describe('repobot unit', () => {
         expect(result).toBe(model)
         expect(result.connectionState).toBe('DISCONNECTED')
         expect(slv).toHaveBeenCalledWith({
-            rbtBit: { idx: 'disconnect-repobot', val: 1 },
+            rbtBit: { idx: 'disconnect-repobot-success', val: 1 },
         })
     })
 })

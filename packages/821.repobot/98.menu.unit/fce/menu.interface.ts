@@ -1,4 +1,4 @@
 export default interface Menu {
-  idx: string
-  activeTargetUrl: string
+    idx: string
+    activeTargetUrl: string
 }
