@@ -11,16 +11,16 @@ export function reducer(
 ) {
     switch (act.type) {
         case Act.INIT_REPOBOT:
-            return Buzz.initRepobot(clone(model), act.bale, state)
+            return Buzz.initRepobot(model, act.bale, state)
 
         case Act.UPDATE_REPOBOT:
-            return Buzz.updateRepobot(clone(model), act.bale, state)
+            return Buzz.updateRepobot(model, act.bale, state)
 
         case Act.CONNECT_REPOBOT:
-            return Buzz.connectRepobot(clone(model), act.bale, state)
+            return Buzz.connectRepobot(model, act.bale, state)
 
         case Act.DISCONNECT_REPOBOT:
-            return Buzz.disconnectRepobot(clone(model), act.bale, state)
+            return Buzz.disconnectRepobot(model, act.bale, state)
 
         default:
             return model

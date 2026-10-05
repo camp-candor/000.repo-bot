@@ -21,7 +21,13 @@ export const getBaseUrl = (): string => {
  * Helper to emit 7-bit clean ASCII telemetry into Blessed console widget cns00.
  */
 async function streamLog(ste: State | undefined, text: string): Promise<void> {
-    if (ste?.hunt) {
+    const lib = (globalThis as any).LIBRARY || (global as any).LIBRARY
+    if (lib && typeof lib.hunt === 'function') {
+        await lib.hunt(UPDATE_CONSOLE, {
+            idx: 'cns00',
+            src: text,
+        })
+    } else if (ste?.hunt) {
         await ste.hunt(UPDATE_CONSOLE, {
             idx: 'cns00',
             src: text,

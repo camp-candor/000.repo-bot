@@ -11,10 +11,10 @@ export function reducer(
 ) {
     switch (act.type) {
         case Act.INIT_MENU:
-            return Buzz.initMenu(clone(model), act.bale, state)
+            return Buzz.initMenu(model, act.bale, state)
 
         case Act.UPDATE_MENU:
-            return Buzz.updateMenu(clone(model), act.bale, state)
+            return Buzz.updateMenu(model, act.bale, state)
 
         default:
             return model
