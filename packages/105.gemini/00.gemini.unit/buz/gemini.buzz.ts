@@ -1,4 +1,4 @@
-import { exec } from 'node:child_process'
+import { exec, spawn, execSync } from 'node:child_process'
 import path from 'node:path'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -10,6 +10,25 @@ import type State from '../../99.core/state.js'
 
 const execAsync = promisify(exec)
 const UPDATE_CONSOLE = '[Console action] Update Console'
+
+const logConsole = async (src: string, ste?: State) => {
+    const lib = (globalThis as any).LIBRARY || (global as any).LIBRARY
+    if (lib?.hunt) {
+        await lib.hunt(UPDATE_CONSOLE, { idx: 'cns00', src })
+        return
+    }
+    if (ste?.hunt) {
+        try {
+            const p = ste.hunt(UPDATE_CONSOLE, { idx: 'cns00', src })
+            if (p && typeof p.then === 'function') {
+                await Promise.race([
+                    p,
+                    new Promise((resolve) => setTimeout(resolve, 30)),
+                ])
+            }
+        } catch {}
+    }
+}
 
 export function resolveChromePath(): string | null {
     const platform = process.platform
@@ -49,33 +68,93 @@ export function resolveChromePath(): string | null {
     return null
 }
 
+export function resolveAutoHotkeyBinary(): string | null {
+    if (process.platform !== 'win32') return null
+
+    const candidates = [
+        path.join(
+            process.env['ProgramFiles'] || 'C:\\Program Files',
+            'AutoHotkey',
+            'AutoHotkey.exe',
+        ),
+        path.join(
+            process.env['ProgramFiles'] || 'C:\\Program Files',
+            'AutoHotkey',
+            'v1.1',
+            'AutoHotkeyU64.exe',
+        ),
+        path.join(
+            process.env['ProgramFiles'] || 'C:\\Program Files',
+            'AutoHotkey',
+            'v2',
+            'AutoHotkey64.exe',
+        ),
+        path.join(
+            process.env['LOCALAPPDATA'] || '',
+            'Programs',
+            'AutoHotkey',
+            'AutoHotkey.exe',
+        ),
+        path.join(
+            process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)',
+            'AutoHotkey',
+            'AutoHotkey.exe',
+        ),
+    ]
+
+    for (const candidate of candidates) {
+        if (fs.existsSync(candidate)) return candidate
+    }
+
+    try {
+        const stdout = execSync('where AutoHotkey.exe', {
+            stdio: 'pipe',
+        }).toString()
+        const firstLine = stdout.split('\r\n')[0].trim()
+        if (firstLine && fs.existsSync(firstLine)) return firstLine
+    } catch {}
+
+    return null
+}
+
 export async function focusViaWindowsAHK(
     targetUrl: string,
     delayMs: number,
 ): Promise<void> {
-    const tempScriptPath = path.join(
-        os.tmpdir(),
-        `gemini_focus_${Date.now()}.ahk`,
-    )
+    const chromePath = resolveChromePath()
+    const ahkBin = resolveAutoHotkeyBinary()
 
-    const chromePath = resolveChromePath() || 'chrome.exe'
+    // 1. Immediately launch Chrome / browser window
+    try {
+        if (chromePath) {
+            exec(`"${chromePath}" "${targetUrl}"`)
+        } else {
+            exec(`cmd.exe /c start "" "${targetUrl}"`)
+        }
+    } catch {
+        exec(`cmd.exe /c start "" "${targetUrl}"`)
+    }
 
-    const ahkScript = `
+    // 2. If AutoHotkey is present, dispatch window activation and key focus
+    if (ahkBin) {
+        const tempScriptPath = path.join(
+            os.tmpdir(),
+            `gemini_focus_${Date.now()}.ahk`,
+        )
+
+        const ahkScript = `
 #NoEnv
 #SingleInstance Force
 SetTitleMatchMode, 2
 
-TargetUrl := "${targetUrl}"
-Run, "${chromePath}" "%TargetUrl%"
-
-WinWait, Gemini,, 10
+WinWait, Gemini,, 6
 if ErrorLevel
 {
-    WinWait, Google Chrome,, 5
+    WinWait, Google Chrome,, 4
 }
 
 WinActivate
-WinWaitActive,,, 5
+WinWaitActive,,, 3
 
 Sleep, ${delayMs}
 
@@ -87,25 +166,19 @@ Send, ^{End}
 
 ExitApp
 `
-
-    await fs.promises.writeFile(tempScriptPath, ahkScript, 'utf8')
-
-    try {
-        await execAsync(`AutoHotkey.exe "${tempScriptPath}"`)
-    } catch {
-        const psFallback = `
-$wshell = New-Object -ComObject wscript.shell;
-try { Start-Process '${chromePath}' '${targetUrl}' -ErrorAction Stop; } catch { start '${targetUrl}'; }
-Start-Sleep -Milliseconds ${delayMs};
-try { $wshell.AppActivate('Gemini'); } catch {}
-Start-Sleep -Milliseconds 200;
-try { $wshell.SendKeys('{TAB}'); } catch {}
-`
-        await execAsync(
-            `powershell -NoProfile -Command "${psFallback.replace(/\n/g, ' ')}"`,
-        )
-    } finally {
-        fs.unlink(tempScriptPath, () => {})
+        try {
+            await fs.promises.writeFile(tempScriptPath, ahkScript, 'utf8')
+            const child = spawn(ahkBin, [tempScriptPath], {
+                detached: true,
+                stdio: 'ignore',
+            })
+            child.unref()
+            setTimeout(() => {
+                fs.unlink(tempScriptPath, () => {})
+            }, 12000)
+        } catch {
+            fs.unlink(tempScriptPath, () => {})
+        }
     }
 }
 
@@ -146,47 +219,37 @@ export const openGemini = async (
     const hydrationDelay = bal?.val || cpy.hydrationDelayMs
 
     try {
-        if (ste?.hunt) {
-            await ste.hunt(UPDATE_CONSOLE, {
-                idx: 'cns00',
-                src: `>> [GEMINI] Dispatching browser to notebook URL: ${targetUrl}`,
-            })
-        }
+        await logConsole(
+            `>> [GEMINI] Dispatching browser to notebook URL: ${targetUrl}`,
+            ste,
+        )
 
         const platform = process.platform
 
         if (platform === 'win32') {
-            if (ste?.hunt) {
-                await ste.hunt(UPDATE_CONSOLE, {
-                    idx: 'cns00',
-                    src: '>> [FOCUS] Triggering Win32 automation bridge for input binding...',
-                })
-            }
+            await logConsole(
+                '>> [FOCUS] Triggering Win32 automation bridge for input binding...',
+                ste,
+            )
             await focusViaWindowsAHK(targetUrl, hydrationDelay)
         } else if (platform === 'darwin') {
-            if (ste?.hunt) {
-                await ste.hunt(UPDATE_CONSOLE, {
-                    idx: 'cns00',
-                    src: '>> [FOCUS] Engaging macOS AppleScript process focus...',
-                })
-            }
+            await logConsole(
+                '>> [FOCUS] Engaging macOS AppleScript process focus...',
+                ste,
+            )
             await focusViaDarwinAppleScript(targetUrl, hydrationDelay)
         } else {
-            if (ste?.hunt) {
-                await ste.hunt(UPDATE_CONSOLE, {
-                    idx: 'cns00',
-                    src: '>> [LAUNCH] Dispatched Linux browser target via xdg-open',
-                })
-            }
+            await logConsole(
+                '>> [LAUNCH] Dispatched Linux browser target via xdg-open',
+                ste,
+            )
             await execAsync(`xdg-open "${targetUrl}"`)
         }
 
-        if (ste?.hunt) {
-            await ste.hunt(UPDATE_CONSOLE, {
-                idx: 'cns00',
-                src: '>> [OK] Browser active. Focus asserted on prompt input.',
-            })
-        }
+        await logConsole(
+            '>> [OK] Browser active. Focus asserted on prompt input.',
+            ste,
+        )
 
         if (bal?.slv) {
             bal.slv({
@@ -198,14 +261,12 @@ export const openGemini = async (
             })
         }
     } catch (err: any) {
-        if (ste?.hunt) {
-            try {
-                await ste.hunt(UPDATE_CONSOLE, {
-                    idx: 'cns00',
-                    src: `>> [FAIL] Browser automation error: ${err.message}`,
-                })
-            } catch {}
-        }
+        try {
+            await logConsole(
+                `>> [FAIL] Browser automation error: ${err.message}`,
+                ste,
+            )
+        } catch {}
 
         try {
             const fallbackCmd =

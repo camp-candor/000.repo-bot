@@ -8,6 +8,25 @@ import type State from '../../99.core/state.js'
 
 const UPDATE_CONSOLE = '[Console action] Update Console'
 
+const logConsole = async (src: string, ste?: State) => {
+    const lib = (globalThis as any).LIBRARY || (global as any).LIBRARY
+    if (lib?.hunt) {
+        await lib.hunt(UPDATE_CONSOLE, { idx: 'cns00', src })
+        return
+    }
+    if (ste?.hunt) {
+        try {
+            const p = ste.hunt(UPDATE_CONSOLE, { idx: 'cns00', src })
+            if (p && typeof p.then === 'function') {
+                await Promise.race([
+                    p,
+                    new Promise((resolve) => setTimeout(resolve, 30)),
+                ])
+            }
+        } catch {}
+    }
+}
+
 /**
  * Traverses upward to resolve the monorepo root.
  */
@@ -115,17 +134,22 @@ export const executeHotkey = async (
     // 1. Ensure target directory exists
     if (!fs.existsSync(hotkeyDir)) {
         fs.mkdirSync(hotkeyDir, { recursive: true })
-        if (ste?.hunt) {
-            await ste.hunt(UPDATE_CONSOLE, {
-                idx: 'cns00',
-                src: '>> [STORAGE] Created missing directory: data/hotkey/',
-            })
-        }
+        await logConsole(
+            '>> [STORAGE] Created missing directory: data/hotkey/',
+            ste,
+        )
     }
 
     // 2. Resolve script filename (default: 000..ahk)
     let scriptName = (bal?.src || bal?.dat?.scriptName || '000..ahk').trim()
-    if (!scriptName.endsWith('.ahk')) {
+    if (
+        !scriptName ||
+        scriptName === '000' ||
+        scriptName === '000.' ||
+        scriptName === '000.ahk'
+    ) {
+        scriptName = '000..ahk'
+    } else if (!scriptName.endsWith('.ahk')) {
         scriptName = `${scriptName}.ahk`
     }
 
@@ -135,20 +159,13 @@ export const executeHotkey = async (
     if (!fs.existsSync(scriptPath)) {
         if (scriptName === '000..ahk') {
             fs.writeFileSync(scriptPath, DEFAULT_000_AHK_BODY, 'utf8')
-            if (ste?.hunt) {
-                await ste.hunt(UPDATE_CONSOLE, {
-                    idx: 'cns00',
-                    src: '>> [SCAFFOLD] Created default test script: data/hotkey/000..ahk',
-                })
-            }
+            await logConsole(
+                '>> [SCAFFOLD] Created default test script: data/hotkey/000..ahk',
+                ste,
+            )
         } else {
             const errorMsg = `Script file not found: data/hotkey/${scriptName}`
-            if (ste?.hunt) {
-                await ste.hunt(UPDATE_CONSOLE, {
-                    idx: 'cns00',
-                    src: `>> [FAIL] ${errorMsg}`,
-                })
-            }
+            await logConsole(`>> [FAIL] ${errorMsg}`, ste)
             if (bal?.slv) {
                 bal.slv({
                     htkBit: {
@@ -162,12 +179,7 @@ export const executeHotkey = async (
         }
     }
 
-    if (ste?.hunt) {
-        await ste.hunt(UPDATE_CONSOLE, {
-            idx: 'cns00',
-            src: `>> [HOTKEY] Executing: data/hotkey/${scriptName}`,
-        })
-    }
+    await logConsole(`>> [HOTKEY] Executing: data/hotkey/${scriptName}`, ste)
 
     cpy.lastExecutedScript = scriptName
 
@@ -188,12 +200,10 @@ export const executeHotkey = async (
                 setTimeout(() => resolve(), 300)
             })
 
-            if (ste?.hunt) {
-                await ste.hunt(UPDATE_CONSOLE, {
-                    idx: 'cns00',
-                    src: `>> [OK] Dispatched: ${scriptName} (PID active)`,
-                })
-            }
+            await logConsole(
+                `>> [OK] Dispatched: ${scriptName} (PID active)`,
+                ste,
+            )
 
             if (bal?.slv) {
                 bal.slv({
@@ -207,12 +217,7 @@ export const executeHotkey = async (
             }
         } else {
             const mockMsg = `[PLATFORM_BYPASS] Non-Windows OS (${process.platform}): AutoHotkey execution simulated for ${scriptName}`
-            if (ste?.hunt) {
-                await ste.hunt(UPDATE_CONSOLE, {
-                    idx: 'cns00',
-                    src: `>> ${mockMsg}`,
-                })
-            }
+            await logConsole(`>> ${mockMsg}`, ste)
             if (bal?.slv) {
                 bal.slv({
                     htkBit: {
@@ -225,12 +230,7 @@ export const executeHotkey = async (
             }
         }
     } catch (err: any) {
-        if (ste?.hunt) {
-            await ste.hunt(UPDATE_CONSOLE, {
-                idx: 'cns00',
-                src: `>> [FAIL] Execution error: ${err.message}`,
-            })
-        }
+        await logConsole(`>> [FAIL] Execution error: ${err.message}`, ste)
 
         if (bal?.slv) {
             bal.slv({

@@ -10,6 +10,8 @@ import type State from '../../99.core/state.js'
 import * as Align from '../../val/align.js'
 import * as Color from '../../val/console-color.js'
 
+let rootSlv: any
+
 const UPDATE_GRID = '[Grid action] Update Grid'
 const WRITE_CONSOLE = '[Write action] Write Console'
 const UPDATE_CONSOLE = '[Console action] Update Console'
@@ -18,6 +20,8 @@ const OPEN_INPUT = '[Open action] Open Input'
 const CLOSE_TERMINAL = '[Close action] Close Terminal'
 
 export const initMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
+    if (bal?.slv != null) rootSlv = bal.slv
+
     const lib = (globalThis as any).LIBRARY
     if (lib) {
         const bit = await lib.hunt(UPDATE_GRID, {
@@ -40,7 +44,6 @@ export const initMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
     }
 
     await updateMenu(cpy, bal, ste)
-    if (bal?.slv) bal.slv({ mnuBit: { idx: 'init-menu' } })
     return cpy
 }
 
@@ -58,9 +61,15 @@ export const updateMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
     const descriptions: Record<string, string> = {
         'RUN DEFAULT HOTKEY (000..ahk)':
             'Execute 000..ahk from data/hotkey/.\nAuto-creates center mouse test if missing.',
+        'RUN DEFAULT':
+            'Execute 000..ahk from data/hotkey/.\nAuto-creates center mouse test if missing.',
         'EXECUTE CUSTOM HOTKEY SCRIPT...':
             'Prompt for script name in data/hotkey/\nand trigger execution.',
+        'EXECUTE CUSTOM':
+            'Prompt for script name in data/hotkey/\nand trigger execution.',
         'LIST DATA/HOTKEY SCRIPTS':
+            'Scan data/hotkey/ and display all\navailable .ahk files in cns00.',
+        'LIST DATA/HOTKEY':
             'Scan data/hotkey/ and display all\navailable .ahk files in cns00.',
         'ROOT MENU': 'Return to the main flight deck.',
     }
@@ -91,11 +100,13 @@ export const updateMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
 
     switch (src) {
         case 'RUN DEFAULT HOTKEY (000..ahk)':
+        case 'RUN DEFAULT':
             await ste.hunt(ActHtk.EXECUTE_HOTKEY, { src: '000..ahk' })
             await new Promise((r) => setTimeout(r, 1200))
             break
 
-        case 'EXECUTE CUSTOM HOTKEY SCRIPT...': {
+        case 'EXECUTE CUSTOM HOTKEY SCRIPT...':
+        case 'EXECUTE CUSTOM': {
             const inputGrid = await lib.hunt(UPDATE_GRID, {
                 x: 0,
                 y: 4,
@@ -110,15 +121,14 @@ export const updateMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
                 net: inputGrid.grdBit.dat,
             })
 
-            const scriptTarget = inputBit.putBit?.src?.trim()
-            if (scriptTarget) {
-                await ste.hunt(ActHtk.EXECUTE_HOTKEY, { src: scriptTarget })
-                await new Promise((r) => setTimeout(r, 1200))
-            }
+            const scriptTarget = inputBit.putBit?.src?.trim() || '000..ahk'
+            await ste.hunt(ActHtk.EXECUTE_HOTKEY, { src: scriptTarget })
+            await new Promise((r) => setTimeout(r, 1200))
             break
         }
 
-        case 'LIST DATA/HOTKEY SCRIPTS': {
+        case 'LIST DATA/HOTKEY SCRIPTS':
+        case 'LIST DATA/HOTKEY': {
             let current = process.cwd()
             while (current && current !== path.dirname(current)) {
                 if (fs.existsSync(path.join(current, 'package.json'))) break
@@ -151,6 +161,7 @@ export const updateMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
         }
 
         case 'ROOT MENU':
+            if (rootSlv != null) rootSlv({ mnuBit: { idx: 'root-menu' } })
             return cpy
 
         default:

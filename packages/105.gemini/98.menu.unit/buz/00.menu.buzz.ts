@@ -86,6 +86,7 @@ export const updateMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
 
     switch (src) {
         case 'OPEN GEMINI NOTEBOOK':
+        case 'OPEN GEMINI':
             await global.LIBRARY.hunt(UPDATE_CONSOLE, {
                 idx: 'cns00',
                 src: '>> Opening Gemini Notebook in browser...',
