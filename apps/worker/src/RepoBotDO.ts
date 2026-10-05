@@ -206,6 +206,19 @@ export class RepoBotDO extends DurableObject<Env> {
         const url = new URL(request.url)
         const path = url.pathname
 
+        if (request.method === 'POST' && path === '/broadcast') {
+            const body: any = await request.json().catch(() => null)
+            if (body && body.type && body.ascii) {
+                await this.broadcastTelemetry(
+                    body.type,
+                    body.source || 'edgeSubsystem',
+                    body.payload || {},
+                    body.ascii,
+                )
+            }
+            return Response.json({ ok: true })
+        }
+
         // WebSocket Ingress & Hibernation Handshake
         if (path === '/ws/telemetry' || path === '/ws') {
             if (request.headers.get('Upgrade') !== 'websocket') {
@@ -833,5 +846,37 @@ export class RepoBotDO extends DurableObject<Env> {
         return new Response(JSON.stringify({ status: 'REPO_BOT_DO_ONLINE' }), {
             headers: { 'Content-Type': 'application/json' },
         })
+    }
+}
+
+export async function emitEdgeTelemetry(
+    env: any,
+    type: string,
+    source: string,
+    payload: any,
+    asciiMsg: string,
+): Promise<void> {
+    if (!env?.REPO_BOT_DO) return
+    try {
+        const id = env.REPO_BOT_DO.idFromName('global')
+        const stub = env.REPO_BOT_DO.get(id)
+        if (typeof stub.broadcastTelemetry === 'function') {
+            await stub.broadcastTelemetry(type, source, payload, asciiMsg)
+        } else {
+            await stub.fetch(
+                new Request('https://internal/broadcast', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        type,
+                        source,
+                        payload,
+                        ascii: asciiMsg,
+                    }),
+                }),
+            )
+        }
+    } catch (err: any) {
+        console.warn('[TELEMETRY_EMIT_WARN]', err.message)
     }
 }

@@ -1,3 +1,4 @@
+import { emitEdgeTelemetry } from './RepoBotDO.js'
 import { classifyDiffRisk, type DiffRiskResult } from './policyRouter.js'
 import { extractTaskIdFromBranch } from './qualityResult.js'
 import { handleCheckRunEvent } from './qualityResult.js'
@@ -397,6 +398,22 @@ export async function auditPullRequest(
         }
     }
 
+    emitEdgeTelemetry(
+        env,
+        'PR_EVENT',
+        'prAuditEngine',
+        {
+            pullNumber,
+            passed,
+            violationsCount: violations.length,
+            sha: headSha.slice(0, 7),
+            filesCount: files.length,
+        },
+        passed
+            ? `>> [SCOPE CHECK OK] PR #${pullNumber}@${headSha.slice(0, 7)}: ${files.length} file(s) whitelisted.`
+            : `>> [SCOPE VIOLATION] PR #${pullNumber}@${headSha.slice(0, 7)}: ${violations[0]}`,
+    ).catch(() => {})
+
     return {
         passed,
         sha: headSha,
@@ -498,6 +515,20 @@ export const handleGitHubWebhook = async (c: Context<{ Bindings: Env }>) => {
             return await handleCheckRunEvent(c, payload)
         }
 
+        if (event === 'push') {
+            const pusher = payload.pusher?.name || 'unknown'
+            const headCommitSha = payload.head_commit?.id || '0000000'
+            const repo = payload.repository?.name || 'unknown'
+            const branch = payload.ref?.replace('refs/heads/', '') || 'unknown'
+            emitEdgeTelemetry(
+                c.env,
+                'PUSH_EVENT',
+                'githubWebhook',
+                { pusher, sha: headCommitSha.slice(0, 7), repo, branch },
+                `>> [PUSH] ${pusher} pushed ${headCommitSha.slice(0, 7)} to ${repo}@${branch}`,
+            ).catch(() => {})
+        }
+
         // 4. Process Pull Request Events
         if (event === 'pull_request') {
             const action = payload.action
@@ -571,6 +602,22 @@ export const handleGitHubWebhook = async (c: Context<{ Bindings: Env }>) => {
                     },
                     202,
                 )
+            }
+
+            if (action === 'closed' && pr && repo && pr.merged === true) {
+                const pullNumber = pr.number
+                const baseRef = pr.base?.ref
+                const mergedBy = pr.merged_by?.login || 'unknown'
+                const headBranch = pr.head?.ref
+                const taskId = extractTaskIdFromBranch(headBranch) || 'UNKNOWN'
+
+                emitEdgeTelemetry(
+                    c.env,
+                    'MERGE_EVENT',
+                    'githubWebhook',
+                    { pullNumber, baseRef, taskId, mergedBy },
+                    `>> [MERGE] PR #${pullNumber} merged into ${baseRef} (${taskId}) by ${mergedBy} [OK]`,
+                ).catch(() => {})
             }
         }
 

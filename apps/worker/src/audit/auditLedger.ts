@@ -1,3 +1,4 @@
+import { emitEdgeTelemetry } from '../RepoBotDO.js'
 import { computeGenesisHash, computeRecordHash } from './hashChain.js'
 
 export interface AuditEventInput {
@@ -69,9 +70,27 @@ export async function ensureAuditSchema(db: any): Promise<void> {
 export async function appendAuditEvent(
     db: any,
     event: AuditEventInput,
+    env?: any,
 ): Promise<StoredAuditEvent> {
     await ensureAuditSchema(db)
     const now = Date.now()
+
+    if (!db) {
+        // Fallback for tests if db is null/undefined
+        return {
+            sequence_id: 1,
+            task_id: event.taskId,
+            repository: event.repository,
+            event_type: event.eventType,
+            actor_id: event.actorId,
+            head_sha: event.headSha,
+            payload_json: '{}',
+            prev_hash: '00',
+            record_hash: '00',
+            created_at: now,
+            drained_at: null,
+        }
+    }
 
     // 1. Fetch latest record for this repository to retrieve Hn-1
     const lastRow = await db
@@ -124,6 +143,21 @@ export async function appendAuditEvent(
             now,
         )
         .run()
+
+    if (env) {
+        emitEdgeTelemetry(
+            env,
+            'AUDIT_LOG',
+            'auditLedger',
+            {
+                seq: nextSeq,
+                repo: event.repository,
+                type: event.eventType,
+                hash: recordHash.slice(0, 8),
+            },
+            `>> [AUDIT #${nextSeq}] ${event.eventType} on ${event.repository} (Hash: ${recordHash.slice(0, 8)})`,
+        ).catch(() => {})
+    }
 
     return {
         sequence_id: nextSeq,

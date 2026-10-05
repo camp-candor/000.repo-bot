@@ -1,3 +1,4 @@
+import { emitEdgeTelemetry } from './RepoBotDO.js'
 import type { Context } from 'hono'
 import { githubRequest, type Env } from './tools.js'
 import {
@@ -253,6 +254,14 @@ Run local tests before commit. Exit code 0 required.
             )
         }
 
+        emitEdgeTelemetry(
+            c.env,
+            'JULES_EVENT',
+            'jules',
+            { sessionId, taskId, branch: branchName, repo: `${owner}/${repo}` },
+            `>> [JULES DISPATCH] Task ${taskId} dispatched (Session: ${sessionId.slice(0, 10)}) on ${branchName}`,
+        ).catch(() => {})
+
         return c.json({
             action: 'JULES_DISPATCHED',
             sessionId,
@@ -343,6 +352,18 @@ export async function pollActiveJulesSessions(env: Env): Promise<void> {
                     await postSlackJulesMessage(card, env)
                 }
 
+                emitEdgeTelemetry(
+                    env,
+                    'JULES_EVENT',
+                    'jules',
+                    {
+                        sessionId: item.session_id,
+                        repo: item.repo,
+                        taskId: item.task_id,
+                    },
+                    `>> [JULES] Session ${item.session_id.slice(0, 10)} requires operator input in #ask-jules`,
+                ).catch(() => {})
+
                 await env.DB.prepare(
                     'UPDATE jules_sessions SET status = ?, last_status = ?, updated_at = ? WHERE session_id = ?',
                 )
@@ -357,6 +378,19 @@ export async function pollActiveJulesSessions(env: Env): Promise<void> {
                 currentState === 'COMPLETED' ||
                 currentState === 'FAILED'
             ) {
+                emitEdgeTelemetry(
+                    env,
+                    'JULES_EVENT',
+                    'jules',
+                    {
+                        sessionId: item.session_id,
+                        repo: item.repo,
+                        taskId: item.task_id,
+                        state: currentState,
+                    },
+                    `>> [JULES] Session ${item.session_id.slice(0, 10)} transitioned to ${currentState}`,
+                ).catch(() => {})
+
                 await env.DB.prepare(
                     'UPDATE jules_sessions SET status = ?, updated_at = ? WHERE session_id = ?',
                 )
