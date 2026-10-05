@@ -353,6 +353,25 @@ const getRepoBotStub = (env: Env) => {
     return env.REPO_BOT_DO.get(id)
 }
 
+// Proxy WebSocket Telemetry Upgrades directly into singleton RepoBotDO
+app.get('/ws/telemetry', async (c) => {
+    if (c.req.header('Upgrade') !== 'websocket') {
+        return c.text('Expected Upgrade: websocket', 426)
+    }
+    const id = c.env.REPO_BOT_DO.idFromName('global')
+    const stub = c.env.REPO_BOT_DO.get(id)
+    return stub.fetch(c.req.raw)
+})
+
+app.get('/ws', async (c) => {
+    if (c.req.header('Upgrade') !== 'websocket') {
+        return c.text('Expected Upgrade: websocket', 426)
+    }
+    const id = c.env.REPO_BOT_DO.idFromName('global')
+    const stub = c.env.REPO_BOT_DO.get(id)
+    return stub.fetch(c.req.raw)
+})
+
 app.get('/', (c) => c.text('REPO-BOT EDGE CONTROL PLANE IS LIVE.'))
 
 app.get('/health', (c) => {
