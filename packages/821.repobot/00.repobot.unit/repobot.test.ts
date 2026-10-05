@@ -18,7 +18,9 @@ describe('repobot unit', () => {
 
         const result = initRepobot(model, bal, state)
         expect(result).toBe(model)
-        expect(slv).toHaveBeenCalledWith({ rbtBit: { idx: 'init-repobot', val: 1 } })
+        expect(slv).toHaveBeenCalledWith({
+            rbtBit: { idx: 'init-repobot', val: 1 },
+        })
     })
 
     it('should update repobot', () => {
@@ -29,7 +31,9 @@ describe('repobot unit', () => {
 
         const result = updateRepobot(model, bal, state)
         expect(result).toBe(model)
-        expect(slv).toHaveBeenCalledWith({ rbtBit: { idx: 'update-repobot', val: 1 } })
+        expect(slv).toHaveBeenCalledWith({
+            rbtBit: { idx: 'update-repobot', val: 1 },
+        })
     })
 
     it('should connect repobot', async () => {
