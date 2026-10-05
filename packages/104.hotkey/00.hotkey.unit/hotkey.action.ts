@@ -19,35 +19,4 @@ export class ExecuteHotkey implements Action {
     constructor(public bale: HotkeyBit) {}
 }
 
-export const TEST_HOTKEY = '[Test action] Test Hotkey'
-export class TestHotkey implements Action {
-    readonly type = TEST_HOTKEY
-    constructor(public bale: HotkeyBit) {}
-}
-
-export const INTELLECT_HOTKEY = '[Intellect action] Intellect Hotkey'
-export class IntellectHotkey implements Action {
-    readonly type = INTELLECT_HOTKEY
-    constructor(public bale: HotkeyBit) {}
-}
-
-export const VISION_HOTKEY = '[Vision action] Vision Hotkey'
-export class VisionHotkey implements Action {
-    readonly type = VISION_HOTKEY
-    constructor(public bale: HotkeyBit) {}
-}
-
-export const LIST_HOTKEY = '[List action] List Hotkey'
-export class ListHotkey implements Action {
-    readonly type = LIST_HOTKEY
-    constructor(public bale: HotkeyBit) {}
-}
-
-export type Actions =
-    | InitHotkey
-    | UpdateHotkey
-    | ExecuteHotkey
-    | TestHotkey
-    | IntellectHotkey
-    | VisionHotkey
-    | ListHotkey
+export type Actions = InitHotkey | UpdateHotkey | ExecuteHotkey

@@ -3,8 +3,8 @@ export default interface HotkeyBit {
     src?: string
     val?: number
     dat?: {
-        scriptName?: string
-        path?: string
+        script?: string
+        speed?: number
         [key: string]: any
     }
     slv?: (val?: any) => void

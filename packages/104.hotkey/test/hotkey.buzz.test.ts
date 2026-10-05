@@ -6,77 +6,23 @@ import { HotkeyModel } from '../00.hotkey.unit/hotkey.model.js'
 import {
     executeHotkey,
     resolveRepoRoot,
-    DEFAULT_000_AHK_BODY,
-} from '../00.hotkey.unit/buz/hotkey.buzz.js'
+    DEFAULT_CENTER_MOUSE_SCRIPT,
+} from '../00.hotkey.unit/buz/hotkey.buzz'
 
 test.serial(
-    'executeHotkey auto-creates data/hotkey and 000..ahk if missing',
+    'executeHotkey executes via stdin without creating data/hotkey or disk files',
     async (t) => {
         const repoRoot = resolveRepoRoot()
         const hotkeyDir = path.join(repoRoot, 'data', 'hotkey')
-        const defaultAhk = path.join(hotkeyDir, '000..ahk')
 
-        // Backup existing 000..ahk if present in test environment
-        let existingContent: string | null = null
-        if (fs.existsSync(defaultAhk)) {
-            existingContent = fs.readFileSync(defaultAhk, 'utf8')
-            fs.unlinkSync(defaultAhk)
+        // Pre-assert or clean up if previously created
+        if (fs.existsSync(hotkeyDir)) {
+            fs.rmSync(hotkeyDir, { recursive: true, force: true })
         }
 
         const slv = sinon.fake()
         const bal = {
-            idx: 'test-hotkey',
-            slv,
-        } as any
-
-        const ste = {
-            hunt: sinon.fake.resolves({}),
-        } as any
-
-        try {
-            await executeHotkey(new HotkeyModel(), bal, ste)
-
-            t.true(
-                fs.existsSync(hotkeyDir),
-                'Directory data/hotkey must exist on disk',
-            )
-            t.true(
-                fs.existsSync(defaultAhk),
-                'Default script 000..ahk must be synthesized',
-            )
-
-            const content = fs.readFileSync(defaultAhk, 'utf8')
-            t.true(
-                content.includes('MouseMove, %CenterX%, %CenterY%, 5'),
-                'Must include mouse centering instruction',
-            )
-            t.true(
-                content.includes('CoordMode, Mouse, Screen'),
-                'Must use screen coordinate mode',
-            )
-
-            t.true(slv.calledOnce, 'bal.slv must be resolved')
-            const response = slv.firstCall.args[0]
-            t.truthy(response.htkBit)
-            t.is(response.htkBit.val, 1)
-        } finally {
-            // Teardown or restore original content
-            if (existingContent !== null) {
-                fs.writeFileSync(defaultAhk, existingContent, 'utf8')
-            } else if (fs.existsSync(defaultAhk)) {
-                fs.unlinkSync(defaultAhk)
-            }
-        }
-    },
-)
-
-test.serial(
-    'executeHotkey reports error for non-existent custom script',
-    async (t) => {
-        const slv = sinon.fake()
-        const bal = {
-            idx: 'test-custom-missing',
-            src: 'non_existent_macro',
+            idx: 'test-stdin-hotkey',
             slv,
         } as any
 
@@ -86,9 +32,48 @@ test.serial(
 
         await executeHotkey(new HotkeyModel(), bal, ste)
 
+        // Verify zero disk footprint
+        t.false(
+            fs.existsSync(hotkeyDir),
+            'Directory data/hotkey must NOT exist on disk',
+        )
+
         t.true(slv.calledOnce, 'bal.slv must be resolved')
         const response = slv.firstCall.args[0]
-        t.is(response.htkBit.idx, 'execute-hotkey-error')
-        t.is(response.htkBit.val, 0)
+        t.truthy(response.htkBit)
+        t.is(response.htkBit.val, 1)
+        t.is(response.htkBit.src, 'in-memory-stdin')
+        t.is(response.htkBit.dat.mode, 'STDIN_IN_MEMORY')
+    },
+)
+
+test.serial(
+    'executeHotkey passes custom script in-memory without creating files',
+    async (t) => {
+        const repoRoot = resolveRepoRoot()
+        const hotkeyDir = path.join(repoRoot, 'data', 'hotkey')
+
+        const slv = sinon.fake()
+        const customScript = 'MouseMove, 200, 200, 0\nExitApp\n'
+        const bal = {
+            idx: 'test-custom-stdin',
+            src: customScript,
+            slv,
+        } as any
+
+        const ste = {
+            hunt: sinon.fake.resolves({}),
+        } as any
+
+        await executeHotkey(new HotkeyModel(), bal, ste)
+
+        t.false(
+            fs.existsSync(hotkeyDir),
+            'Directory data/hotkey must not be created for custom scripts',
+        )
+        t.true(slv.calledOnce)
+        const response = slv.firstCall.args[0]
+        t.is(response.htkBit.val, 1)
+        t.is(response.htkBit.dat.mode, 'STDIN_IN_MEMORY')
     },
 )

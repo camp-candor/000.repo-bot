@@ -126,9 +126,6 @@ npm-shrinkwrap.json
 # System
 .ssh
 
-# System
-.ssh
-
 # Env
 .env*
 !.env*.example
@@ -202,8 +199,5 @@ dist/
 .wrangler/
 .mf/
 
-
-
 data/flat
 data/unit
-data/hotkey
