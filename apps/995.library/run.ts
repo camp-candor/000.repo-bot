@@ -41,6 +41,14 @@ const init = async () => {
         import.meta.dirname,
         '../../packages/dist/135.jules',
     )
+    const htkPath = path.resolve(
+        import.meta.dirname,
+        '../../packages/dist/104.hotkey',
+    )
+    const gmnPath = path.resolve(
+        import.meta.dirname,
+        '../../packages/dist/105.gemini',
+    )
     const ghPath = path.resolve(
         import.meta.dirname,
         '../../packages/dist/132.github',
@@ -185,6 +193,62 @@ const init = async () => {
                 throw err
             }
 
+            // Register HOTKEY MENU into the Blessed Menu registry
+            try {
+                const HOTKEY = require(path.join(htkPath, 'hunt'))
+                global.HOTKEY = HOTKEY.default || HOTKEY
+
+                const MENU_ACTION_HOTKEY = require(
+                    path.join(htkPath, '98.menu.unit/menu.action'),
+                )
+
+                await LIBRARY.hunt(MENU_ACTION_LIBRARY.ROUTE_MENU, {
+                    idx: 'HOTKEY MENU',
+                    src: 'Open the Hotkey menu\nto manage hotkey.',
+                    fnc: async () => {
+                        await new Promise<void>((resolve) => {
+                            global.HOTKEY.hunt(MENU_ACTION_HOTKEY.INIT_MENU, {
+                                slv: resolve,
+                            })
+                        })
+                        await LIBRARY.hunt(MENU_ACTION_LIBRARY.OPEN_MENU, {
+                            src: '',
+                        })
+                    },
+                })
+            } catch (err) {
+                console.error(`exec error loading hotkey: ${err}`)
+                throw err
+            }
+
+            // Register GEMINI MENU into the Blessed Menu registry
+            try {
+                const GEMINI = require(path.join(gmnPath, 'hunt'))
+                global.GEMINI = GEMINI.default || GEMINI
+
+                const MENU_ACTION_GEMINI = require(
+                    path.join(gmnPath, '98.menu.unit/menu.action'),
+                )
+
+                await LIBRARY.hunt(MENU_ACTION_LIBRARY.ROUTE_MENU, {
+                    idx: 'GEMINI MENU',
+                    src: 'Open the Gemini menu\nto manage gemini.',
+                    fnc: async () => {
+                        await new Promise<void>((resolve) => {
+                            global.GEMINI.hunt(MENU_ACTION_GEMINI.INIT_MENU, {
+                                slv: resolve,
+                            })
+                        })
+                        await LIBRARY.hunt(MENU_ACTION_LIBRARY.OPEN_MENU, {
+                            src: '',
+                        })
+                    },
+                })
+            } catch (err) {
+                console.error(`exec error loading gemini: ${err}`)
+                throw err
+            }
+
             // Register GITHUB MENU into the Blessed Menu registry
             try {
                 const GITHUB = require(path.join(ghPath, 'hunt'))
@@ -252,12 +316,12 @@ const init = async () => {
     }
 }
 
-// 3. Main Execution Flow: Build library, agent, repobot, cloudflare, jules, github, and slack packages
+// 3. Main Execution Flow: Build library, agent, repobot, cloudflare, jules, hotkey, gemini, github, and slack packages
 const main = async () => {
     try {
         console.log('>> Building TypeScript...')
         var { stdout, stderr } = await exec(
-            'tsc -b 995.library ../../packages/000.agent ../../packages/821.repobot ../../packages/133.cloudflare ../../packages/135.jules ../../packages/132.github ../../packages/924.slack',
+            'tsc -b 995.library ../../packages/000.agent ../../packages/821.repobot ../../packages/133.cloudflare ../../packages/135.jules ../../packages/104.hotkey ../../packages/105.gemini ../../packages/132.github ../../packages/924.slack',
             { cwd: import.meta.dirname },
         )
 
