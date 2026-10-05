@@ -1,7 +1,10 @@
-import repobotBit from './repobot.bit.js'
-
-export default interface repobot {
-    // idx:string;
-    // repobotBitList: repobotBit[];
-    // repobotBits: any;
+export default interface Repobot {
+  idx: string
+  ws: any
+  connectionState: 'DISCONNECTED' | 'CONNECTING' | 'CONNECTED' | 'RECONNECTING'
+  reconnectTimer: any
+  reconnectAttempts: number
+  maxReconnectDelayMs: number
+  lastSeqReceived: number
+  activeBaseUrl: string
 }

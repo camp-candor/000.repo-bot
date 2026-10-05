@@ -70,8 +70,8 @@ export const initMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
 export const updateMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
     const lst = [
         ActRbt.UPDATE_REPOBOT.split(']')[1],
-        ActRbt.TEST_REPOBOT.split(']')[1],
-        ActRbt.LIST_REPOBOT.split(']')[1],
+        ActRbt.CONNECT_REPOBOT.split(']')[1],
+        ActRbt.DISCONNECT_REPOBOT.split(']')[1],
         'ROOT MENU',
     ]
 
@@ -102,35 +102,16 @@ export const updateMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
             bit = await (global as any).LIBRARY.hunt(PRINT_MENU, bit)
             break
 
-        case ActRbt.TEST_REPOBOT.split(']')[1]:
-            bit = await ste.hunt(ActRbt.TEST_REPOBOT, {
+        case ActRbt.CONNECT_REPOBOT.split(']')[1]:
+            bit = await ste.hunt(ActRbt.CONNECT_REPOBOT, {
                 content: 'repobot Menu Selected',
             })
             bit = await (global as any).LIBRARY.hunt(PRINT_MENU, bit)
             break
 
-        case ActRbt.LIST_REPOBOT.split(']')[1]:
-            bit = await ste.hunt(ActRbt.LIST_REPOBOT, {})
-            const modelList = bit.rbtBit?.lst || []
-
-            if (modelList.length === 0) {
-                await (global as any).LIBRARY.hunt(UPDATE_CONSOLE, {
-                    idx: 'cns00',
-                    src: 'No repobot models found',
-                })
-            } else {
-                await (global as any).LIBRARY.hunt(UPDATE_CONSOLE, {
-                    idx: 'cns00',
-                    src: 'Listing repobot models...',
-                })
-                modelList.forEach((a: string) =>
-                    (global as any).LIBRARY.hunt(UPDATE_CONSOLE, {
-                        idx: 'cns00',
-                        src: a,
-                    }),
-                )
-            }
-            await new Promise((resolve) => setTimeout(resolve, 3000))
+        case ActRbt.DISCONNECT_REPOBOT.split(']')[1]:
+            bit = await ste.hunt(ActRbt.DISCONNECT_REPOBOT, {})
+            bit = await (global as any).LIBRARY.hunt(PRINT_MENU, bit)
             break
 
         case 'ROOT MENU':
