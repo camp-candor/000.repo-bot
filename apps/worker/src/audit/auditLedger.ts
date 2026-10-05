@@ -1,4 +1,5 @@
 import { computeGenesisHash, computeRecordHash } from './hashChain.js'
+import { emitEdgeTelemetry } from '../RepoBotDO.js'
 
 export interface AuditEventInput {
     taskId: string
@@ -69,6 +70,7 @@ export async function ensureAuditSchema(db: any): Promise<void> {
 export async function appendAuditEvent(
     db: any,
     event: AuditEventInput,
+    env?: any,
 ): Promise<StoredAuditEvent> {
     await ensureAuditSchema(db)
     const now = Date.now()
@@ -124,6 +126,22 @@ export async function appendAuditEvent(
             now,
         )
         .run()
+
+    // 5. Broadcast live telemetry frame to connected operators
+    if (env) {
+        emitEdgeTelemetry(
+            env,
+            'AUDIT_LOG',
+            'auditLedger',
+            {
+                seq: nextSeq,
+                repo: event.repository,
+                type: event.eventType,
+                hash: recordHash.slice(0, 8),
+            },
+            `>> [AUDIT #${nextSeq}] ${event.eventType} on ${event.repository} (Hash: ${recordHash.slice(0, 8)})`,
+        ).catch(() => {})
+    }
 
     return {
         sequence_id: nextSeq,
