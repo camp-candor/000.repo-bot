@@ -1,6 +1,5 @@
 export default interface Hotkey {
     idx: string
-    defaultScript: string
-    hotkeyDir: string
+    executionMode: string
     lastExecutedScript: string | null
 }

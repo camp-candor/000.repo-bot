@@ -1,5 +1,3 @@
-import fs from 'node:fs'
-import path from 'node:path'
 import * as ActMnu from '../menu.action.js'
 import * as ActHtk from '../../00.hotkey.unit/hotkey.action.js'
 
@@ -21,7 +19,6 @@ const CLOSE_TERMINAL = '[Close action] Close Terminal'
 
 export const initMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
     if (bal?.slv != null) rootSlv = bal.slv
-
     const lib = (globalThis as any).LIBRARY
     if (lib) {
         const bit = await lib.hunt(UPDATE_GRID, {
@@ -38,7 +35,7 @@ export const initMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
         await lib.hunt(UPDATE_CONSOLE, { idx: 'cns00', src: '-----------' })
         await lib.hunt(UPDATE_CONSOLE, {
             idx: 'cns00',
-            src: 'HOTKEY WORKSPACE & AUTOMATION DECK',
+            src: 'HOTKEY WORKSPACE & IN-MEMORY DECK',
         })
         await lib.hunt(UPDATE_CONSOLE, { idx: 'cns00', src: '-----------' })
     }
@@ -52,25 +49,16 @@ export const updateMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
     if (!lib) return cpy
 
     const lst = [
-        'RUN DEFAULT HOTKEY (000..ahk)',
-        'EXECUTE CUSTOM HOTKEY SCRIPT...',
-        'LIST DATA/HOTKEY SCRIPTS',
+        'RUN IN-MEMORY CALIBRATION (CENTER MOUSE)',
+        'EXECUTE CUSTOM IN-MEMORY SCRIPT...',
         'ROOT MENU',
     ]
 
     const descriptions: Record<string, string> = {
-        'RUN DEFAULT HOTKEY (000..ahk)':
-            'Execute 000..ahk from data/hotkey/.\nAuto-creates center mouse test if missing.',
-        'RUN DEFAULT':
-            'Execute 000..ahk from data/hotkey/.\nAuto-creates center mouse test if missing.',
-        'EXECUTE CUSTOM HOTKEY SCRIPT...':
-            'Prompt for script name in data/hotkey/\nand trigger execution.',
-        'EXECUTE CUSTOM':
-            'Prompt for script name in data/hotkey/\nand trigger execution.',
-        'LIST DATA/HOTKEY SCRIPTS':
-            'Scan data/hotkey/ and display all\navailable .ahk files in cns00.',
-        'LIST DATA/HOTKEY':
-            'Scan data/hotkey/ and display all\navailable .ahk files in cns00.',
+        'RUN IN-MEMORY CALIBRATION (CENTER MOUSE)':
+            'Execute screen center calibration\ndirectly via stdin pipe (0 disk files).',
+        'EXECUTE CUSTOM IN-MEMORY SCRIPT...':
+            'Prompt for AHK command string and\npipe directly into runtime.',
         'ROOT MENU': 'Return to the main flight deck.',
     }
 
@@ -99,14 +87,12 @@ export const updateMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
     const src = choiceBit.chcBit.src
 
     switch (src) {
-        case 'RUN DEFAULT HOTKEY (000..ahk)':
-        case 'RUN DEFAULT':
-            await ste.hunt(ActHtk.EXECUTE_HOTKEY, { src: '000..ahk' })
-            await new Promise((r) => setTimeout(r, 1200))
+        case 'RUN IN-MEMORY CALIBRATION (CENTER MOUSE)':
+            await ste.hunt(ActHtk.EXECUTE_HOTKEY, {})
+            await new Promise((r) => setTimeout(r, 1500))
             break
 
-        case 'EXECUTE CUSTOM HOTKEY SCRIPT...':
-        case 'EXECUTE CUSTOM': {
+        case 'EXECUTE CUSTOM IN-MEMORY SCRIPT...': {
             const inputGrid = await lib.hunt(UPDATE_GRID, {
                 x: 0,
                 y: 4,
@@ -117,46 +103,16 @@ export const updateMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
                 dat: { clr0: Color.BLACK, clr1: Color.YELLOW },
                 src: Align.VERTICAL,
                 lst: [],
-                txt: 'Enter Script Name in data/hotkey (e.g. test):',
+                txt: 'Enter raw AutoHotkey command (e.g. MouseMove, 100, 100, 5):',
                 net: inputGrid.grdBit.dat,
             })
 
-            const scriptTarget = inputBit.putBit?.src?.trim() || '000..ahk'
-            await ste.hunt(ActHtk.EXECUTE_HOTKEY, { src: scriptTarget })
-            await new Promise((r) => setTimeout(r, 1200))
-            break
-        }
-
-        case 'LIST DATA/HOTKEY SCRIPTS':
-        case 'LIST DATA/HOTKEY': {
-            let current = process.cwd()
-            while (current && current !== path.dirname(current)) {
-                if (fs.existsSync(path.join(current, 'package.json'))) break
-                current = path.dirname(current)
+            const rawScript = inputBit.putBit?.src?.trim()
+            if (rawScript) {
+                const wrappedScript = `${rawScript}\nExitApp\n`
+                await ste.hunt(ActHtk.EXECUTE_HOTKEY, { src: wrappedScript })
+                await new Promise((r) => setTimeout(r, 1500))
             }
-            const hotkeyPath = path.join(current, 'data', 'hotkey')
-
-            if (fs.existsSync(hotkeyPath)) {
-                const files = fs
-                    .readdirSync(hotkeyPath)
-                    .filter((f) => f.endsWith('.ahk'))
-                await lib.hunt(UPDATE_CONSOLE, {
-                    idx: 'cns00',
-                    src: `>> Found ${files.length} script(s) in data/hotkey/:`,
-                })
-                files.forEach((f) =>
-                    lib.hunt(UPDATE_CONSOLE, {
-                        idx: 'cns00',
-                        src: `   - ${f}`,
-                    }),
-                )
-            } else {
-                await lib.hunt(UPDATE_CONSOLE, {
-                    idx: 'cns00',
-                    src: '>> data/hotkey/ does not exist yet.',
-                })
-            }
-            await new Promise((r) => setTimeout(r, 2000))
             break
         }
 

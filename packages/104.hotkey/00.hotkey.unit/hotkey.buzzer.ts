@@ -1,7 +1,1 @@
-export {
-    initHotkey,
-    updateHotkey,
-    executeHotkey,
-    testHotkey,
-    listHotkey,
-} from './buz/hotkey.buzz.js'
+export { initHotkey, updateHotkey, executeHotkey } from './buz/hotkey.buzz.js'
