@@ -2,8 +2,7 @@ import { describe, it, expect, vi } from 'vitest'
 import {
     initRepobot,
     updateRepobot,
-    testRepobot,
-    listRepobot,
+    connectRepobot,
     disconnectRepobot,
 } from './buz/repobot.buzz.js'
 import { RepobotModel } from './repobot.model.js'
@@ -19,7 +18,7 @@ describe('repobot unit', () => {
 
         const result = initRepobot(model, bal, state)
         expect(result).toBe(model)
-        expect(slv).toHaveBeenCalledWith({ intBit: { idx: 'init-repobot' } })
+        expect(slv).toHaveBeenCalledWith({ rbtBit: { idx: 'init-repobot', val: 1 } })
     })
 
     it('should update repobot', () => {
@@ -30,79 +29,34 @@ describe('repobot unit', () => {
 
         const result = updateRepobot(model, bal, state)
         expect(result).toBe(model)
-        expect(slv).toHaveBeenCalledWith({ intBit: { idx: 'update-repobot' } })
+        expect(slv).toHaveBeenCalledWith({ rbtBit: { idx: 'update-repobot', val: 1 } })
     })
 
-    it('should test repobot by fetching commit and check runs from worker', async () => {
+    it('should connect repobot', async () => {
         const model = new RepobotModel()
         const state = {} as any
         const slv = vi.fn()
-        const bal = { idx: 'test-ping', slv } as any
+        const bal = { idx: 'connect', slv } as any
 
-        const mockInspectData = {
-            commit: {
-                sha: '1234567890abcdef',
-                message: 'feat: add repobot',
-                author: 'Brad Henderson',
-                timestamp: '2026-09-21T21:00:00Z',
-            },
-            checks: {
-                all_passed: true,
-                total_count: 1,
-                status: 'completed',
-                runs: [
-                    {
-                        name: 'test',
-                        status: 'completed',
-                        conclusion: 'success',
-                        details_url: 'https://github.com/ci/1',
-                    },
-                ],
-            },
-        }
-
-        const globalFetch = vi.spyOn(global, 'fetch').mockImplementation(() =>
-            Promise.resolve({
-                ok: true,
-                json: async () => mockInspectData,
-            } as any),
-        )
-
-        const result = await testRepobot(model, bal, state)
+        const result = await connectRepobot(model, bal, state)
         expect(result).toBe(model)
+        expect(result.connectionState).toBe('CONNECTING')
         expect(slv).toHaveBeenCalledWith({
-            mytBit: { idx: 'test-repobot', val: 1, dat: mockInspectData },
-        })
-
-        globalFetch.mockRestore()
-    })
-
-    it('should list repobot models', async () => {
-        const model = new RepobotModel()
-        const state = {} as any
-        const slv = vi.fn()
-        const bal = { idx: 'list-all', slv } as any
-
-        const result = await listRepobot(model, bal, state)
-        expect(result).toBe(model)
-        expect(slv).toHaveBeenCalledWith({
-            olmBit: {
-                idx: 'list-repobot',
-                lst: [],
-            },
+            rbtBit: { idx: 'connect-repobot', val: 1 },
         })
     })
 
-    it('should disconnect repobot', () => {
+    it('should disconnect repobot', async () => {
         const model = new RepobotModel()
         const state = {} as any
         const slv = vi.fn()
         const bal = { idx: 'disconnect', slv } as any
 
-        const result = disconnectRepobot(model, bal, state)
+        const result = await disconnectRepobot(model, bal, state)
         expect(result).toBe(model)
+        expect(result.connectionState).toBe('DISCONNECTED')
         expect(slv).toHaveBeenCalledWith({
-            olmBit: { idx: 'disconnect-repobot', lst: [] },
+            rbtBit: { idx: 'disconnect-repobot', val: 1 },
         })
     })
 })
