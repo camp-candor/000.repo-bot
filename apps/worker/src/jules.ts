@@ -296,7 +296,7 @@ export async function pollActiveJulesSessions(env: Env): Promise<void> {
         "SELECT * FROM jules_sessions WHERE status NOT IN ('COMPLETED', 'FAILED') LIMIT 25",
     ).all()
 
-    const activeSessions = (results || []) as StoredJulesSession[]
+    const activeSessions = (results || []) as unknown as StoredJulesSession[]
     if (activeSessions.length === 0) return
 
     for (const item of activeSessions) {

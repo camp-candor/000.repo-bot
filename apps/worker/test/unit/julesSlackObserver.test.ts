@@ -37,7 +37,7 @@ describe('Jules Slack Observer Card Colors & Button Architecture', () => {
         expect(card!.attachments).toBeDefined()
         expect(card!.attachments[0].color).toBe('#2EB886')
 
-        const actionBlock = card.attachments[0].blocks.find(
+        const actionBlock = card!.attachments[0].blocks.find(
             (b: any) => b.type === 'actions',
         )
         expect(actionBlock).toBeDefined()
@@ -95,7 +95,7 @@ describe('Jules Slack Observer Card Colors & Button Architecture', () => {
 
         expect(card).not.toBeNull()
         expect(card!.attachments[0].color).toBe('#ECB22E')
-        const actionBlock = card.attachments[0].blocks.find(
+        const actionBlock = card!.attachments[0].blocks.find(
             (b: any) => b.type === 'actions',
         )
         const sessionButton = actionBlock.elements.find((el: any) =>
