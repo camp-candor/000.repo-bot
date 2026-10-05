@@ -1,6 +1,8 @@
 export default interface MenuBit {
-    idx: string
-    src?: string
-    lst?: any
-    slv?: Function
+  idx?: string
+  src?: string
+  lst?: any[]
+  val?: number
+  dat?: any
+  slv?: (val?: any) => void
 }
