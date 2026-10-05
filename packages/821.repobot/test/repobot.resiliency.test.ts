@@ -1,205 +1,188 @@
-import test from 'ava'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { RepobotModel } from '../00.repobot.unit/repobot.model.js'
 import {
-  connectRepobot,
-  disconnectRepobot,
+    connectRepobot,
+    disconnectRepobot,
 } from '../00.repobot.unit/buz/repobot.buzz.js'
 
 class MockResilientWebSocket {
-  public onopen: (() => void) | null = null
-  public onmessage: ((event: any) => void) | null = null
-  public onclose: ((event: any) => void) | null = null
-  public onerror: ((event: any) => void) | null = null
-  public closedCode: number | null = null
-  public closedReason: string | null = null
+    public onopen: (() => void) | null = null
+    public onmessage: ((event: any) => void | Promise<void>) | null = null
+    public onclose: ((event: any) => void | Promise<void>) | null = null
+    public onerror: ((event: any) => void | Promise<void>) | null = null
+    public closedCode: number | null = null
+    public closedReason: string | null = null
 
-  constructor(public url: string) {
-    setTimeout(() => {
-      if (this.onopen) this.onopen()
-    }, 10)
-  }
-
-  close(code = 1000, reason = '') {
-    this.closedCode = code
-    this.closedReason = reason
-    if (this.onclose) {
-      this.onclose({ code, reason })
+    constructor(public url: string) {
+        setTimeout(() => {
+            if (this.onopen) this.onopen()
+        }, 10)
     }
-  }
+
+    async close(code = 1000, reason = '') {
+        this.closedCode = code
+        this.closedReason = reason
+        if (this.onclose) {
+            await this.onclose({ code, reason })
+        }
+    }
 }
 
-test.before(() => {
-  ;(globalThis as any).WebSocket = MockResilientWebSocket
+describe('TASK-23.7: Repobot Telemetry Resiliency & Negative Controls', () => {
+    beforeEach(() => {
+        ;(globalThis as any).WebSocket = MockResilientWebSocket
+    })
+
+    afterEach(() => {
+        delete (globalThis as any).WebSocket
+    })
+
+    it('NEGATIVE CONTROL: detects frame drop and warns cns00 on sequence gap', async () => {
+        const model = new RepobotModel()
+        const consoleLogs: string[] = []
+        const ste = {
+            hunt: async (_act: string, bale: any) => {
+                if (bale?.src) consoleLogs.push(bale.src)
+                return {}
+            },
+        } as any
+
+        await connectRepobot(model, {}, ste)
+        await new Promise((r) => setTimeout(r, 20))
+
+        const ws = model.ws as MockResilientWebSocket
+        expect(ws).toBeTruthy()
+
+        // Receive initial seq 1
+        await ws.onmessage!({
+            data: JSON.stringify({ seq: 1, ascii: '>> [TELEMETRY] Init' }),
+        })
+        expect(model.lastSeqReceived).toBe(1)
+
+        // Receive jump to seq 6 (dropped 2, 3, 4, 5 -> total 4 dropped)
+        await ws.onmessage!({
+            data: JSON.stringify({ seq: 6, ascii: '>> [TELEMETRY] Jumped' }),
+        })
+        expect(model.lastSeqReceived).toBe(6)
+
+        const warnLog = consoleLogs.find((msg) =>
+            msg.includes('Dropped 4 telemetry frame(s) during transit.'),
+        )
+        expect(warnLog).toBeTruthy()
+    })
+
+    it('NEGATIVE CONTROL: rejects duplicate connection attempts idempotently', async () => {
+        const model = new RepobotModel()
+        const consoleLogs: string[] = []
+        const ste = {
+            hunt: async (_act: string, bale: any) => {
+                if (bale?.src) consoleLogs.push(bale.src)
+                return {}
+            },
+        } as any
+
+        await connectRepobot(model, {}, ste)
+        await new Promise((r) => setTimeout(r, 20))
+        expect(model.connectionState).toBe('CONNECTED')
+        const firstSocket = model.ws
+
+        // Redundant connect attempt
+        let noopResolved = false
+        await connectRepobot(
+            model,
+            {
+                slv: (res: any) => {
+                    if (res?.rbtBit?.idx === 'connect-repobot-noop')
+                        noopResolved = true
+                },
+            },
+            ste,
+        )
+
+        expect(model.ws).toBe(firstSocket)
+        expect(noopResolved).toBe(true)
+        expect(
+            consoleLogs.some((l) =>
+                l.includes('Connection already active. Skipping re-connect.'),
+            ),
+        ).toBe(true)
+    })
+
+    it('NEGATIVE CONTROL: schedules exponential backoff on unexpected socket close', async () => {
+        const model = new RepobotModel()
+        const ste = {
+            hunt: async () => ({}),
+        } as any
+
+        await connectRepobot(model, {}, ste)
+        await new Promise((r) => setTimeout(r, 20))
+
+        const ws = model.ws as MockResilientWebSocket
+        // Simulate drop
+        await ws.close(1006, 'Abnormal TCP Closure')
+
+        expect(model.connectionState).toBe('RECONNECTING')
+        expect(model.ws).toBeNull()
+        expect(model.reconnectAttempts).toBe(1)
+        expect(model.reconnectTimer).toBeTruthy()
+
+        // Clean up timer to prevent leak
+        clearTimeout(model.reconnectTimer)
+        model.reconnectTimer = null
+    })
+
+    it('NEGATIVE CONTROL: disconnectRepobot purges active timer and closes cleanly', async () => {
+        const model = new RepobotModel()
+        const ste = { hunt: async () => ({}) } as any
+
+        await connectRepobot(model, {}, ste)
+        await new Promise((r) => setTimeout(r, 20))
+
+        // Arm synthetic reconnect timer
+        model.reconnectTimer = setTimeout(() => {}, 15000)
+        model.reconnectAttempts = 3
+
+        let disconnectedBit = false
+        await disconnectRepobot(
+            model,
+            {
+                slv: (res: any) => {
+                    if (res?.rbtBit?.idx === 'disconnect-repobot-success')
+                        disconnectedBit = true
+                },
+            },
+            ste,
+        )
+
+        expect(model.connectionState).toBe('DISCONNECTED')
+        expect(model.ws).toBeNull()
+        expect(model.reconnectTimer).toBeNull()
+        expect(model.reconnectAttempts).toBe(0)
+        expect(disconnectedBit).toBe(true)
+    })
+
+    it('NEGATIVE CONTROL: handles non-JSON payload over socket without throwing', async () => {
+        const model = new RepobotModel()
+        const consoleLogs: string[] = []
+        const ste = {
+            hunt: async (_act: string, bale: any) => {
+                if (bale?.src) consoleLogs.push(bale.src)
+                return {}
+            },
+        } as any
+
+        await connectRepobot(model, {}, ste)
+        await new Promise((r) => setTimeout(r, 20))
+
+        const ws = model.ws as MockResilientWebSocket
+        // Ingest invalid JSON
+        expect(() => {
+            ws.onmessage!({ data: '<<< MALFORMED TEXT BUFFER NOT JSON >>>' })
+        }).not.toThrow()
+
+        const parseErrorLog = consoleLogs.find((l) =>
+            l.includes('[PARSE ERROR]'),
+        )
+        expect(parseErrorLog).toBeTruthy()
+    })
 })
-
-test.after(() => {
-  delete (globalThis as any).WebSocket
-})
-
-test.serial(
-  'NEGATIVE CONTROL: detects frame drop and warns cns00 on sequence gap',
-  async (t) => {
-    const model = new RepobotModel()
-    const consoleLogs: string[] = []
-    const ste = {
-      hunt: async (_act: string, bale: any) => {
-        if (bale?.src) consoleLogs.push(bale.src)
-        return {}
-      },
-    } as any
-
-    await connectRepobot(model, {}, ste)
-    await new Promise((r) => setTimeout(r, 20))
-
-    const ws = model.ws as MockResilientWebSocket
-    t.truthy(ws)
-
-    // Receive initial seq 1
-    await ws.onmessage!({
-      data: JSON.stringify({ seq: 1, ascii: '>> [TELEMETRY] Init' }),
-    })
-    t.is(model.lastSeqReceived, 1)
-
-    // Receive jump to seq 6 (dropped 2, 3, 4, 5 -> total 4 dropped)
-    await ws.onmessage!({
-      data: JSON.stringify({ seq: 6, ascii: '>> [TELEMETRY] Jumped' }),
-    })
-    t.is(model.lastSeqReceived, 6)
-
-    const warnLog = consoleLogs.find((msg) =>
-      msg.includes('Dropped 4 telemetry frame(s) during transit.'),
-    )
-    t.truthy(warnLog, 'Must emit drop warning for missing sequence delta')
-  },
-)
-
-test.serial(
-  'NEGATIVE CONTROL: rejects duplicate connection attempts idempotently',
-  async (t) => {
-    const model = new RepobotModel()
-    const consoleLogs: string[] = []
-    const ste = {
-      hunt: async (_act: string, bale: any) => {
-        if (bale?.src) consoleLogs.push(bale.src)
-        return {}
-      },
-    } as any
-
-    await connectRepobot(model, {}, ste)
-    await new Promise((r) => setTimeout(r, 20))
-    t.is(model.connectionState, 'CONNECTED')
-    const firstSocket = model.ws
-
-    // Redundant connect attempt
-    let noopResolved = false
-    await connectRepobot(
-      model,
-      {
-        slv: (res: any) => {
-          if (res?.rbtBit?.idx === 'connect-repobot-noop') noopResolved = true
-        },
-      },
-      ste,
-    )
-
-    t.is(model.ws, firstSocket, 'Must not replace active socket handle')
-    t.true(noopResolved, 'Must resolve with connect-repobot-noop bit')
-    t.true(
-      consoleLogs.some((l) =>
-        l.includes('Connection already active. Skipping re-connect.'),
-      ),
-    )
-  },
-)
-
-test.serial(
-  'NEGATIVE CONTROL: schedules exponential backoff on unexpected socket close',
-  async (t) => {
-    const model = new RepobotModel()
-    const consoleLogs: string[] = []
-    const ste = {
-      hunt: async (_act: string, bale: any) => {
-        if (bale?.src) consoleLogs.push(bale.src)
-        return {}
-      },
-    } as any
-
-    await connectRepobot(model, {}, ste)
-    await new Promise((r) => setTimeout(r, 20))
-
-    const ws = model.ws as MockResilientWebSocket
-    // Simulate drop
-    await ws.onclose!({ code: 1006, reason: 'Abnormal TCP Closure' })
-
-    t.is(model.connectionState, 'RECONNECTING')
-    t.is(model.ws, null)
-    t.is(model.reconnectAttempts, 1)
-    t.truthy(model.reconnectTimer, 'Reconnect timer must be scheduled')
-
-    // Clean up timer to prevent leak
-    clearTimeout(model.reconnectTimer)
-    model.reconnectTimer = null
-  },
-)
-
-test.serial(
-  'NEGATIVE CONTROL: disconnectRepobot purges active timer and closes cleanly',
-  async (t) => {
-    const model = new RepobotModel()
-    const ste = { hunt: async () => ({}) } as any
-
-    await connectRepobot(model, {}, ste)
-    await new Promise((r) => setTimeout(r, 20))
-
-    // Arm synthetic reconnect timer
-    model.reconnectTimer = setTimeout(() => {}, 15000)
-    model.reconnectAttempts = 3
-
-    let disconnectedBit = false
-    await disconnectRepobot(
-      model,
-      {
-        slv: (res: any) => {
-          if (res?.rbtBit?.idx === 'disconnect-repobot-success')
-            disconnectedBit = true
-        },
-      },
-      ste,
-    )
-
-    t.is(model.connectionState, 'DISCONNECTED')
-    t.is(model.ws, null)
-    t.is(model.reconnectTimer, null, 'Must nullify timer')
-    t.is(model.reconnectAttempts, 0, 'Must reset attempts')
-    t.true(disconnectedBit)
-  },
-)
-
-test.serial(
-  'NEGATIVE CONTROL: handles non-JSON payload over socket without throwing',
-  async (t) => {
-    const model = new RepobotModel()
-    const consoleLogs: string[] = []
-    const ste = {
-      hunt: async (_act: string, bale: any) => {
-        if (bale?.src) consoleLogs.push(bale.src)
-        return {}
-      },
-    } as any
-
-    await connectRepobot(model, {}, ste)
-    await new Promise((r) => setTimeout(r, 20))
-
-    const ws = model.ws as MockResilientWebSocket
-    // Ingest invalid JSON
-    await t.notThrowsAsync(async () => {
-      await ws.onmessage!({ data: '<<< MALFORMED TEXT BUFFER NOT JSON >>>' } as any)
-    })
-
-    const parseErrorLog = consoleLogs.find((l) => l.includes('[PARSE ERROR]'))
-    t.truthy(
-      parseErrorLog,
-      'Must report parse error to cns00 without fatal throw',
-    )
-  },
-)
