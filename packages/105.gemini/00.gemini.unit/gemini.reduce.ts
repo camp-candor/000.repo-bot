@@ -23,7 +23,7 @@ export function reducer(
             return Buzz.listGemini(clone(model), act.bale, state)
 
         case Act.OPEN_GEMINI:
-            return Buzz.openGemini(clone(model), act.bale, state)
+            return Buzz.openGemini(clone(model), act.bale, state!)
 
         default:
             return model
