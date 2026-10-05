@@ -1,8 +1,13 @@
-export default interface repobotBit {
-    idx: string
-    val?: number
-    dat?: any
-    lst?: any
+export default interface RepobotBit {
+    idx?: string
     src?: string
-    slv?: Function
+    val?: number
+    dat?: {
+        url?: string
+        timeoutMs?: number
+        filterRepo?: string
+        mode?: string
+        [key: string]: any
+    }
+    slv?: (val?: any) => void
 }

@@ -1,148 +1,32 @@
-import { RepobotModel } from '../repobot.model.js'
-import repobotBit from '../fce/repobot.bit.js'
-import State from '../../99.core/state.js'
+import type { RepobotModel } from '../repobot.model.js'
+import type RepobotBit from '../fce/repobot.bit.js'
+import type State from '../../99.core/state.js'
 
-export const getBaseUrl = (): string => {
-    return (
-        (global as any).agentBaseUrl ||
-        (global as any).repobotBaseUrl ||
-        process.env.LIVE_WORKER_URL ||
-        process.env.WORKER_URL ||
-        'https://repo-bot-00.berad4000.workers.dev'
-    ).replace(/\/$/, '')
-}
-
-const repobot = {
-    list: async () => ({ models: [] as any[] }),
-}
-
-export const initRepobot = (cpy: RepobotModel, bal: repobotBit, ste: State) => {
-    if (bal.slv != null) bal.slv({ intBit: { idx: 'init-repobot' } })
+export const initRepobot = (
+    cpy: RepobotModel,
+    bal?: RepobotBit,
+    _ste?: State,
+): RepobotModel => {
+    if (bal?.slv) bal.slv({ rbtBit: { idx: 'init-repobot', val: 1 } })
     return cpy
 }
 
 export const updateRepobot = (
     cpy: RepobotModel,
-    bal: repobotBit,
-    ste: State,
-) => {
-    if (bal.slv != null) bal.slv({ intBit: { idx: 'update-repobot' } })
+    bal?: RepobotBit,
+    _ste?: State,
+): RepobotModel => {
+    if (bal?.slv) bal.slv({ rbtBit: { idx: 'update-repobot', val: 1 } })
     return cpy
 }
 
-export const testRepobot = async (
+export const connectRepobot = async (
     cpy: RepobotModel,
-    bal: repobotBit,
-    ste: State,
-) => {
-    const owner = 'camp-candor'
-    const repo = '000.repo-bot'
-    const baseUrl = getBaseUrl()
-
-    const endpoint = `${baseUrl}/repobot/inspect?owner=${encodeURIComponent(owner)}&repo=${encodeURIComponent(repo)}`
-
-    try {
-        // @ts-ignore
-        if (global.LIBRARY) {
-            // @ts-ignore
-            await global.LIBRARY.hunt('[Console action] Update Console', {
-                idx: 'cns00',
-                src: `>> [AI GATEWAY] Querying AI Agent Worker via Cloudflare AI Gateway...`,
-            })
-        }
-
-        const res = await fetch(endpoint)
-        if (!res.ok) {
-            const errText = await res.text()
-            throw new Error(`Worker HTTP ${res.status}: ${errText}`)
-        }
-
-        const inspectData = await res.json()
-
-        // @ts-ignore
-        if (global.LIBRARY) {
-            const formatted = JSON.stringify(inspectData, null, 2)
-                .split('\n')
-                .map((line: string) => `   ${line}`)
-                .join('\n')
-
-            // @ts-ignore
-            await global.LIBRARY.hunt('[Console action] Update Console', {
-                idx: 'cns00',
-                src: '>> ==================================================',
-            })
-            // @ts-ignore
-            await global.LIBRARY.hunt('[Console action] Update Console', {
-                idx: 'cns00',
-                src: `>> [AI GATEWAY RECEIPT] Status: ${inspectData?.checks?.all_passed ? 'ALL PASSED' : 'CHECKS PENDING/FAILED'}`,
-            })
-            // @ts-ignore
-            await global.LIBRARY.hunt('[Console action] Update Console', {
-                idx: 'cns00',
-                src: formatted,
-            })
-            // @ts-ignore
-            await global.LIBRARY.hunt('[Console action] Update Console', {
-                idx: 'cns00',
-                src: '>> ==================================================',
-            })
-        }
-
-        if (bal.slv != null) {
-            bal.slv({
-                mytBit: {
-                    idx: 'test-repobot',
-                    val: 1,
-                    dat: inspectData,
-                },
-            })
-        }
-    } catch (err: any) {
-        // @ts-ignore
-        if (global.LIBRARY) {
-            // @ts-ignore
-            await global.LIBRARY.hunt('[Console action] Update Console', {
-                idx: 'cns00',
-                src: `>> [INSPECT ERROR] ${err.message}`,
-            })
-        }
-
-        if (bal.slv != null) {
-            bal.slv({
-                mytBit: {
-                    idx: 'test-repobot-err',
-                    val: 0,
-                    dat: { error: err.message },
-                },
-            })
-        }
-    }
-
-    return cpy
-}
-
-export const listRepobot = async (
-    cpy: RepobotModel,
-    bal: repobotBit,
-    ste: State,
-) => {
-    const response = await repobot.list()
-    if (bal.slv != null)
-        bal.slv({
-            olmBit: {
-                idx: 'list-repobot',
-                lst: response.models.map((m: any) => m.name),
-            },
-        })
-    return cpy
-}
-
-export const connectRepobot = (
-    cpy: RepobotModel,
-    bal: repobotBit,
-    ste: State,
-) => {
-    const isLocal = bal.src === 'LOCAL'
+    bal?: RepobotBit,
+    _ste?: State,
+): Promise<RepobotModel> => {
+    cpy.connectionState = 'CONNECTING'
+    const isLocal = bal?.src === 'LOCAL'
     const wsUrl = isLocal
         ? 'ws://localhost:8787/ws'
         : 'wss://worker-agent.berad4000.workers.dev/ws'
@@ -155,6 +39,7 @@ export const connectRepobot = (
 
     // @ts-ignore
     const ws = new WebSocket(wsUrl)
+    cpy.ws = ws
 
     // @ts-ignore
     global.repobotWs = ws
@@ -204,17 +89,28 @@ export const connectRepobot = (
         }
     }
 
-    if (bal.slv != null)
-        bal.slv({ olmBit: { idx: 'connect-repobot', lst: [] } })
-
+    if (bal?.slv) bal.slv({ rbtBit: { idx: 'connect-repobot', val: 1 } })
     return cpy
 }
 
-export const disconnectRepobot = (
+export const disconnectRepobot = async (
     cpy: RepobotModel,
-    bal: repobotBit,
-    ste: State,
-) => {
+    bal?: RepobotBit,
+    _ste?: State,
+): Promise<RepobotModel> => {
+    if (cpy.reconnectTimer) {
+        clearTimeout(cpy.reconnectTimer)
+        cpy.reconnectTimer = null
+    }
+    cpy.connectionState = 'DISCONNECTED'
+    cpy.reconnectAttempts = 0
+    if (cpy.ws) {
+        try {
+            cpy.ws.close(1000, 'Disconnect requested')
+        } catch {}
+        cpy.ws = null
+    }
+
     // @ts-ignore
     if (global.repobotWs) {
         // @ts-ignore
@@ -240,8 +136,6 @@ export const disconnectRepobot = (
         })
     }
 
-    if (bal.slv != null)
-        bal.slv({ olmBit: { idx: 'disconnect-repobot', lst: [] } })
-
+    if (bal?.slv) bal.slv({ rbtBit: { idx: 'disconnect-repobot', val: 1 } })
     return cpy
 }
