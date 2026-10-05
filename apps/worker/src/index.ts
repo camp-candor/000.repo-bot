@@ -1,3 +1,4 @@
+import { emitEdgeTelemetry } from './RepoBotDO.js'
 import { ensureAuditSchema } from './audit/auditLedger.js'
 import { appendAuditEvent } from './audit/auditLedger.js'
 import { executeColdDrainage } from './audit/drainageEngine.js'
@@ -72,21 +73,25 @@ const handleGitHubWebhook = async (c: any) => {
     // Inside handleGitHubWebhook, record the audit entry on pull_request events:
     if (githubEvent === 'pull_request' && payload.action) {
         c.executionCtx.waitUntil(
-            appendAuditEvent(c.env.DB, {
-                taskId:
-                    payload.pull_request?.head?.ref ||
-                    `PR-${payload.pull_request?.number}`,
-                repository: payload.repository?.full_name || 'unknown',
-                eventType: `PR_${payload.action.toUpperCase()}`,
-                actorId: payload.sender?.login || 'unknown',
-                headSha: payload.pull_request?.head?.sha || 'unknown',
-                payload: {
-                    action: payload.action,
-                    number: payload.pull_request?.number,
-                    title: payload.pull_request?.title,
-                    merged: payload.pull_request?.merged || false,
+            appendAuditEvent(
+                c.env.DB,
+                {
+                    taskId:
+                        payload.pull_request?.head?.ref ||
+                        `PR-${payload.pull_request?.number}`,
+                    repository: payload.repository?.full_name || 'unknown',
+                    eventType: `PR_${payload.action.toUpperCase()}`,
+                    actorId: payload.sender?.login || 'unknown',
+                    headSha: payload.pull_request?.head?.sha || 'unknown',
+                    payload: {
+                        action: payload.action,
+                        number: payload.pull_request?.number,
+                        title: payload.pull_request?.title,
+                        merged: payload.pull_request?.merged || false,
+                    },
                 },
-            }).catch((err) => console.error('[AUDIT_LEDGER_ERROR]', err)),
+                c.env,
+            ).catch((err) => console.error('[AUDIT_LEDGER_ERROR]', err)),
         )
     }
 
@@ -103,6 +108,20 @@ const handleGitHubWebhook = async (c: any) => {
             payload.pusher?.name || payload.sender?.login || 'unknown'
         const headCommit = payload.head_commit
         const headCommitSha = headCommit.id || headCommit.sha || ''
+
+        emitEdgeTelemetry(
+            c.env,
+            'PR_EVENT',
+            'githubWebhook',
+            {
+                repo,
+                branch,
+                sha: headCommitSha.slice(0, 7),
+                pusher,
+            },
+            `>> [PUSH] ${pusher} pushed ${headCommitSha.slice(0, 7)} to ${repo}@${branch}`,
+        ).catch(() => {})
+
         const commitMessage = headCommit.message || ''
         const commitUrl = `https://github.com/${repo}/commit/${headCommitSha}`
 
@@ -250,6 +269,19 @@ const handleGitHubWebhook = async (c: any) => {
             /^spec\/([a-zA-Z0-9._-]+?)(-[a-f0-9]{7,40})?$/,
         )
         const taskId = specMatch ? specMatch[1] : `PR-${pullNumber}`
+        emitEdgeTelemetry(
+            c.env,
+            'PR_EVENT',
+            'githubWebhook',
+            {
+                taskId,
+                pullNumber,
+                mergeCommitSha: mergeCommitSha.slice(0, 7),
+                actor: mergedBy,
+                repo: `${owner}/${repo}`,
+            },
+            `>> [MERGE] PR #${pullNumber} merged into ${baseRef} (${taskId}) by ${mergedBy} [OK]`,
+        ).catch(() => {})
 
         let mergeDirective: string | null = null
         if (c.env.REPO_BOT_DO && headRef) {

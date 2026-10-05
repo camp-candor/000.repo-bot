@@ -1,3 +1,4 @@
+import { emitEdgeTelemetry } from './RepoBotDO.js'
 import { classifyDiffRisk, type DiffRiskResult } from './policyRouter.js'
 import { extractTaskIdFromBranch } from './qualityResult.js'
 import { handleCheckRunEvent } from './qualityResult.js'
@@ -396,6 +397,23 @@ export async function auditPullRequest(
             )
         }
     }
+
+    // 11. Broadcast PR Scope Check Telemetry to Operators
+    emitEdgeTelemetry(
+        env,
+        'PR_EVENT',
+        'prAuditEngine',
+        {
+            pullNumber,
+            passed,
+            violationsCount: violations.length,
+            sha: headSha.slice(0, 7),
+            filesCount: files.length,
+        },
+        passed
+            ? `>> [SCOPE CHECK OK] PR #${pullNumber}@${headSha.slice(0, 7)}: ${files.length} file(s) whitelisted.`
+            : `>> [SCOPE VIOLATION] PR #${pullNumber}@${headSha.slice(0, 7)}: ${violations[0]}`,
+    ).catch(() => {})
 
     return {
         passed,
