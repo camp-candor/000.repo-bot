@@ -397,6 +397,15 @@ describe('GitHub Webhook Merged PR Jules Card Suppression', () => {
             SLACK_CHANNEL_ID: 'C0C40FMRQ9H', // #ops-bridge
             SLACK_ASK_JULES_CHANNEL_ID: 'C0C4M8K7LV8', // #ask-jules
             SLACK_JULES_CHANNEL_ID: 'C0C4CK27LA1', // #jules-winnfield
+
+            DB: {
+                prepare: vi.fn().mockReturnValue({
+                    bind: vi.fn().mockReturnThis(),
+                    first: vi.fn().mockResolvedValue(null),
+                    run: vi.fn().mockResolvedValue({ success: true }),
+                }),
+                exec: vi.fn().mockResolvedValue(undefined),
+            },
             REPO_BOT_DO: {
                 idFromName: () => 'mock-id',
                 get: () => ({
@@ -745,6 +754,15 @@ describe('Directive Indicator on Jules Slack Cards & Storage Association', () =>
         )
         const envWithDO = {
             ...mockEnv,
+
+            DB: {
+                prepare: vi.fn().mockReturnValue({
+                    bind: vi.fn().mockReturnThis(),
+                    first: vi.fn().mockResolvedValue(null),
+                    run: vi.fn().mockResolvedValue({ success: true }),
+                }),
+                exec: vi.fn().mockResolvedValue(undefined),
+            },
             REPO_BOT_DO: {
                 idFromName: vi.fn().mockReturnValue('mock-id'),
                 get: vi.fn().mockReturnValue({ fetch: mockStubFetch }),

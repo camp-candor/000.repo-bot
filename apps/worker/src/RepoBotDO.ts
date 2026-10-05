@@ -97,6 +97,42 @@ export function parseRepoIdentifier(
     return { owner, repo, id, url }
 }
 
+/**
+ * Utility for edge subsystems to broadcast telemetry to connected operators.
+ * Non-blocking, fails safe if REPO_BOT_DO is unconfigured or unreachable.
+ */
+export async function emitEdgeTelemetry(
+    env: any,
+    type: TelemetryPacket['type'],
+    source: string,
+    payload: any,
+    asciiMsg: string,
+): Promise<void> {
+    if (!env?.REPO_BOT_DO) return
+    try {
+        const id = env.REPO_BOT_DO.idFromName('global')
+        const stub = env.REPO_BOT_DO.get(id)
+        if (typeof stub.broadcastTelemetry === 'function') {
+            await stub.broadcastTelemetry(type, source, payload, asciiMsg)
+        } else {
+            await stub.fetch(
+                new Request('https://internal/broadcast', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        type,
+                        source,
+                        payload,
+                        ascii: asciiMsg,
+                    }),
+                }),
+            )
+        }
+    } catch (err: any) {
+        console.warn('[TELEMETRY_EMIT_WARN]', err.message)
+    }
+}
+
 export class RepoBotDO extends DurableObject<Env> {
     private telemetrySeq = 0
 
@@ -235,6 +271,20 @@ export class RepoBotDO extends DurableObject<Env> {
                 server.send(JSON.stringify(initPacket))
             } catch {}
             return new Response(null, { status: 101, webSocket: client })
+        }
+
+        // 0.4 POST /broadcast (Internal Subsystem Ingress)
+        if (request.method === 'POST' && path === '/broadcast') {
+            const body: any = await request.json().catch(() => null)
+            if (body && body.type && body.ascii) {
+                await this.broadcastTelemetry(
+                    body.type,
+                    body.source || 'edgeSubsystem',
+                    body.payload || {},
+                    body.ascii,
+                )
+            }
+            return Response.json({ ok: true })
         }
 
         // 0. GET /api/slack/status

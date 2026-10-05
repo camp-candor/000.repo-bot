@@ -1,3 +1,4 @@
+import { emitEdgeTelemetry } from './RepoBotDO.js'
 import type { Context } from 'hono'
 import { githubRequest, type Env } from './tools.js'
 import {
@@ -322,6 +323,18 @@ export async function pollActiveJulesSessions(env: Env): Promise<void> {
                 currentState === 'PAUSED'
 
             if (needsUserInput && item.last_status !== currentState) {
+                emitEdgeTelemetry(
+                    env,
+                    'JULES_EVENT',
+                    'julesPoller',
+                    {
+                        sessionId: item.session_id,
+                        repo: item.repo,
+                        status: currentState,
+                    },
+                    `>> [JULES] Session ${item.session_id.slice(0, 10)} requires operator input in #ask-jules`,
+                ).catch(() => {})
+
                 const askJulesChannel = getTargetSlackChannel('ASK_JULES', env)
 
                 const card = buildJulesStatusCard(
@@ -357,6 +370,18 @@ export async function pollActiveJulesSessions(env: Env): Promise<void> {
                 currentState === 'COMPLETED' ||
                 currentState === 'FAILED'
             ) {
+                emitEdgeTelemetry(
+                    env,
+                    'JULES_EVENT',
+                    'julesPoller',
+                    {
+                        sessionId: item.session_id,
+                        repo: item.repo,
+                        status: currentState,
+                    },
+                    `>> [JULES] Session ${item.session_id.slice(0, 10)} transitioned to ${currentState}`,
+                ).catch(() => {})
+
                 await env.DB.prepare(
                     'UPDATE jules_sessions SET status = ?, updated_at = ? WHERE session_id = ?',
                 )
