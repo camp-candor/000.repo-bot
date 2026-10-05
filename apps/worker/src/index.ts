@@ -72,7 +72,7 @@ const handleGitHubWebhook = async (c: any) => {
     // Inside handleGitHubWebhook, record the audit entry on pull_request events:
     if (githubEvent === 'pull_request' && payload.action) {
         c.executionCtx.waitUntil(
-            appendAuditEvent(c.env.DB, {
+            appendAuditEvent(c.env.DB!, {
                 taskId:
                     payload.pull_request?.head?.ref ||
                     `PR-${payload.pull_request?.number}`,
@@ -86,7 +86,7 @@ const handleGitHubWebhook = async (c: any) => {
                     title: payload.pull_request?.title,
                     merged: payload.pull_request?.merged || false,
                 },
-            }).catch((err) => console.error('[AUDIT_LEDGER_ERROR]', err)),
+            }).catch((err: any) => console.error('[AUDIT_LEDGER_ERROR]', err)),
         )
     }
 
@@ -212,7 +212,7 @@ const handleGitHubWebhook = async (c: any) => {
 
             if (card) {
                 c.executionCtx.waitUntil(
-                    postSlackJulesMessage(card, c.env).catch((err) =>
+                    postSlackJulesMessage(card, c.env).catch((err: any) =>
                         console.error('[SLACK_JULES_PR_CARD_ERROR]', err),
                     ),
                 )
@@ -312,7 +312,7 @@ const handleGitHubWebhook = async (c: any) => {
                             }),
                         }),
                     )
-                    .catch((err) =>
+                    .catch((err: any) =>
                         console.error('[DO_MERGE_TRANSITION_ERROR]', err),
                     ),
             )
@@ -327,7 +327,7 @@ const handleGitHubWebhook = async (c: any) => {
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ event: 'merged', sha: headSha }),
                 },
-            ).catch((err) =>
+            ).catch((err: any) =>
                 console.error('[SLACK_RECEIPT_WEBHOOK_FAILED]', err),
             ),
         )
@@ -352,6 +352,26 @@ const getRepoBotStub = (env: Env) => {
     const id = env.REPO_BOT_DO.idFromName('global')
     return env.REPO_BOT_DO.get(id)
 }
+
+
+// Proxy WebSocket Telemetry Upgrades directly into singleton RepoBotDO
+app.get('/ws/telemetry', async (c) => {
+    if (c.req.header('Upgrade') !== 'websocket') {
+        return c.text('Expected Upgrade: websocket', 426)
+    }
+    const id = c.env.REPO_BOT_DO.idFromName('global')
+    const stub = c.env.REPO_BOT_DO.get(id)
+    return stub.fetch(c.req.raw)
+})
+
+app.get('/ws', async (c) => {
+    if (c.req.header('Upgrade') !== 'websocket') {
+        return c.text('Expected Upgrade: websocket', 426)
+    }
+    const id = c.env.REPO_BOT_DO.idFromName('global')
+    const stub = c.env.REPO_BOT_DO.get(id)
+    return stub.fetch(c.req.raw)
+})
 
 app.get('/', (c) => c.text('REPO-BOT EDGE CONTROL PLANE IS LIVE.'))
 
@@ -604,7 +624,7 @@ app.post('/api/repos/health', async (c) => {
 app.get('/api/tasks/candidates', async (c) => {
     if (c.env.DB) {
         try {
-            const results = await c.env.DB.prepare(
+            const results = await c.env.DB!.prepare(
                 `SELECT task_id as taskId, pull_number as pullNumber, state,
                         audited_head_sha as auditedHeadSha, is_high_risk as isHighRisk,
                         owner, repo, updated_at as updatedAt
@@ -725,19 +745,19 @@ app.get('/api/audit/status', async (c) => {
     }
     await ensureAuditSchema(c.env.DB)
 
-    const lastDrainedRow = await c.env.DB.prepare(
+    const lastDrainedRow = await c.env.DB!.prepare(
         'SELECT MAX(drained_at) as lastDrainedAt FROM audit_events WHERE drained_at IS NOT NULL',
     ).first()
 
-    const undrainedRow = await c.env.DB.prepare(
+    const undrainedRow = await c.env.DB!.prepare(
         'SELECT COUNT(*) as count FROM audit_events WHERE drained_at IS NULL',
     ).first()
 
-    const totalRow = await c.env.DB.prepare(
+    const totalRow = await c.env.DB!.prepare(
         'SELECT COUNT(*) as count FROM audit_events',
     ).first()
 
-    const lastRecord = await c.env.DB.prepare(
+    const lastRecord = await c.env.DB!.prepare(
         'SELECT sequence_id, created_at, repository, event_type, record_hash FROM audit_events ORDER BY sequence_id DESC LIMIT 1',
     ).first()
 
@@ -785,7 +805,7 @@ app.get('/api/audit/recent', async (c) => {
     query += 'ORDER BY sequence_id DESC LIMIT ?'
     params.push(limit)
 
-    const { results } = await c.env.DB.prepare(query)
+    const { results } = await c.env.DB!.prepare(query)
         .bind(...params)
         .all()
     return c.json({ ok: true, events: results || [] })
@@ -801,7 +821,7 @@ app.get('/api/audit/verify-chain', async (c) => {
         )
     }
 
-    const { results } = await c.env.DB.prepare(
+    const { results } = await c.env.DB!.prepare(
         'SELECT * FROM audit_events WHERE repository = ? ORDER BY sequence_id ASC',
     )
         .bind(repo)
@@ -814,9 +834,9 @@ app.get('/api/audit/verify-chain', async (c) => {
 // Trigger manual cold drainage flush
 app.post('/api/audit/drain', async (c) => {
     try {
-        const result = await executeColdDrainage(c.env.DB, {
+        const result = await executeColdDrainage(c.env.DB!, {
             GITHUB_TOKEN: c.env.GITHUB_TOKEN,
-            ARCHIVE_REPO: c.env.ARCHIVE_REPO,
+            ARCHIVE_REPO: (c.env as any).ARCHIVE_REPO,
         })
         return c.json({ ok: true, ...result })
     } catch (err: any) {
@@ -829,16 +849,16 @@ app.post('/api/audit/drain', async (c) => {
 // -----------------------------------------------------------------------------
 export default {
     fetch: app.fetch,
-    async scheduled(event: any, env: any, ctx: any) {
+    async scheduled(_event: any, env: any, ctx: any) {
         ctx.waitUntil(
             Promise.all([
                 executeColdDrainage(env.DB, {
                     GITHUB_TOKEN: env.GITHUB_TOKEN,
                     ARCHIVE_REPO: env.ARCHIVE_REPO,
-                }).catch((err) =>
+                }).catch((err: any) =>
                     console.error('[SCHEDULED_DRAINAGE_FAILED]', err),
                 ),
-                pollActiveJulesSessions(env).catch((err) =>
+                pollActiveJulesSessions(env).catch((err: any) =>
                     console.error('[SCHEDULED_JULES_POLLER_FAILED]', err),
                 ),
             ]),

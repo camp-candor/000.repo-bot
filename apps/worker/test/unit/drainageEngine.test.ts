@@ -104,7 +104,7 @@ describe('Cold Plaintext Drainage Engine Suite', () => {
         let putMessage = ''
         global.fetch = vi
             .fn()
-            .mockImplementation(async (url: string, opts: any) => {
+            .mockImplementation(async (_url: string, opts: any) => {
                 if (opts?.method === 'PUT') {
                     const body = JSON.parse(opts.body)
                     putBranch = body.branch
