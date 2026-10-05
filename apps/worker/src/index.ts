@@ -1,3 +1,4 @@
+import { emitEdgeTelemetry } from './RepoBotDO.js'
 import { ensureAuditSchema } from './audit/auditLedger.js'
 import { appendAuditEvent } from './audit/auditLedger.js'
 import { executeColdDrainage } from './audit/drainageEngine.js'
@@ -105,6 +106,19 @@ const handleGitHubWebhook = async (c: any) => {
         const headCommitSha = headCommit.id || headCommit.sha || ''
         const commitMessage = headCommit.message || ''
         const commitUrl = `https://github.com/${repo}/commit/${headCommitSha}`
+
+        emitEdgeTelemetry(
+            c.env,
+            'PR_EVENT',
+            'githubWebhook',
+            {
+                repo,
+                branch,
+                sha: headCommitSha.slice(0, 7),
+                pusher,
+            },
+            `>> [PUSH] ${pusher} pushed ${headCommitSha.slice(0, 7)} to ${repo}@${branch}`,
+        ).catch(() => {})
 
         const addedCount = Array.isArray(headCommit.added)
             ? headCommit.added.length
@@ -250,6 +264,20 @@ const handleGitHubWebhook = async (c: any) => {
             /^spec\/([a-zA-Z0-9._-]+?)(-[a-f0-9]{7,40})?$/,
         )
         const taskId = specMatch ? specMatch[1] : `PR-${pullNumber}`
+
+        emitEdgeTelemetry(
+            c.env,
+            'PR_EVENT',
+            'githubWebhook',
+            {
+                taskId,
+                pullNumber,
+                mergeCommitSha: mergeCommitSha.slice(0, 7),
+                actor: mergedBy,
+                repo: `${owner}/${repo}`,
+            },
+            `>> [MERGE] PR #${pullNumber} merged into ${baseRef} (${taskId}) by ${mergedBy} [OK]`,
+        ).catch(() => {})
 
         let mergeDirective: string | null = null
         if (c.env.REPO_BOT_DO && headRef) {
