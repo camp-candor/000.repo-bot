@@ -41,6 +41,10 @@ const init = async () => {
         import.meta.dirname,
         '../../packages/dist/135.jules',
     )
+    const fctPath = path.resolve(
+        import.meta.dirname,
+        '../../packages/dist/103.factory',
+    )
     const htkPath = path.resolve(
         import.meta.dirname,
         '../../packages/dist/104.hotkey',
@@ -193,6 +197,34 @@ const init = async () => {
                 throw err
             }
 
+            // Register FACTORY MENU into the Blessed Menu registry
+            try {
+                const FACTORY = require(path.join(fctPath, 'hunt'))
+                global.FACTORY = FACTORY.default || FACTORY
+
+                const MENU_ACTION_FACTORY = require(
+                    path.join(fctPath, '98.menu.unit/menu.action'),
+                )
+
+                await LIBRARY.hunt(MENU_ACTION_LIBRARY.ROUTE_MENU, {
+                    idx: 'FACTORY MENU',
+                    src: 'Open the Factory menu\nto manage factory.',
+                    fnc: async () => {
+                        await new Promise<void>((resolve) => {
+                            global.FACTORY.hunt(MENU_ACTION_FACTORY.INIT_MENU, {
+                                slv: resolve,
+                            })
+                        })
+                        await LIBRARY.hunt(MENU_ACTION_LIBRARY.OPEN_MENU, {
+                            src: '',
+                        })
+                    },
+                })
+            } catch (err) {
+                console.error(`exec error loading factory: ${err}`)
+                throw err
+            }
+
             // Register HOTKEY MENU into the Blessed Menu registry
             try {
                 const HOTKEY = require(path.join(htkPath, 'hunt'))
@@ -316,12 +348,12 @@ const init = async () => {
     }
 }
 
-// 3. Main Execution Flow: Build library, agent, repobot, cloudflare, jules, hotkey, gemini, github, and slack packages
+// 3. Main Execution Flow: Build library, agent, repobot, cloudflare, jules, factory, hotkey, gemini, github, and slack packages
 const main = async () => {
     try {
         console.log('>> Building TypeScript...')
         var { stdout, stderr } = await exec(
-            'tsc -b 995.library ../../packages/000.agent ../../packages/821.repobot ../../packages/133.cloudflare ../../packages/135.jules ../../packages/104.hotkey ../../packages/105.gemini ../../packages/132.github ../../packages/924.slack',
+            'tsc -b 995.library ../../packages/000.agent ../../packages/821.repobot ../../packages/133.cloudflare ../../packages/135.jules ../../packages/103.factory ../../packages/104.hotkey ../../packages/105.gemini ../../packages/132.github ../../packages/924.slack',
             { cwd: import.meta.dirname },
         )
 

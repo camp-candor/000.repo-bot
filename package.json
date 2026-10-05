@@ -31,6 +31,7 @@
         "test:repobot": "npm run test --workspace=@camp_candor/821.repobot",
         "test:cloudflare": "npm run test --workspace=@camp_candor/133.cloudflare",
         "test:jules": "npm run test --workspace=@camp_candor/135.jules",
+        "test:factory": "npm run test --workspace=@camp_candor/103.factory",
         "test:hotkey": "npm run test --workspace=@camp_candor/104.hotkey",
         "test:gemini": "npm run test --workspace=@camp_candor/105.gemini",
         "test:github": "npm run test --workspace=@camp_candor/132.github",
