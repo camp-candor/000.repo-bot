@@ -44,6 +44,21 @@ export interface FSMContext {
     mergeCommitSha?: string
 }
 
+export interface TelemetryPacket {
+    seq: number
+    ts: number
+    type:
+        | 'HEARTBEAT'
+        | 'TASK_TRANSITION'
+        | 'AUDIT_LOG'
+        | 'PR_EVENT'
+        | 'JULES_EVENT'
+        | 'SLACK_RECEIPT'
+    source: string
+    payload: Record<string, any>
+    ascii: string
+}
+
 export interface OutboundSlackReceipt {
     timestamp: number
     channel: string
@@ -83,8 +98,84 @@ export function parseRepoIdentifier(
 }
 
 export class RepoBotDO extends DurableObject<Env> {
+    private telemetrySeq = 0
+
     constructor(ctx: DurableObjectState, env: Env) {
         super(ctx, env)
+    }
+
+    /**
+     * Broadcasts a telemetry packet across all connected and hibernating sockets.
+     * Automatically prunes disconnected handles.
+     */
+    async broadcastTelemetry(
+        type: TelemetryPacket['type'],
+        source: string,
+        payload: any,
+        asciiMsg: string,
+    ): Promise<void> {
+        const sockets = this.ctx.getWebSockets('operator')
+        if (sockets.length === 0) return
+
+        const packet: TelemetryPacket = {
+            seq: ++this.telemetrySeq,
+            ts: Date.now(),
+            type,
+            source,
+            payload: payload || {},
+            ascii: asciiMsg,
+        }
+
+        const raw = JSON.stringify(packet)
+        for (const ws of sockets) {
+            try {
+                ws.send(raw)
+            } catch {
+                try {
+                    ws.close(1011, 'Broadcast transmission failure')
+                } catch {}
+            }
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // WEBSOCKET HIBERNATION LIFECYCLE HOOKS
+    // -------------------------------------------------------------------------
+
+    async webSocketMessage(
+        ws: WebSocket,
+        message: string | ArrayBuffer,
+    ): Promise<void> {
+        if (typeof message === 'string') {
+            const trimmed = message.trim()
+            if (trimmed === 'PING') {
+                ws.send(JSON.stringify({ type: 'PONG', ts: Date.now() }))
+                return
+            }
+            try {
+                const parsed = JSON.parse(trimmed)
+                if (parsed.type === 'PING') {
+                    ws.send(JSON.stringify({ type: 'PONG', ts: Date.now() }))
+                }
+            } catch {}
+        }
+    }
+
+    async webSocketClose(
+        ws: WebSocket,
+        code: number,
+        reason: string,
+        _wasClean: boolean,
+    ): Promise<void> {
+        try {
+            ws.close(code, reason || 'Client closed connection')
+        } catch {}
+    }
+
+    async webSocketError(ws: WebSocket, _error: unknown): Promise<void> {
+        try {
+            ws.close(1011, 'Unexpected socket error')
+        } catch {}
     }
 
     /**
@@ -98,6 +189,13 @@ export class RepoBotDO extends DurableObject<Env> {
             context.state = 'HALTED'
             context.updatedAt = Date.now()
             await this.ctx.storage.put('fsm_context', context)
+
+            await this.broadcastTelemetry(
+                'TASK_TRANSITION',
+                'RepoBotDO',
+                { taskId: context.taskId, state: 'HALTED' },
+                `>> [FSM] Task ${context.taskId} -> HALTED (24h approval window expired)`,
+            )
 
             if (
                 context.slackMessageTs &&
@@ -122,6 +220,42 @@ export class RepoBotDO extends DurableObject<Env> {
         const url = new URL(request.url)
         const path = url.pathname
 
+        // ---------------------------------------------------------------------
+        // WEBSOCKET TELEMETRY INGRESS
+        // ---------------------------------------------------------------------
+        if (path === '/ws/telemetry' || path === '/ws') {
+            if (request.headers.get('Upgrade') !== 'websocket') {
+                return new Response('Expected Upgrade: websocket', {
+                    status: 426,
+                    headers: { 'Content-Type': 'text/plain' },
+                })
+            }
+
+            const pair = new WebSocketPair()
+            const [client, server] = Object.values(pair)
+
+            // Register socket descriptor under Cloudflare WebSocket Hibernation API
+            this.ctx.acceptWebSocket(server, ['operator'])
+
+            server.serializeAttachment({
+                connectedAt: Date.now(),
+                role: url.searchParams.get('role') || 'operator',
+            })
+
+            // Push initial registration receipt
+            const initialPacket: TelemetryPacket = {
+                seq: ++this.telemetrySeq,
+                ts: Date.now(),
+                type: 'HEARTBEAT',
+                source: 'RepoBotDO',
+                payload: { status: 'ONLINE', epoch: Date.now() },
+                ascii: '>> [TELEMETRY] Edge tunnel established. Live streaming engaged.',
+            }
+            server.send(JSON.stringify(initialPacket))
+
+            return new Response(null, { status: 101, webSocket: client })
+        }
+
         // 0. GET /api/slack/status
         if (request.method === 'GET' && path === '/api/slack/status') {
             const lastReceipt =
@@ -144,9 +278,15 @@ export class RepoBotDO extends DurableObject<Env> {
 
         // 0.1 POST /api/slack/receipt
         if (request.method === 'POST' && path === '/api/slack/receipt') {
-            const receipt = await request.json().catch(() => null)
+            const receipt: any = await request.json().catch(() => null)
             if (receipt) {
-                await recordSlackReceipt(this.ctx.storage, receipt)
+                await recordSlackReceipt(this.ctx.storage, receipt as OutboundSlackReceipt)
+                await this.broadcastTelemetry(
+                    'SLACK_RECEIPT',
+                    'slackBridge',
+                    receipt,
+                    `>> [SLACK] Receipt recorded: ${receipt.event || 'DELIVERY'} (${receipt.channel})`,
+                )
             }
             return Response.json({ ok: true })
         }
@@ -286,6 +426,13 @@ export class RepoBotDO extends DurableObject<Env> {
                 }
                 repos.push(newEntry)
                 await this.ctx.storage.put('watched_repos', repos)
+
+                await this.broadcastTelemetry(
+                    'TASK_TRANSITION',
+                    'RepoBotDO',
+                    { action: 'REPO_WATCHED', repo: newEntry.id },
+                    `>> [REPO] Now watching fleet target: ${newEntry.id}`,
+                )
                 return new Response(
                     JSON.stringify({ action: 'REPO_WATCHED', repo: newEntry }),
                     {
@@ -333,6 +480,12 @@ export class RepoBotDO extends DurableObject<Env> {
 
             if (removed) {
                 await this.ctx.storage.put('watched_repos', filtered)
+                await this.broadcastTelemetry(
+                    'TASK_TRANSITION',
+                    'RepoBotDO',
+                    { action: 'REPO_UNWATCHED', repo: parsed.id },
+                    `>> [REPO] Unwatched fleet target: ${parsed.id}`,
+                )
             }
 
             return new Response(
@@ -582,6 +735,19 @@ export class RepoBotDO extends DurableObject<Env> {
             context.updatedAt = Date.now()
             await this.ctx.storage.put('fsm_context', context)
 
+            // Broadcast real-time FSM state transition
+            await this.broadcastTelemetry(
+                'TASK_TRANSITION',
+                'RepoBotDO',
+                {
+                    taskId: context.taskId,
+                    fromState: previousState,
+                    toState: nextState,
+                    epoch: context.leaseEpoch,
+                },
+                `>> [FSM] Task ${context.taskId}: ${previousState} -> ${nextState} (Epoch ${context.leaseEpoch})`,
+            )
+
             // Trigger SHA-Pinned Merge Execution via Outbox
             if (shouldTriggerMerge) {
                 const mergePayload = {
@@ -634,6 +800,15 @@ export class RepoBotDO extends DurableObject<Env> {
                                             'fsm_context',
                                             updated,
                                         )
+                                        await this.broadcastTelemetry(
+                                            'TASK_TRANSITION',
+                                            'RepoBotDO',
+                                            {
+                                                taskId: updated.taskId,
+                                                state: 'ROLLED_BACK',
+                                            },
+                                            `>> [FSM] Task ${updated.taskId} -> ROLLED_BACK (Compensating saga complete)`,
+                                        )
                                     })
                                 }
                                 updated.updatedAt = Date.now()
@@ -683,6 +858,15 @@ export class RepoBotDO extends DurableObject<Env> {
                                 )
                                 console.log(
                                     `>> [DO SAGA] Task ${updated.taskId} state settled in ROLLED_BACK (Success: ${sagaRes.success})`,
+                                )
+                                await this.broadcastTelemetry(
+                                    'TASK_TRANSITION',
+                                    'RepoBotDO',
+                                    {
+                                        taskId: updated.taskId,
+                                        state: 'ROLLED_BACK',
+                                    },
+                                    `>> [FSM] Task ${updated.taskId} -> ROLLED_BACK (Compensating saga complete)`,
                                 )
                             }
                         },
