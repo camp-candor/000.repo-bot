@@ -28,7 +28,7 @@ class MockResilientWebSocket {
     }
 }
 
-describe('TASK-23.7: Repobot Telemetry Resiliency & Negative Controls', () => {
+describe('TASK-23.8.5: Repobot Telemetry Resiliency & Negative Controls', () => {
     beforeEach(() => {
         ;(globalThis as any).WebSocket = MockResilientWebSocket
     })
@@ -71,6 +71,48 @@ describe('TASK-23.7: Repobot Telemetry Resiliency & Negative Controls', () => {
         expect(warnLog).toBeTruthy()
     })
 
+    it('NEGATIVE CONTROL: preserves genuine sequence drop detection following history replay', async () => {
+        const model = new RepobotModel()
+        const consoleLogs: string[] = []
+        const ste = {
+            hunt: async (_act: string, bale: any) => {
+                if (bale?.src) consoleLogs.push(bale.src)
+                return {}
+            },
+        } as any
+
+        await connectRepobot(model, {}, ste)
+        await new Promise((r) => setTimeout(r, 20))
+
+        const ws = model.ws as MockResilientWebSocket
+
+        // Replay synchronizes up to seq 20
+        await ws.onmessage!({
+            data: JSON.stringify({
+                seq: 20,
+                type: 'TELEMETRY_HISTORY',
+                payload: {
+                    items: [
+                        { seq: 19, ascii: '>> [19]' },
+                        { seq: 20, ascii: '>> [20]' },
+                    ],
+                },
+            }),
+        })
+        expect(model.lastSeqReceived).toBe(20)
+
+        // Live packet skips 21, 22, arrives at 23 (2 frames dropped)
+        await ws.onmessage!({
+            data: JSON.stringify({ seq: 23, ascii: '>> [23]' }),
+        })
+        expect(model.lastSeqReceived).toBe(23)
+
+        const dropWarn = consoleLogs.find((l) =>
+            l.includes('Dropped 2 telemetry frame(s)'),
+        )
+        expect(dropWarn).toBeTruthy()
+    })
+
     it('NEGATIVE CONTROL: rejects duplicate connection attempts idempotently', async () => {
         const model = new RepobotModel()
         const consoleLogs: string[] = []
@@ -86,7 +128,6 @@ describe('TASK-23.7: Repobot Telemetry Resiliency & Negative Controls', () => {
         expect(model.connectionState).toBe('CONNECTED')
         const firstSocket = model.ws
 
-        // Redundant connect attempt
         let noopResolved = false
         await connectRepobot(
             model,
@@ -106,6 +147,34 @@ describe('TASK-23.7: Repobot Telemetry Resiliency & Negative Controls', () => {
                 l.includes('Connection already active. Skipping re-connect.'),
             ),
         ).toBe(true)
+    })
+
+    it('NEGATIVE CONTROL: handles empty or malformed TELEMETRY_HISTORY without throwing', async () => {
+        const model = new RepobotModel()
+        const ste = { hunt: async () => ({}) } as any
+
+        await connectRepobot(model, {}, ste)
+        await new Promise((r) => setTimeout(r, 20))
+
+        const ws = model.ws as MockResilientWebSocket
+
+        // Ingest empty items array (cold genesis N=0)
+
+        await ws.onmessage!({
+            data: JSON.stringify({
+                type: 'TELEMETRY_HISTORY',
+                payload: { items: [] },
+            }),
+        })
+
+        // Ingest malformed missing payload
+
+        await ws.onmessage!({
+            data: JSON.stringify({
+                type: 'TELEMETRY_HISTORY',
+                payload: null,
+            }),
+        })
     })
 
     it('NEGATIVE CONTROL: schedules exponential backoff on unexpected socket close', async () => {
@@ -138,7 +207,6 @@ describe('TASK-23.7: Repobot Telemetry Resiliency & Negative Controls', () => {
         await connectRepobot(model, {}, ste)
         await new Promise((r) => setTimeout(r, 20))
 
-        // Arm synthetic reconnect timer
         model.reconnectTimer = setTimeout(() => {}, 15000)
         model.reconnectAttempts = 3
 
@@ -175,10 +243,8 @@ describe('TASK-23.7: Repobot Telemetry Resiliency & Negative Controls', () => {
         await new Promise((r) => setTimeout(r, 20))
 
         const ws = model.ws as MockResilientWebSocket
-        // Ingest invalid JSON
-        expect(() => {
-            ws.onmessage!({ data: '<<< MALFORMED TEXT BUFFER NOT JSON >>>' })
-        }).not.toThrow()
+
+        await ws.onmessage!({ data: '<<< MALFORMED TEXT BUFFER NOT JSON >>>' })
 
         const parseErrorLog = consoleLogs.find((l) =>
             l.includes('[PARSE ERROR]'),
