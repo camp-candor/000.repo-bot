@@ -69,6 +69,18 @@ export interface TelemetryPacket {
     ascii: string
 }
 
+export interface TelemetryHistoryPacket {
+    seq: number
+    ts: number
+    type: 'TELEMETRY_HISTORY'
+    source: 'RepoBotDO'
+    payload: {
+        count: number
+        items: TelemetryPacket[]
+    }
+    ascii: string
+}
+
 export async function recordSlackReceipt(
     storage: DurableObjectStorage,
     receipt: OutboundSlackReceipt,
@@ -123,16 +135,19 @@ export class RepoBotDO extends DurableObject<Env> {
             ascii: asciiMsg,
         }
 
-        // K=10 ring buffer
-        if (!this.recentTelemetry || this.recentTelemetry.length === 0) {
-            this.recentTelemetry =
-                (await this.ctx.storage.get<TelemetryPacket[]>('recent_telemetry')) || []
+        // Maintain rolling FIFO ring buffer (K=10)
+        if (type !== 'TELEMETRY_HISTORY') {
+            if (!this.recentTelemetry) {
+                this.recentTelemetry = []
+            }
+            this.recentTelemetry.push(packet)
+            if (this.recentTelemetry.length > 10) {
+                this.recentTelemetry = this.recentTelemetry.slice(-10)
+            }
+            this.ctx.storage
+                .put('recent_telemetry', this.recentTelemetry)
+                .catch(() => {})
         }
-        this.recentTelemetry.push(packet)
-        if (this.recentTelemetry.length > 10) {
-            this.recentTelemetry.shift()
-        }
-        await this.ctx.storage.put('recent_telemetry', this.recentTelemetry)
 
         const sockets = this.ctx.getWebSockets('operator')
         if (sockets.length === 0) return
@@ -266,12 +281,13 @@ export class RepoBotDO extends DurableObject<Env> {
             // 1.2 Hydrate and Replay Last 10 Telemetry Events (K=10)
             if (!this.recentTelemetry || this.recentTelemetry.length === 0) {
                 this.recentTelemetry =
-                    (await this.ctx.storage.get<TelemetryPacket[]>('recent_telemetry')) ||
-                    []
+                    (await this.ctx.storage.get<TelemetryPacket[]>(
+                        'recent_telemetry',
+                    )) || []
             }
 
             if (this.recentTelemetry.length > 0) {
-                const historyPacket: TelemetryPacket = {
+                const historyPacket: TelemetryHistoryPacket = {
                     seq: this.telemetrySeq,
                     ts: Date.now(),
                     type: 'TELEMETRY_HISTORY',
