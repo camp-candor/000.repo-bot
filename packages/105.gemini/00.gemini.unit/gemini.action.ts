@@ -39,10 +39,10 @@ export class ListGemini implements Action {
     constructor(public bale: GeminiBit) {}
 }
 
-export const OPEN_GEMINI = '[Open action] Open Gemini'
+export const OPEN_GEMINI = '[Gemini action] Open Gemini'
 export class OpenGemini implements Action {
     readonly type = OPEN_GEMINI
-    constructor(public bale: undefined) {}
+    constructor(public bale: GeminiBit) {}
 }
 
 export type Actions =
