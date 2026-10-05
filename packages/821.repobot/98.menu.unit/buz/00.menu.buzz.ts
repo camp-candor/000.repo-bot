@@ -90,7 +90,8 @@ export const updateMenu = async (
   ]
 
   const descriptions: Record<string, string> = {
-    'CONNECT REPOBOT TELEMETRY': `Dial edge WebSocket (/ws/telemetry) to stream live events.\nStatus: [${repobotState}]`,
+    'CONNECT REPOBOT TELEMETRY': `Dial edge WebSocket (/ws/telemetry) to stream live events.
+Status: [${repobotState}]`,
     'DISCONNECT REPOBOT TELEMETRY':
       'Dismantle telemetry tunnel and cancel reconnect timers.',
     'INSPECT TELEMETRY STATUS':
@@ -173,6 +174,10 @@ export const updateMenu = async (
       await lib.hunt(UPDATE_CONSOLE, {
         idx: 'cns00',
         src: `>> • Active Base Target: ${rbt?.activeBaseUrl || getBaseUrl()}`,
+      })
+      await lib.hunt(UPDATE_CONSOLE, {
+        idx: 'cns00',
+        src: '>> • Historical Replay : K=10 FIFO Buffer Active',
       })
       await lib.hunt(UPDATE_CONSOLE, {
         idx: 'cns00',

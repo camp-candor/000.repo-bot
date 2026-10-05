@@ -49,7 +49,8 @@ export const updateRepobot = (
 
 /**
  * CONNECT REPOBOT:
- * Establishes a persistent, self-healing WebSocket telemetry connection to the Cloudflare Worker.
+ * Establishes a persistent, self-healing WebSocket telemetry connection
+ * with historical backlog replay (K=10) and monotonic sequence tracking.
  */
 export const connectRepobot = async (
   cpy: RepobotModel,
@@ -114,9 +115,74 @@ export const connectRepobot = async (
     // --- ON MESSAGE ---
     socket.onmessage = async (event: MessageEvent) => {
       try {
-        const data = JSON.parse(event.data.toString())
+        let dataStr = ''
+        if (typeof event.data === 'string') {
+          dataStr = event.data
+        } else if (event.data instanceof Buffer || event.data instanceof Uint8Array || (event.data && typeof event.data.toString === 'function')) {
+           dataStr = event.data.toString()
+        } else {
+           // fallback
+           dataStr = String(event.data)
+        }
 
-        // Monotonic Sequence Verification
+        // try parsing
+        let data
+        try {
+           data = JSON.parse(dataStr)
+        } catch (e: any) {
+           await streamLog(
+              ste,
+              `>> [PARSE ERROR] Corrupt telemetry packet: ${e.message}`,
+           )
+           return
+        }
+
+        // Handle TELEMETRY_HISTORY Batch Envelope
+        if (data.type === 'TELEMETRY_HISTORY' && Array.isArray(data.payload?.items)) {
+          const items = data.payload.items
+          const count = items.length
+
+          // Render first
+          if (count > 0) {
+            await streamLog(ste, '>> --------------------------------------------------------------')
+            await streamLog(ste, `>> [TELEMETRY REPLAY] RESTORING LAST ${count} HISTORICAL EDGE EVENT(S)`)
+            await streamLog(ste, '>> --------------------------------------------------------------')
+
+            for (const item of items) {
+              // Monotonic Sequence Pointer Synchronization (Replay Items)
+              if (typeof item.seq === 'number') {
+                cpy.lastSeqReceived = Math.max(cpy.lastSeqReceived, item.seq)
+              }
+
+              // Render item
+              if (item.ascii) {
+                await streamLog(ste, item.ascii)
+              } else if (item.type && item.payload) {
+                await streamLog(ste, `>> [${item.type}] ${JSON.stringify(item.payload)}`)
+              }
+            }
+
+            await streamLog(ste, '>> --------------------------------------------------------------')
+            await streamLog(ste, '>> [LIVE STREAM ENGAGED] Telemetry tunnel active. Listening...')
+            await streamLog(ste, '>> --------------------------------------------------------------')
+          } else {
+             // even if items empty advance
+             for (const item of items) {
+                if (typeof item.seq === 'number') {
+                  cpy.lastSeqReceived = Math.max(cpy.lastSeqReceived, item.seq)
+                }
+             }
+          }
+
+          // Advance envelope root sequence pointer
+          if (typeof data.seq === 'number') {
+            cpy.lastSeqReceived = Math.max(cpy.lastSeqReceived, data.seq)
+          }
+
+          return // Bypass real-time processing block
+        }
+
+        // Monotonic Sequence Verification (Live Stream)
         if (typeof data.seq === 'number') {
           if (cpy.lastSeqReceived > 0 && data.seq > cpy.lastSeqReceived + 1) {
             const dropped = data.seq - cpy.lastSeqReceived - 1
@@ -125,7 +191,7 @@ export const connectRepobot = async (
               `>> [WARN] Dropped ${dropped} telemetry frame(s) during transit.`,
             )
           }
-          cpy.lastSeqReceived = data.seq
+          cpy.lastSeqReceived = Math.max(cpy.lastSeqReceived, data.seq)
         }
 
         // Render pre-formatted ASCII frame to cns00

@@ -38,12 +38,31 @@ describe('repobot unit', () => {
         const slv = vi.fn()
         const bal = { idx: 'connect', slv } as any
 
+        class MockWebSocket {
+            public onopen: (() => void) | null = null
+            public onmessage: ((event: any) => void) | null = null
+            public onclose: ((event: any) => void) | null = null
+            public onerror: ((event: any) => void) | null = null
+
+            constructor() {
+                setTimeout(() => {
+                    if (this.onopen) this.onopen()
+                }, 10)
+            }
+        }
+        ;(globalThis as any).WebSocket = MockWebSocket
+
         const result = await connectRepobot(model, bal, state)
         expect(result).toBe(model)
         expect(result.connectionState).toBe('CONNECTING')
+
+        await new Promise((r) => setTimeout(r, 20))
+
         expect(slv).toHaveBeenCalledWith({
-            rbtBit: { idx: 'connect-repobot', val: 1 },
+            rbtBit: { idx: 'connect-repobot-success', val: 1 },
         })
+
+        delete (globalThis as any).WebSocket
     })
 
     it('should disconnect repobot', async () => {
@@ -56,7 +75,7 @@ describe('repobot unit', () => {
         expect(result).toBe(model)
         expect(result.connectionState).toBe('DISCONNECTED')
         expect(slv).toHaveBeenCalledWith({
-            rbtBit: { idx: 'disconnect-repobot', val: 1 },
+            rbtBit: { idx: 'disconnect-repobot-success', val: 1 },
         })
     })
 })
