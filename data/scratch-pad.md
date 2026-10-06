@@ -8,37 +8,13 @@
 
 ### 1. Edge Execution Mechanics & Multiplexing
 
-Phase 1: Scheduled Multiplexing & Event Delegation
-
-Phase 2: Transport Idempotency & Deduplication Engine
-
-Phase 3: Independent Isolate Memory & Context Segregation
-
-Phase 4: WebSocket Multiplexing & Sensory Relay
-
 ### 2. The Split-Brain Zombie Runner Hazard
-
-Phase 1: Single-Threaded Temporal Authority (DO Architecture)
-
-Phase 2: Time Authority & Watchdog Circuit Breakers
 
 ### 3. Time Authority & Watchdog Circuit Breakers
 
-Phase 3: Zombie Fencing & The Promotion Boundary
-
-Phase 4: Local Worker Thread Isolation (Rig 2 Media Broker)
-
 ### 4. Monotonic Epochs and Fencing Tokens
 
-Phase 1: Inverted Hardware Mutex (Local flock Sovereignty)
-
-Phase 2: Monotonic Epoch Generation & DO Queue Mechanics
-
 ### 5. Inverting the Hardware Mutex (Local `flock` Sovereignty)
-
-Phase 3: Structural Fencing & Content-Addressed Promotion
-
-Phase 4: Thread-Isolated Telemetry & Watchdog Circuit Breakers
 
 ### II. The Five Operational Edge Daemons
 

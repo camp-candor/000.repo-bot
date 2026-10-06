@@ -12,11 +12,7 @@ import {
 } from './routes/slackEvents.js'
 import { handleSlackInteraction } from './routes/slackInteractions.js'
 import { generateCommitMessage } from './commitGenerator.js'
-import {
-    dispatchJulesJob,
-    getJulesSession,
-    pollActiveJulesSessions,
-} from './jules.js'
+import { dispatchJulesJob, getJulesSession } from './jules.js'
 import { verifyGitHubSignature } from './tools.js'
 import {
     postSlackMergeAnnouncement,
@@ -899,19 +895,6 @@ export default {
         ctx: { waitUntil: (promise: Promise<any>) => void },
     ): Promise<void> {
         // Shift asynchronous execution into background isolate context to survive CPU limits
-        ctx.waitUntil(
-            Promise.all([
-                executeColdDrainage(env.DB as any, {
-                    GITHUB_TOKEN: env.GITHUB_TOKEN,
-                    ARCHIVE_REPO: env.ARCHIVE_REPO,
-                }).catch((err) =>
-                    console.error('[SCHEDULED_DRAINAGE_FAILED]', err),
-                ),
-                pollActiveJulesSessions(env).catch((err) =>
-                    console.error('[SCHEDULED_JULES_POLLER_FAILED]', err),
-                ),
-                routeScheduledEvent(controller, env),
-            ]),
-        )
+        ctx.waitUntil(routeScheduledEvent(controller, env))
     },
 }
