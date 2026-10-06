@@ -183,7 +183,7 @@ export class ShotCoordinatorDO {
         await this.persist()
 
         // 6. Asynchronous Non-Blocking Outbox Drain (if D1 binding is present)
-        if (this.env?.DB) {
+        if (this.env?.DB && !this.env?.disableAutoDrain) {
             this.state.waitUntil(
                 this.drainPendingOutbox(this.env.DB).catch((err: any) => {
                     console.warn(
