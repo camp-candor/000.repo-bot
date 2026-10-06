@@ -62,13 +62,13 @@ export function resolveDaemonsForCron(
         daemons.push({
             name: 'sweeper',
             handler: async (e) => {
-                const { sweepStaleRecords } =
+                const { runDailyGarbageCollection } =
                     await import('./sweeper.js').catch(() => ({
-                        sweepStaleRecords: async () => ({
+                        runDailyGarbageCollection: async () => ({
                             status: 'NOOP_STUB',
                         }),
                     }))
-                return sweepStaleRecords(e)
+                return runDailyGarbageCollection(e)
             },
         })
     }
