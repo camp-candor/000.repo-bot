@@ -7,6 +7,11 @@ import { DurableObject } from 'cloudflare:workers'
 import { dispatchSlackApprovalCard, updateSlackMessage } from './slackBridge.js'
 import { executeShaPinnedMerge } from './mergeExecutor.js'
 import type { Env } from './tools.js'
+import {
+  applyEpistemicScrimming,
+  type CanonicalEventType,
+  type EventEnvelope,
+} from './events/eventEnvelope.js'
 
 export interface WatchedRepo {
     id: string
@@ -54,32 +59,26 @@ export interface OutboundSlackReceipt {
 }
 
 export interface TelemetryPacket {
-    seq: number
-    ts: number
-    type:
-        | 'HEARTBEAT'
-        | 'TASK_TRANSITION'
-        | 'AUDIT_LOG'
-        | 'PR_EVENT'
-        | 'JULES_EVENT'
-        | 'SLACK_RECEIPT'
-        | 'TELEMETRY_HISTORY'
-    source: string
-    payload: Record<string, any>
-    ascii: string
+  seq: number
+  ts: number
+  type: CanonicalEventType
+  source: string
+  payload: Record<string, any>
+  ascii: string
 }
 
 export interface TelemetryHistoryPacket {
-    seq: number
-    ts: number
-    type: 'TELEMETRY_HISTORY'
-    source: 'RepoBotDO'
-    payload: {
-        count: number
-        items: TelemetryPacket[]
-    }
-    ascii: string
+  seq: number
+  ts: number
+  type: 'TELEMETRY_HISTORY'
+  source: 'RepoBotDO'
+  payload: {
+    count: number
+    items: (TelemetryPacket | EventEnvelope)[]
+  }
+  ascii: string
 }
+
 
 export async function recordSlackReceipt(
     storage: DurableObjectStorage,
@@ -121,16 +120,46 @@ export function parseRepoIdentifier(
 
 export class RepoBotDO extends DurableObject<Env> {
     private telemetrySeq = 0
+    private recentTelemetry: (TelemetryPacket | EventEnvelope)[] = []
 
-    private recentTelemetry: TelemetryPacket[] = []
 
     constructor(ctx: DurableObjectState, env: Env) {
         super(ctx, env)
         this.recentTelemetry = []
+        this.recentTelemetry = []
+    }
+
+async broadcastEnvelope(envelope: EventEnvelope): Promise<void> {
+        this.telemetrySeq = Math.max(this.telemetrySeq, envelope.seq)
+
+        if (envelope.type !== 'TELEMETRY_HISTORY') {
+            if (!this.recentTelemetry) this.recentTelemetry = [];
+            this.recentTelemetry.push(envelope)
+            if (this.recentTelemetry.length > 10) {
+                this.recentTelemetry = this.recentTelemetry.slice(-10)
+            }
+            this.ctx.storage.put('recent_telemetry', this.recentTelemetry).catch(() => {})
+        }
+
+        const sockets = this.ctx.getWebSockets('operator')
+        if (sockets.length === 0) return
+
+        for (const socket of sockets) {
+            try {
+                const attachment: any = socket.deserializeAttachment() || {}
+                const role = attachment.role || 'operator'
+                const projected = applyEpistemicScrimming(envelope, role)
+                socket.send(JSON.stringify(projected))
+            } catch {
+                try {
+                    socket.close(1011, 'Broadcast transmission failure')
+                } catch {}
+            }
+        }
     }
 
     async broadcastTelemetry(
-        type: TelemetryPacket['type'],
+        type: CanonicalEventType,
         source: string,
         payload: any,
         asciiMsg: string,
@@ -144,18 +173,13 @@ export class RepoBotDO extends DurableObject<Env> {
             ascii: asciiMsg,
         }
 
-        // Maintain rolling FIFO ring buffer (K=10)
         if (type !== 'TELEMETRY_HISTORY') {
-            if (!this.recentTelemetry) {
-                this.recentTelemetry = []
-            }
+            if (!this.recentTelemetry) this.recentTelemetry = [];
             this.recentTelemetry.push(packet)
             if (this.recentTelemetry.length > 10) {
                 this.recentTelemetry = this.recentTelemetry.slice(-10)
             }
-            this.ctx.storage
-                .put('recent_telemetry', this.recentTelemetry)
-                .catch(() => {})
+            this.ctx.storage.put('recent_telemetry', this.recentTelemetry).catch(() => {})
         }
 
         const sockets = this.ctx.getWebSockets('operator')
@@ -248,12 +272,16 @@ export class RepoBotDO extends DurableObject<Env> {
         if (request.method === 'POST' && path === '/broadcast') {
             const body: any = await request.json().catch(() => null)
             if (body && body.type && body.ascii) {
-                await this.broadcastTelemetry(
-                    body.type,
-                    body.source || 'edgeSubsystem',
-                    body.payload || {},
-                    body.ascii,
-                )
+                if (body.domain && body.recordHash) {
+                    await this.broadcastEnvelope(body as EventEnvelope)
+                } else {
+                    await this.broadcastTelemetry(
+                        body.type,
+                        body.source || 'edgeSubsystem',
+                        body.payload || {},
+                        body.ascii,
+                    )
+                }
             }
             return Response.json({ ok: true })
         }
@@ -265,8 +293,9 @@ export class RepoBotDO extends DurableObject<Env> {
                     status: 426,
                 })
             }
-            const pair = new WebSocketPair()
-            const [client, server] = Object.values(pair)
+            const pair = new (globalThis as any).WebSocketPair()
+            const [client, server] = Object.values(pair) as any
+            const role = url.searchParams.get('role') || 'operator'
             this.ctx.acceptWebSocket(server, ['operator'])
             server.serializeAttachment({
                 connectedAt: Date.now(),
@@ -277,20 +306,16 @@ export class RepoBotDO extends DurableObject<Env> {
                 ts: Date.now(),
                 type: 'HEARTBEAT',
                 source: 'RepoBotDO',
-                payload: {
-                    status: 'ONLINE',
-                    role: url.searchParams.get('role') || 'operator',
-                },
+                payload: { status: 'ONLINE', role },
                 ascii: '>> [TELEMETRY] Edge tunnel established. Live streaming engaged.',
             }
             try {
                 server.send(JSON.stringify(initPacket))
             } catch {}
 
-            // 1.2 Hydrate and Replay Last 10 Telemetry Events (K=10)
             if (!this.recentTelemetry || this.recentTelemetry.length === 0) {
                 this.recentTelemetry =
-                    (await this.ctx.storage.get<TelemetryPacket[]>(
+                    (await this.ctx.storage.get<(TelemetryPacket | EventEnvelope)[]>(
                         'recent_telemetry',
                     )) || []
             }
@@ -925,33 +950,22 @@ export class RepoBotDO extends DurableObject<Env> {
 }
 
 export async function emitEdgeTelemetry(
-    env: any,
-    type: string,
-    source: string,
-    payload: any,
-    asciiMsg: string,
+  env: Env,
+  type: CanonicalEventType,
+  source: string,
+  payload: any,
+  asciiMsg: string,
 ): Promise<void> {
-    if (!env?.REPO_BOT_DO) return
-    try {
-        const id = env.REPO_BOT_DO.idFromName('global')
-        const stub = env.REPO_BOT_DO.get(id)
-        if (typeof stub.broadcastTelemetry === 'function') {
-            await stub.broadcastTelemetry(type, source, payload, asciiMsg)
-        } else {
-            await stub.fetch(
-                new Request('https://internal/broadcast', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        type,
-                        source,
-                        payload,
-                        ascii: asciiMsg,
-                    }),
-                }),
-            )
-        }
-    } catch (err: any) {
-        console.warn('[TELEMETRY_EMIT_WARN]', err.message)
-    }
+  if (!env.REPO_BOT_DO) return
+  try {
+    const id = env.REPO_BOT_DO.idFromName('global')
+    const stub = env.REPO_BOT_DO.get(id)
+    await stub.fetch(
+      new Request('https://internal/broadcast', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type, source, payload, ascii: asciiMsg }),
+      }),
+    )
+  } catch {}
 }
