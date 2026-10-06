@@ -84,7 +84,7 @@ async function commitToGitHubAuditLog(
  */
 export async function executeColdDrainage(
     db: any,
-    env: { GITHUB_TOKEN: string; ARCHIVE_REPO?: string },
+    env: { GITHUB_TOKEN: string; ARCHIVE_REPO?: string; REPO_BOT_DO?: any },
 ): Promise<DrainResult> {
     const archiveRepo = env.ARCHIVE_REPO || 'camp-candor/000.repo-bot'
     const ghToken = env.GITHUB_TOKEN
@@ -158,10 +158,10 @@ export async function executeColdDrainage(
         .bind(sevenDaysAgo)
         .run()
 
-    if (records.length > 0 && env) {
+    if (records.length > 0 && env.REPO_BOT_DO) {
         emitEdgeTelemetry(
-            env,
-            'AUDIT_LOG',
+            env as any,
+            'COLD_DRAINAGE_FLUSH',
             'drainageEngine',
             {
                 drainedCount: records.length,
