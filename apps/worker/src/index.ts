@@ -1,3 +1,4 @@
+import { directiveRoutes } from './routes/directiveRoutes.js'
 import { emitEdgeTelemetry } from './RepoBotDO.js'
 import { ensureAuditSchema } from './audit/auditLedger.js'
 import { appendAuditEvent } from './audit/auditLedger.js'
@@ -378,6 +379,8 @@ const handleGitHubWebhook = async (c: any) => {
 }
 
 const app = new Hono<{ Bindings: Env }>()
+// Mount Directive Ledger REST API Endpoints
+app.route('/api/directives', directiveRoutes)
 
 // Register Slack Events API webhook route
 app.post('/api/slack/events', handleSlackEvents)
