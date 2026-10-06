@@ -6,12 +6,13 @@ import { DurableObject } from 'cloudflare:workers'
 
 import { dispatchSlackApprovalCard, updateSlackMessage } from './slackBridge.js'
 import {
-  applyEpistemicScrimming,
-  type CanonicalEventType,
-  type EventEnvelope,
+    applyEpistemicScrimming,
+    type CanonicalEventType,
+    type EventEnvelope,
 } from './events/eventEnvelope.js'
 import { executeShaPinnedMerge } from './mergeExecutor.js'
 import type { Env } from './tools.js'
+import { emitCanonicalEvent } from './events/eventHub.js'
 
 export interface WatchedRepo {
     id: string
@@ -59,24 +60,24 @@ export interface OutboundSlackReceipt {
 }
 
 export interface TelemetryPacket {
-  seq: number
-  ts: number
-  type: CanonicalEventType
-  source: string
-  payload: Record<string, any>
-  ascii: string
+    seq: number
+    ts: number
+    type: CanonicalEventType
+    source: string
+    payload: Record<string, any>
+    ascii: string
 }
 
 export interface TelemetryHistoryPacket {
-  seq: number
-  ts: number
-  type: 'TELEMETRY_HISTORY'
-  source: 'RepoBotDO'
-  payload: {
-    count: number
-    items: (TelemetryPacket | EventEnvelope)[]
-  }
-  ascii: string
+    seq: number
+    ts: number
+    type: 'TELEMETRY_HISTORY'
+    source: 'RepoBotDO'
+    payload: {
+        count: number
+        items: (TelemetryPacket | EventEnvelope)[]
+    }
+    ascii: string
 }
 
 export async function recordSlackReceipt(
@@ -118,84 +119,90 @@ export function parseRepoIdentifier(
 }
 
 export class RepoBotDO extends DurableObject<Env> {
-  private telemetrySeq = 0
-  private recentTelemetry: (TelemetryPacket | EventEnvelope)[] = []
+    private telemetrySeq = 0
+    private recentTelemetry: (TelemetryPacket | EventEnvelope)[] = []
 
-  constructor(ctx: DurableObjectState, env: Env) {
-    super(ctx, env)
-    this.recentTelemetry = []
-  }
-
-  async broadcastEnvelope(envelope: EventEnvelope): Promise<void> {
-    this.telemetrySeq = Math.max(this.telemetrySeq, envelope.seq)
-
-    if (envelope.type !== 'TELEMETRY_HISTORY') {
-      this.recentTelemetry.push(envelope)
-      if (this.recentTelemetry.length > 10) {
-        this.recentTelemetry = this.recentTelemetry.slice(-10)
-      }
-      this.ctx.storage
-        .put('recent_telemetry', this.recentTelemetry)
-        .catch(() => {})
+    constructor(ctx: DurableObjectState, env: Env) {
+        super(ctx, env)
+        this.recentTelemetry = []
     }
 
-    const sockets = this.ctx.getWebSockets('operator')
-    if (sockets.length === 0) return
+    async broadcastEnvelope(envelope: EventEnvelope): Promise<void> {
+        this.telemetrySeq = Math.max(this.telemetrySeq, envelope.seq)
 
-    for (const socket of sockets) {
-      try {
-        const attachment: any = socket.deserializeAttachment() || {}
-        const role = attachment.role || 'operator'
-        const projected = applyEpistemicScrimming(envelope, role)
-        socket.send(JSON.stringify(projected))
-      } catch {
-        try {
-          socket.close(1011, 'Broadcast transmission failure')
-        } catch (e) { console.log('emit error:', e); }
-      }
-    }
-  }
+        if (envelope.type !== 'TELEMETRY_HISTORY') {
+            this.recentTelemetry.push(envelope)
+            if (this.recentTelemetry.length > 10) {
+                this.recentTelemetry = this.recentTelemetry.slice(-10)
+            }
+            this.ctx.storage
+                .put('recent_telemetry', this.recentTelemetry)
+                .catch(() => {})
+        }
 
-  async broadcastTelemetry(
-    type: CanonicalEventType,
-    source: string,
-    payload: any,
-    asciiMsg: string,
-  ): Promise<void> {
-    const packet: TelemetryPacket = {
-      seq: ++this.telemetrySeq,
-      ts: Date.now(),
-      type,
-      source,
-      payload: payload || {},
-      ascii: asciiMsg,
-    }
+        const sockets = this.ctx.getWebSockets('operator')
+        if (sockets.length === 0) return
 
-    if (type !== 'TELEMETRY_HISTORY') {
-      if (!this.recentTelemetry) { this.recentTelemetry = [] }
-      this.recentTelemetry.push(packet)
-      if (this.recentTelemetry.length > 10) {
-        this.recentTelemetry = this.recentTelemetry.slice(-10)
-      }
-      this.ctx.storage
-        .put('recent_telemetry', this.recentTelemetry)
-        .catch(() => {})
+        for (const socket of sockets) {
+            try {
+                const attachment: any = socket.deserializeAttachment() || {}
+                const role = attachment.role || 'operator'
+                const projected = applyEpistemicScrimming(envelope, role)
+                socket.send(JSON.stringify(projected))
+            } catch {
+                try {
+                    socket.close(1011, 'Broadcast transmission failure')
+                } catch (e) {
+                    console.log('emit error:', e)
+                }
+            }
+        }
     }
 
-    const sockets = this.ctx.getWebSockets('operator')
-    if (sockets.length === 0) return
+    async broadcastTelemetry(
+        type: CanonicalEventType,
+        source: string,
+        payload: any,
+        asciiMsg: string,
+    ): Promise<void> {
+        const packet: TelemetryPacket = {
+            seq: ++this.telemetrySeq,
+            ts: Date.now(),
+            type,
+            source,
+            payload: payload || {},
+            ascii: asciiMsg,
+        }
 
-    const raw = JSON.stringify(packet)
-    for (const socket of sockets) {
-      try {
-        socket.send(raw)
-      } catch {
-        try {
-          socket.close(1011, 'Broadcast transmission failure')
-        } catch (e) { console.log('emit error:', e); }
-      }
+        if (type !== 'TELEMETRY_HISTORY') {
+            if (!this.recentTelemetry) {
+                this.recentTelemetry = []
+            }
+            this.recentTelemetry.push(packet)
+            if (this.recentTelemetry.length > 10) {
+                this.recentTelemetry = this.recentTelemetry.slice(-10)
+            }
+            this.ctx.storage
+                .put('recent_telemetry', this.recentTelemetry)
+                .catch(() => {})
+        }
+
+        const sockets = this.ctx.getWebSockets('operator')
+        if (sockets.length === 0) return
+
+        const raw = JSON.stringify(packet)
+        for (const socket of sockets) {
+            try {
+                socket.send(raw)
+            } catch {
+                try {
+                    socket.close(1011, 'Broadcast transmission failure')
+                } catch (e) {
+                    console.log('emit error:', e)
+                }
+            }
+        }
     }
-  }
 
     async webSocketMessage(
         socket: WebSocket,
@@ -210,7 +217,9 @@ export class RepoBotDO extends DurableObject<Env> {
             try {
                 const parsed = JSON.parse(text)
                 if (parsed?.type === 'PING') isPing = true
-            } catch (e) { console.log('emit error:', e); }
+            } catch (e) {
+                console.log('emit error:', e)
+            }
         }
         if (isPing) {
             socket.send(JSON.stringify({ type: 'PONG', ts: Date.now() }))
@@ -225,13 +234,17 @@ export class RepoBotDO extends DurableObject<Env> {
     ): Promise<void> {
         try {
             socket.close(code, reason)
-        } catch (e) { console.log('emit error:', e); }
+        } catch (e) {
+            console.log('emit error:', e)
+        }
     }
 
     async webSocketError(socket: WebSocket, _error: unknown): Promise<void> {
         try {
             socket.close(1011, 'WebSocket error')
-        } catch (e) { console.log('emit error:', e); }
+        } catch (e) {
+            console.log('emit error:', e)
+        }
     }
 
     /**
@@ -245,6 +258,19 @@ export class RepoBotDO extends DurableObject<Env> {
             context.state = 'HALTED'
             context.updatedAt = Date.now()
             await this.ctx.storage.put('fsm_context', context)
+
+            emitCanonicalEvent(this.env, {
+                type: 'LEASE_HEARTBEAT_EXPIRED',
+                domain: 'FSM',
+                source: 'RepoBotDO.alarm',
+                correlationId: context.taskId,
+                payload: {
+                    taskId: context.taskId,
+                    lastHeartbeatTs: context.updatedAt,
+                    evictedAt: Date.now(),
+                },
+                ascii: `>> [FSM] LEASE_HEARTBEAT_EXPIRED: Task ${context.taskId} timed out in AWAITING_APPROVAL. Evicted to HALTED.`,
+            }).catch(() => {})
 
             if (
                 context.slackMessageTs &&
@@ -270,76 +296,81 @@ export class RepoBotDO extends DurableObject<Env> {
         const path = url.pathname
 
         if (request.method === 'POST' && path === '/broadcast') {
-      const body: any = await request.json().catch(() => null)
-      if (body && body.type && body.ascii) {
-        if (body.domain && body.recordHash) {
-          await this.broadcastEnvelope(body as EventEnvelope)
-        } else {
-          await this.broadcastTelemetry(
-            body.type,
-            body.source || 'edgeSubsystem',
-            body.payload || {},
-            body.ascii,
-          )
+            const body: any = await request.json().catch(() => null)
+            if (body && body.type && body.ascii) {
+                if (body.domain && body.recordHash) {
+                    await this.broadcastEnvelope(body as EventEnvelope)
+                } else {
+                    await this.broadcastTelemetry(
+                        body.type,
+                        body.source || 'edgeSubsystem',
+                        body.payload || {},
+                        body.ascii,
+                    )
+                }
+            }
+            return Response.json({ ok: true })
         }
-      }
-      return Response.json({ ok: true })
-    }
 
-    // WebSocket Handshake & Replay (K=10)
-    if (path === '/ws/telemetry' || path === '/ws') {
-      if (request.headers.get('Upgrade') !== 'websocket') {
-        return new Response('Expected Upgrade: websocket', { status: 426 })
-      }
-      const pair = new WebSocketPair()
-      const [client, server] = Object.values(pair)
-      const role = url.searchParams.get('role') || 'operator'
+        // WebSocket Handshake & Replay (K=10)
+        if (path === '/ws/telemetry' || path === '/ws') {
+            if (request.headers.get('Upgrade') !== 'websocket') {
+                return new Response('Expected Upgrade: websocket', {
+                    status: 426,
+                })
+            }
+            const pair = new WebSocketPair()
+            const [client, server] = Object.values(pair)
+            const role = url.searchParams.get('role') || 'operator'
 
-      this.ctx.acceptWebSocket(server, ['operator'])
-      server.serializeAttachment({
-        connectedAt: Date.now(),
-        role,
-      })
+            this.ctx.acceptWebSocket(server, ['operator'])
+            server.serializeAttachment({
+                connectedAt: Date.now(),
+                role,
+            })
 
-      const initPacket: TelemetryPacket = {
-        seq: ++this.telemetrySeq,
-        ts: Date.now(),
-        type: 'HEARTBEAT',
-        source: 'RepoBotDO',
-        payload: { status: 'ONLINE', role },
-        ascii:
-          '>> [TELEMETRY] Edge tunnel established. Live streaming engaged.',
-      }
-      try {
-        server.send(JSON.stringify(initPacket))
-      } catch (e) { console.log('emit error:', e); }
+            const initPacket: TelemetryPacket = {
+                seq: ++this.telemetrySeq,
+                ts: Date.now(),
+                type: 'HEARTBEAT',
+                source: 'RepoBotDO',
+                payload: { status: 'ONLINE', role },
+                ascii: '>> [TELEMETRY] Edge tunnel established. Live streaming engaged.',
+            }
+            try {
+                server.send(JSON.stringify(initPacket))
+            } catch (e) {
+                console.log('emit error:', e)
+            }
 
-      if (!this.recentTelemetry || this.recentTelemetry.length === 0) {
-        this.recentTelemetry =
-          (await this.ctx.storage.get<(TelemetryPacket | EventEnvelope)[]>(
-            'recent_telemetry',
-          )) || []
-      }
+            if (!this.recentTelemetry || this.recentTelemetry.length === 0) {
+                this.recentTelemetry =
+                    (await this.ctx.storage.get<
+                        (TelemetryPacket | EventEnvelope)[]
+                    >('recent_telemetry')) || []
+            }
 
-      if (this.recentTelemetry.length > 0) {
-        const historyPacket: TelemetryHistoryPacket = {
-          seq: this.telemetrySeq,
-          ts: Date.now(),
-          type: 'TELEMETRY_HISTORY',
-          source: 'RepoBotDO',
-          payload: {
-            count: this.recentTelemetry.length,
-            items: [...this.recentTelemetry],
-          },
-          ascii: `>> [TELEMETRY] Replaying last ${this.recentTelemetry.length} edge event(s)...`,
+            if (this.recentTelemetry.length > 0) {
+                const historyPacket: TelemetryHistoryPacket = {
+                    seq: this.telemetrySeq,
+                    ts: Date.now(),
+                    type: 'TELEMETRY_HISTORY',
+                    source: 'RepoBotDO',
+                    payload: {
+                        count: this.recentTelemetry.length,
+                        items: [...this.recentTelemetry],
+                    },
+                    ascii: `>> [TELEMETRY] Replaying last ${this.recentTelemetry.length} edge event(s)...`,
+                }
+                try {
+                    server.send(JSON.stringify(historyPacket))
+                } catch (e) {
+                    console.log('emit error:', e)
+                }
+            }
+
+            return new Response(null, { status: 101, webSocket: client })
         }
-        try {
-          server.send(JSON.stringify(historyPacket))
-        } catch (e) { console.log('emit error:', e); }
-      }
-
-      return new Response(null, { status: 101, webSocket: client })
-    }
 
         // 0. GET /api/slack/status
         if (request.method === 'GET' && path === '/api/slack/status') {
@@ -637,6 +668,42 @@ export class RepoBotDO extends DurableObject<Env> {
                     slackChannelId: undefined,
                     mergeCommitSha: undefined,
                 } as FSMContext)
+
+            if (body.attempts && body.attempts >= 3) {
+                context.state = 'DEAD_LETTER'
+                await this.ctx.storage.put('fsm_context', context)
+
+                await emitCanonicalEvent(this.env, {
+                    type: 'BUDGET_EXHAUSTED',
+                    domain: 'FSM',
+                    source: 'RepoBotDO.fsm',
+                    correlationId: body.taskId,
+                    payload: {
+                        taskId: body.taskId,
+                        attemptsRun: body.attempts,
+                        maxAttempts: 3,
+                        primaryFailureClass:
+                            body.failureReason || 'EXCESSIVE_FAILURES',
+                        terminalState: 'HALTED_FOR_TRIAGE',
+                    },
+                    ascii: `>> [FSM CIRCUIT TRIP] BUDGET_EXHAUSTED: Task ${body.taskId} failed 3 attempts. Tripping to DLQ.`,
+                })
+
+                await emitCanonicalEvent(this.env, {
+                    type: 'DEAD_LETTER_ENQUEUE',
+                    domain: 'FSM',
+                    source: 'RepoBotDO.fsm',
+                    correlationId: body.taskId,
+                    payload: {
+                        taskId: body.taskId,
+                        entryReason: 'BUDGET_EXHAUSTED',
+                        frozenContext: context as any,
+                    },
+                    ascii: `>> [DEAD LETTER QUEUE] Task ${body.taskId} quarantined for operator analysis.`,
+                })
+
+                return Response.json({ ok: false, context, deadLetter: true })
+            }
 
             // Stale Head SHA Guard
             if (
@@ -944,6 +1011,35 @@ export class RepoBotDO extends DurableObject<Env> {
             )
         }
 
+        // Director Override Ingress Route
+        if (request.method === 'POST' && path === '/api/director/override') {
+            const body: any = await request.json().catch(() => null)
+            if (!body || !body.target || !body.property) {
+                return Response.json(
+                    { error: 'target and property required' },
+                    { status: 400 },
+                )
+            }
+
+            const overrideEvent = await emitCanonicalEvent(this.env, {
+                type: 'DIRECTOR_OVERRIDE',
+                domain: 'AGENT',
+                source: 'DirectorConsole',
+                correlationId: body.target,
+                payload: {
+                    target: body.target,
+                    property: body.property,
+                    from: body.from,
+                    to: body.to,
+                    actor: body.actor || 'showrunner',
+                    reason: body.reason || 'Manual directorial calibration',
+                },
+                ascii: `>> [OVERRIDE] DIRECTOR_OVERRIDE on ${body.target}.${body.property}: ${body.from} -> ${body.to} (${body.reason || 'no reason'})`,
+            })
+
+            return Response.json({ ok: true, event: overrideEvent })
+        }
+
         return new Response(JSON.stringify({ status: 'REPO_BOT_DO_ONLINE' }), {
             headers: { 'Content-Type': 'application/json' },
         })
@@ -951,22 +1047,31 @@ export class RepoBotDO extends DurableObject<Env> {
 }
 
 export async function emitEdgeTelemetry(
-  env: Env,
-  type: CanonicalEventType,
-  source: string,
-  payload: any,
-  asciiMsg: string,
+    env: Env,
+    type: CanonicalEventType,
+    source: string,
+    payload: any,
+    asciiMsg: string,
 ): Promise<void> {
-  if (!env.REPO_BOT_DO) return
-  try {
-    const id = env.REPO_BOT_DO.idFromName('global')
-    const stub = env.REPO_BOT_DO.get(id)
-    await stub.fetch(
-      new Request('https://internal/broadcast', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type, source, payload, ascii: asciiMsg }),
-      }),
-    )
-  } catch {}
+    if (!env.REPO_BOT_DO) return
+    try {
+        const id = env.REPO_BOT_DO.idFromName('global')
+        const stub = env.REPO_BOT_DO.get(id)
+        if (typeof stub.broadcastTelemetry === 'function') {
+            await stub.broadcastTelemetry(type, source, payload, asciiMsg)
+        } else if (typeof stub.fetch === 'function') {
+            await stub.fetch(
+                new Request('https://internal/broadcast', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        type,
+                        source,
+                        payload,
+                        ascii: asciiMsg,
+                    }),
+                }),
+            )
+        }
+    } catch {}
 }

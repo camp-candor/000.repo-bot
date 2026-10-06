@@ -3,6 +3,7 @@ import {
     postSlackMergeAnnouncement,
     updateSlackMessage,
 } from './slackBridge.js'
+import { emitCanonicalEvent } from './events/eventHub.js'
 
 export interface MergeExecutorParams {
     taskId: string
@@ -94,6 +95,24 @@ export async function executeShaPinnedMerge(
         if (pr.head?.sha !== auditedHeadSha) {
             const errorMsg = `TOCTOU_DIVERGENCE: PR head moved to ${pr.head?.sha}, expected ${auditedHeadSha}`
             console.error(`>> [MERGE EXECUTOR] ${errorMsg}`)
+
+            emitCanonicalEvent(env, {
+                type: 'TOCTOU_HEAD_DRIFT',
+                domain: 'GOVERNANCE',
+                source: 'mergeExecutor',
+                correlationId: taskId,
+                payload: {
+                    taskId,
+                    pullNumber,
+                    expectedAuditedSha: auditedHeadSha,
+                    actualRemoteSha: pr.head?.sha || 'unknown',
+                    actor: actor || 'unknown',
+                    driftedAt: Date.now(),
+                    actionTaken: 'MERGE_ABORTED_LOCK_FROZEN',
+                },
+                ascii: `>> [CAS ERROR] TOCTOU_HEAD_DRIFT: PR #${pullNumber} head moved to ${pr.head?.sha?.slice(0, 7)} after audit. Merge aborted.`,
+            }).catch(() => {})
+
             return { success: false, error: errorMsg }
         }
 

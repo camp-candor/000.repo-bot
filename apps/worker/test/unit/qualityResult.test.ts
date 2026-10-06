@@ -44,9 +44,20 @@ describe('FEAT-02: Quality Gauntlet Ingestion Engine', () => {
                 env: {
                     DB: mockDb,
                     REPO_BOT_DO: {
-                        idFromName: vi.fn().mockReturnValue('mock-do-id'),
-                        get: vi.fn().mockReturnValue({
-                            fetch: mockDoFetch,
+                        idFromName: vi
+                            .fn()
+                            .mockImplementation((name: string) => name),
+                        get: vi.fn().mockImplementation((id: string) => {
+                            if (id === 'global') {
+                                return {
+                                    fetch: vi
+                                        .fn()
+                                        .mockResolvedValue(
+                                            new Response('{"ok":true}'),
+                                        ),
+                                }
+                            }
+                            return { fetch: mockDoFetch }
                         }),
                     },
                 },

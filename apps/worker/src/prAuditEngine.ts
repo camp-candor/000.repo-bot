@@ -4,6 +4,7 @@ import { extractTaskIdFromBranch } from './qualityResult.js'
 import { handleCheckRunEvent } from './qualityResult.js'
 import type { Context } from 'hono'
 import { githubRequest, type Env } from './tools.js'
+import { emitCanonicalEvent } from './events/eventHub.js'
 
 export interface GitHubPullRequestFile {
     filename: string
@@ -242,6 +243,7 @@ export async function auditPullRequest(
         env,
     )
 
+    const taskId = branchName ? extractTaskIdFromBranch(branchName) : null
     const violations: string[] = []
 
     // 2. Lineage Integrity Audit
@@ -253,7 +255,23 @@ export async function auditPullRequest(
         env,
     )
     if (!lineage.valid) {
-        violations.push(lineage.reason || 'Ancestry lineage validation failed')
+        const anomalyReason =
+            lineage.reason || 'Ancestry lineage validation failed'
+        violations.push(anomalyReason)
+        emitCanonicalEvent(env, {
+            type: 'LINEAGE_ANOMALY',
+            domain: 'GOVERNANCE',
+            source: 'prAuditEngine',
+            correlationId: taskId || `PR-${pullNumber}`,
+            payload: {
+                taskId: taskId || `PR-${pullNumber}`,
+                headSha,
+                baseSha,
+                comparisonStatus: lineage.status,
+                reason: anomalyReason,
+            },
+            ascii: `>> [GOVERNANCE] LINEAGE_ANOMALY: PR #${pullNumber}@${headSha.slice(0, 7)} diverged from base ${baseSha.slice(0, 7)}`,
+        }).catch(() => {})
     }
 
     // 3. Fetch full paginated diff
@@ -283,9 +301,21 @@ export async function auditPullRequest(
 
     // 5. Blast Radius Ceiling Check
     if (files.length > MAX_BLAST_RADIUS_FILES) {
-        violations.push(
-            `Blast-radius ceiling breached: ${files.length} files changed (max allowed: ${MAX_BLAST_RADIUS_FILES})`,
-        )
+        const breachMsg = `Blast-radius ceiling breached: ${files.length} files changed (max allowed: ${MAX_BLAST_RADIUS_FILES})`
+        violations.push(breachMsg)
+        emitCanonicalEvent(env, {
+            type: 'BLAST_RADIUS_EXCEEDED',
+            domain: 'GOVERNANCE',
+            source: 'prAuditEngine',
+            correlationId: taskId || `PR-${pullNumber}`,
+            payload: {
+                taskId: taskId || `PR-${pullNumber}`,
+                pullNumber,
+                fileCount: files.length,
+                ceilingLimit: MAX_BLAST_RADIUS_FILES,
+            },
+            ascii: `>> [GOVERNANCE] BLAST_RADIUS_EXCEEDED: PR #${pullNumber} modified ${files.length} files (Limit: ${MAX_BLAST_RADIUS_FILES})`,
+        }).catch(() => {})
     }
 
     // 6. Extract Spec Allowlist
@@ -312,12 +342,42 @@ export async function auditPullRequest(
             violations.push(
                 `Directory traversal attempt detected: ${file.filename}`,
             )
+            emitCanonicalEvent(env, {
+                type: 'SCOPE_FIREWALL_BREACH',
+                domain: 'GOVERNANCE',
+                source: 'prAuditEngine',
+                correlationId: taskId || `PR-${pullNumber}`,
+                payload: {
+                    taskId: taskId || `PR-${pullNumber}`,
+                    pullNumber,
+                    headSha,
+                    violationType: 'DIRECTORY_TRAVERSAL',
+                    offendingPaths: [file.filename],
+                    matchedPattern: '..',
+                },
+                ascii: `>> [SECURITY] SCOPE_FIREWALL_BREACH: Directory traversal in PR #${pullNumber} (${file.filename}) [REJECTED]`,
+            }).catch(() => {})
             continue
         }
 
-        // B. Symlink Hijack Defense (Git mode 120000 indicates symbolic link)
+        // B. Symlink Hijack Defense
         if (file.mode === '120000') {
             violations.push(`Symbolic link creation forbidden: ${currentPath}`)
+            emitCanonicalEvent(env, {
+                type: 'SCOPE_FIREWALL_BREACH',
+                domain: 'GOVERNANCE',
+                source: 'prAuditEngine',
+                correlationId: taskId || `PR-${pullNumber}`,
+                payload: {
+                    taskId: taskId || `PR-${pullNumber}`,
+                    pullNumber,
+                    headSha,
+                    violationType: 'SYMLINK_INJECTION',
+                    offendingPaths: [currentPath],
+                    matchedPattern: 'mode:120000',
+                },
+                ascii: `>> [SECURITY] SCOPE_FIREWALL_BREACH: Symlink injection in PR #${pullNumber} (${currentPath}) [REJECTED]`,
+            }).catch(() => {})
             continue
         }
 
@@ -326,6 +386,21 @@ export async function auditPullRequest(
             violations.push(
                 `Mutating protected asset is forbidden: ${currentPath}`,
             )
+            emitCanonicalEvent(env, {
+                type: 'SCOPE_FIREWALL_BREACH',
+                domain: 'GOVERNANCE',
+                source: 'prAuditEngine',
+                correlationId: taskId || `PR-${pullNumber}`,
+                payload: {
+                    taskId: taskId || `PR-${pullNumber}`,
+                    pullNumber,
+                    headSha,
+                    violationType: 'PROTECTED_PATH_MUTATION',
+                    offendingPaths: [currentPath],
+                    matchedPattern: 'PROTECTED_PATTERNS',
+                },
+                ascii: `>> [SECURITY] SCOPE_FIREWALL_BREACH: PR #${pullNumber} mutated frozen asset '${currentPath}' [REJECTED]`,
+            }).catch(() => {})
         }
 
         // D. Protected Path Rename Origin Check
@@ -365,7 +440,6 @@ export async function auditPullRequest(
     )
 
     // 10. Persist FSM Context to RepoBotDO (Fixes Choke Point Context Loss)
-    const taskId = extractTaskIdFromBranch(branchName)
     if (taskId && (env as any).REPO_BOT_DO) {
         try {
             const doId = (env as any).REPO_BOT_DO.idFromName(taskId)
