@@ -3,6 +3,7 @@ import { ensureAuditSchema } from './audit/auditLedger.js'
 import { appendAuditEvent } from './audit/auditLedger.js'
 import { executeColdDrainage } from './audit/drainageEngine.js'
 
+import { directiveRoutes } from './routes/directiveRoutes.js'
 import { Hono } from 'hono'
 import {
     handleSlackEvents,
@@ -378,6 +379,7 @@ const handleGitHubWebhook = async (c: any) => {
 }
 
 const app = new Hono<{ Bindings: Env }>()
+app.route('/api/directives', directiveRoutes)
 
 // Register Slack Events API webhook route
 app.post('/api/slack/events', handleSlackEvents)
