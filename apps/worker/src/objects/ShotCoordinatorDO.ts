@@ -7,34 +7,27 @@ import {
     TransitionResult,
 } from '../fsm/transitions.js'
 import { TimerScheduler } from './timerScheduler.js'
+import { OutboxRecord, drainOutboxBatch } from '../ledger/outboxDrainer.js'
 
 export interface ShotCoordinatorStateRecord {
     currentState: TaskState
     ctx: FSMContext
-    outbox: Array<{
-        eventId: string
-        fromState: TaskState
-        toState: TaskState
-        event: FSMEvent
-        timestampMs: number
-    }>
+    outbox: OutboxRecord[]
+    sequenceCounter: number
 }
 
 export class ShotCoordinatorDO {
     private currentState: TaskState = 'PENDING'
     private ctx: FSMContext
     private timerScheduler: TimerScheduler
-    private outbox: Array<{
-        eventId: string
-        fromState: TaskState
-        toState: TaskState
-        event: FSMEvent
-        timestampMs: number
-    }> = []
-
+    private outbox: OutboxRecord[] = []
+    private sequenceCounter = 0
     private isHydrated = false
 
-    constructor(private readonly state: DurableObjectState) {
+    constructor(
+        private readonly state: DurableObjectState,
+        private readonly env?: any,
+    ) {
         this.timerScheduler = new TimerScheduler(this.state.storage)
         this.ctx = {
             taskId: 'UNINITIALIZED',
@@ -51,7 +44,7 @@ export class ShotCoordinatorDO {
     }
 
     /**
-     * Ensures in-memory properties are hydrated from Durable Object NVMe storage.
+     * Hydrates in-memory context and persistent outbox from NVMe storage.
      */
     private async ensureHydrated(): Promise<void> {
         if (this.isHydrated) return
@@ -64,38 +57,70 @@ export class ShotCoordinatorDO {
             this.currentState = stored.currentState
             this.ctx = stored.ctx
             this.outbox = stored.outbox || []
+            this.sequenceCounter = stored.sequenceCounter || 0
         }
         this.isHydrated = true
     }
 
     /**
-     * Atomically commits FSM state and context to persistent storage.
+     * Atomically commits FSM state, context, and outbox buffer to storage.
      */
     private async persist(): Promise<void> {
         const record: ShotCoordinatorStateRecord = {
             currentState: this.currentState,
             ctx: this.ctx,
             outbox: this.outbox,
+            sequenceCounter: this.sequenceCounter,
         }
         await this.state.storage.put('fsm_record', record)
     }
 
     /**
-     * Universal Choke Point: Disarms the active watchdog alarm on exit from RUNNING.
+     * Universal Choke Point: Disarms watchdog alarm unconditionally upon exiting RUNNING.
      */
     private async leaveRunning(_reason: string): Promise<void> {
         await this.timerScheduler.disarmWatchdog()
     }
 
     /**
-     * Arms the 30-second watchdog timer when entering the RUNNING state.
+     * Arms 30-second rolling watchdog when entering RUNNING.
      */
     private async enterRunning(): Promise<void> {
         await this.timerScheduler.armWatchdog(30_000, this.ctx.currentEpoch)
     }
 
     /**
-     * Applies a transition deterministically, managing universal watchdog lifecycle.
+     * Drains pending outbox items to D1 and prunes them from storage upon success.
+     */
+    async drainPendingOutbox(db: any): Promise<{ drainedCount: number }> {
+        await this.ensureHydrated()
+        if (!db || this.outbox.length === 0) {
+            return { drainedCount: 0 }
+        }
+
+        const batch = this.outbox.slice(0, 50)
+
+        try {
+            const result = await drainOutboxBatch(db, batch)
+
+            // Prune drained items atomically from storage
+            const drainedIds = new Set(batch.map((r) => r.id))
+            this.outbox = this.outbox.filter((r) => !drainedIds.has(r.id))
+            await this.persist()
+
+            return { drainedCount: result.drainedCount }
+        } catch (err: any) {
+            // Retain items on error, increment attempts
+            for (const item of batch) {
+                item.attempts = (item.attempts || 0) + 1
+            }
+            await this.persist()
+            throw err
+        }
+    }
+
+    /**
+     * Applies FSM transitions, stages outbox entries atomically, and triggers non-blocking drain.
      */
     async applyTransition(
         event: FSMEvent,
@@ -134,27 +159,48 @@ export class ShotCoordinatorDO {
             await this.enterRunning()
         }
 
-        // 5. Append to transactional outbox for D1 projection
-        const eventRecord = {
-            eventId: `evt-${this.ctx.taskId}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        // 5. Stage Outbox Record atomically
+        this.sequenceCounter++
+        const now = Date.now()
+        const outboxRecord: OutboxRecord = {
+            id: `outbox-${this.ctx.taskId}-${this.sequenceCounter}`,
+            taskId: this.ctx.taskId,
+            attemptNumber: this.ctx.attemptCount,
+            sequenceNumber: this.sequenceCounter,
             fromState: previousState,
             toState: this.currentState,
             event,
-            timestampMs: Date.now(),
+            epoch: this.ctx.currentEpoch,
+            actor: actor.type,
+            reason: payload?.reason,
+            payloadJson: JSON.stringify(payload || {}),
+            timestampMs: now,
+            createdAtMs: now,
+            attempts: 0,
         }
-        this.outbox.push(eventRecord)
+        this.outbox.push(outboxRecord)
 
         await this.persist()
+
+        // 6. Asynchronous Non-Blocking Outbox Drain (if D1 binding is present)
+        if (this.env?.DB) {
+            this.state.waitUntil(
+                this.drainPendingOutbox(this.env.DB).catch((err: any) => {
+                    console.warn(
+                        `>> [AUTO-DRAIN WARN] Task ${this.ctx.taskId}: ${err.message}`,
+                    )
+                }),
+            )
+        }
+
         return result
     }
 
     /**
-     * Proactive Storage Alarm Hook: Triggered when watchdog timer expires.
+     * Storage Alarm Hook: Triggered upon watchdog timeout.
      */
     async alarm(): Promise<void> {
         await this.ensureHydrated()
-
-        // Verify alarm validity against current epoch and state
         const isAlarmValid = await this.timerScheduler.isAlarmValidForEpoch(
             this.ctx.currentEpoch,
         )
@@ -166,13 +212,12 @@ export class ShotCoordinatorDO {
                 { reason: 'WATCHDOG_TIMEOUT_EXPIRED' },
             )
         } else {
-            // Clear stray or obsolete alarms
             await this.timerScheduler.disarmWatchdog()
         }
     }
 
     /**
-     * Primary HTTP Router for Worker Ingress.
+     * Primary HTTP Router for Worker & Reconciler RPC.
      */
     async fetch(request: Request): Promise<Response> {
         await this.ensureHydrated()
@@ -197,7 +242,34 @@ export class ShotCoordinatorDO {
                 )
             }
 
-            // 2. POST /fsm/initialize
+            // 2. POST /fsm/outbox/drain (Reconciler & Manual Drain RPC)
+            if (request.method === 'POST' && path === '/fsm/outbox/drain') {
+                const db = this.env?.DB
+                if (!db) {
+                    return new Response(
+                        JSON.stringify({ error: 'DB_BINDING_NOT_CONFIGURED' }),
+                        {
+                            headers: { 'Content-Type': 'application/json' },
+                            status: 500,
+                        },
+                    )
+                }
+
+                const result = await this.drainPendingOutbox(db)
+                return new Response(
+                    JSON.stringify({
+                        ok: true,
+                        drainedCount: result.drainedCount,
+                        remainingCount: this.outbox.length,
+                    }),
+                    {
+                        headers: { 'Content-Type': 'application/json' },
+                        status: 200,
+                    },
+                )
+            }
+
+            // 3. POST /fsm/initialize
             if (request.method === 'POST' && path === '/fsm/initialize') {
                 const body: any = await request.json()
                 if (
@@ -222,6 +294,8 @@ export class ShotCoordinatorDO {
                     attemptCount: 1,
                 }
                 this.currentState = 'PENDING'
+                this.sequenceCounter = 0
+                this.outbox = []
                 await this.persist()
                 return new Response(
                     JSON.stringify({
@@ -236,7 +310,7 @@ export class ShotCoordinatorDO {
                 )
             }
 
-            // 3. POST /fsm/claim
+            // 4. POST /fsm/claim
             if (request.method === 'POST' && path === '/fsm/claim') {
                 if (
                     this.currentState !== 'PENDING' &&
@@ -244,7 +318,7 @@ export class ShotCoordinatorDO {
                 ) {
                     return new Response(
                         JSON.stringify({
-                            error: `CANNOT_CLAIM_TASK: Current state is '${this.currentState}', expected PENDING or RETRYING.`,
+                            error: `CANNOT_CLAIM_TASK: State is '${this.currentState}', expected PENDING or RETRYING.`,
                         }),
                         {
                             headers: { 'Content-Type': 'application/json' },
@@ -270,7 +344,7 @@ export class ShotCoordinatorDO {
                 )
             }
 
-            // 4. POST /fsm/heartbeat
+            // 5. POST /fsm/heartbeat
             if (request.method === 'POST' && path === '/fsm/heartbeat') {
                 const body: any = await request.json()
                 const incomingEpoch = Number(body?.epoch)
@@ -288,7 +362,6 @@ export class ShotCoordinatorDO {
                 }
 
                 if (this.currentState === 'RUNNING') {
-                    // Re-arm the 30-second rolling watchdog
                     await this.timerScheduler.armWatchdog(
                         30_000,
                         this.ctx.currentEpoch,
@@ -308,7 +381,7 @@ export class ShotCoordinatorDO {
                 )
             }
 
-            // 5. POST /fsm/transition
+            // 6. POST /fsm/transition
             if (request.method === 'POST' && path === '/fsm/transition') {
                 const body: any = await request.json()
                 const { event, actor, payload } = body
@@ -323,12 +396,16 @@ export class ShotCoordinatorDO {
                     )
                 }
 
-                const res = await this.applyTransition(event, actor, payload)
+                const transitionResult = await this.applyTransition(
+                    event,
+                    actor,
+                    payload,
+                )
                 return new Response(
                     JSON.stringify({
                         ok: true,
                         state: this.currentState,
-                        transition: res,
+                        transition: transitionResult,
                     }),
                     {
                         headers: { 'Content-Type': 'application/json' },
@@ -337,17 +414,16 @@ export class ShotCoordinatorDO {
                 )
             }
 
-            // 6. POST /tasks/complete (Promotion Boundary Fencing Gate)
+            // 7. POST /tasks/complete
             if (request.method === 'POST' && path === '/tasks/complete') {
                 const body: any = await request.json()
                 const incomingEpoch = Number(body?.epoch)
                 const headSha = body?.headSha
 
-                // Fencing Gate Assertion: Reject obsolete or partitioned zombie workers
                 if (incomingEpoch !== this.ctx.currentEpoch) {
                     return new Response(
                         JSON.stringify({
-                            error: `PROMOTION_FENCE_REJECTED: Cannot promote artifacts from superseded epoch ${incomingEpoch}. Active epoch is ${this.ctx.currentEpoch}.`,
+                            error: `PROMOTION_FENCE_REJECTED: Cannot promote from superseded epoch ${incomingEpoch}. Active is ${this.ctx.currentEpoch}.`,
                         }),
                         {
                             headers: { 'Content-Type': 'application/json' },
