@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import {
-        resetSchemaInitializationGuard,
+    ensureDirectiveLedgerSchema,
+    resetSchemaInitializationGuard,
     registerDirectiveTask,
     claimTaskAttempt,
     recordTaskEvent,
@@ -414,5 +415,198 @@ describe('Directive Ledger DDL & Architecture Suite', () => {
 
         nextTask = await queryNextDirectiveTask(mockDb, 'day-007')
         expect(nextTask?.task_id).toBe('TASK-B')
+    })
+
+    describe('Adversarial Negative-Control Battery (Gauntlet Level 3)', () => {
+        it('NC-1: Attempt Isolation Negative Control', async () => {
+            await registerDirectiveTask(mockDb, {
+                taskId: 'TASK-STRESS-01',
+                targetRepo: 'camp-candor/000.repo-bot',
+                dayFolder: 'day-099',
+                sequenceNum: 1,
+                fileType: 'JULES',
+                filePath: 'data/directive/day-099/001.stress.jules.md',
+                maxAttempts: 3,
+            })
+
+            await claimTaskAttempt(mockDb, {
+                taskId: 'TASK-STRESS-01',
+                attemptNumber: 1,
+                branchName: 'spec/task-01-a',
+                baseCommitSha: 'sha-base-1',
+                epoch: 1,
+            })
+
+            await claimTaskAttempt(mockDb, {
+                taskId: 'TASK-STRESS-01',
+                attemptNumber: 2,
+                branchName: 'spec/task-01-b',
+                baseCommitSha: 'sha-base-2',
+                epoch: 2,
+            })
+
+            const att1 = mockDb.attempts.get('TASK-STRESS-01:1')
+            const att2 = mockDb.attempts.get('TASK-STRESS-01:2')
+
+            expect(att1.branch_name).toBe('spec/task-01-a')
+            expect(att1.base_commit_sha).toBe('sha-base-1')
+            expect(att2.branch_name).toBe('spec/task-01-b')
+            expect(att2.base_commit_sha).toBe('sha-base-2')
+            expect(
+                mockDb.tasks.get('TASK-STRESS-01').current_attempt_number,
+            ).toBe(2)
+        })
+
+        it('NC-2: Duplicate Event Sequence Rejection', async () => {
+            await registerDirectiveTask(mockDb, {
+                taskId: 'TASK-STRESS-02',
+                targetRepo: 'camp-candor/000.repo-bot',
+                dayFolder: 'day-099',
+                sequenceNum: 2,
+                fileType: 'JULES',
+                filePath: 'data/directive/day-099/002.stress.jules.md',
+            })
+
+            await recordTaskEvent(mockDb, {
+                taskId: 'TASK-STRESS-02',
+                attemptNumber: 1,
+                sequenceNumber: 1,
+                fromState: 'CLAIMED',
+                event: 'TASK_RUNNING',
+                toState: 'RUNNING',
+                actor: 'worker',
+                epoch: 1,
+            })
+
+            let duplicateError: any
+            try {
+                await recordTaskEvent(mockDb, {
+                    taskId: 'TASK-STRESS-02',
+                    attemptNumber: 1,
+                    sequenceNumber: 1,
+                    fromState: 'RUNNING',
+                    event: 'TASK_VERIFYING',
+                    toState: 'VERIFYING',
+                    actor: 'worker',
+                    epoch: 1,
+                })
+            } catch (err) {
+                duplicateError = err
+            }
+
+            expect(duplicateError).toBeDefined()
+            expect(duplicateError.message).toMatch(
+                /UNIQUE constraint failed: task_events\.task_id, sequence_number/,
+            )
+        })
+
+        it('NC-3: One-Shot Approval Replay Rejection and Mutation Acceptance', async () => {
+            await recordOneShotApproval(mockDb, {
+                taskId: 'TASK-STRESS-03',
+                headSha: 'deadbeef01',
+                decision: 'APPROVED',
+                decidedBy: 'signer-primary',
+                reason: 'Primary approval',
+            })
+
+            let replayError: any
+            try {
+                await recordOneShotApproval(mockDb, {
+                    taskId: 'TASK-STRESS-03',
+                    headSha: 'deadbeef01',
+                    decision: 'APPROVED',
+                    decidedBy: 'signer-secondary',
+                    reason: 'Replay attempt',
+                })
+            } catch (err) {
+                replayError = err
+            }
+
+            expect(replayError).toBeDefined()
+            expect(replayError.message).toMatch(
+                /UNIQUE constraint failed: approvals\.task_id, head_sha/,
+            )
+
+            // Mutated head SHA must succeed
+            await expect(
+                recordOneShotApproval(mockDb, {
+                    taskId: 'TASK-STRESS-03',
+                    headSha: 'deadbeef02',
+                    decision: 'APPROVED',
+                    decidedBy: 'signer-secondary',
+                    reason: 'Mutated commit approved',
+                }),
+            ).resolves.not.toThrow()
+        })
+
+        it('NC-4: Sequential Dispatch Monotonic Order Boundary', async () => {
+            await registerDirectiveTask(mockDb, {
+                taskId: 'TASK-099-30',
+                targetRepo: 'camp-candor/000.repo-bot',
+                dayFolder: 'day-099',
+                sequenceNum: 30,
+                fileType: 'JULES',
+                filePath: 'data/directive/day-099/030.jules.md',
+            })
+
+            await registerDirectiveTask(mockDb, {
+                taskId: 'TASK-099-10',
+                targetRepo: 'camp-candor/000.repo-bot',
+                dayFolder: 'day-099',
+                sequenceNum: 10,
+                fileType: 'JULES',
+                filePath: 'data/directive/day-099/010.jules.md',
+            })
+
+            await registerDirectiveTask(mockDb, {
+                taskId: 'TASK-099-20',
+                targetRepo: 'camp-candor/000.repo-bot',
+                dayFolder: 'day-099',
+                sequenceNum: 20,
+                fileType: 'JULES',
+                filePath: 'data/directive/day-099/020.jules.md',
+            })
+
+            // Mark sequence 10 as MERGED
+            mockDb.tasks.get('TASK-099-10').current_status = 'MERGED'
+
+            const next = await queryNextDirectiveTask(mockDb, 'day-099')
+            expect(next).not.toBeNull()
+            expect(next?.sequence_num).toBe(20)
+            expect(next?.task_id).toBe('TASK-099-20')
+        })
+
+        it('NC-5: Self-Healing Schema Idempotency Across Multiple Consecutive Invocations', async () => {
+            let execCallCount = 0
+            const schemaDb = {
+                exec: async (_sql: string) => {
+                    execCallCount++
+                    return { success: true }
+                },
+            }
+
+            // Invocation 1
+            await expect(
+                ensureDirectiveLedgerSchema(schemaDb),
+            ).resolves.not.toThrow()
+            // Invocation 2
+            await expect(
+                ensureDirectiveLedgerSchema(schemaDb),
+            ).resolves.not.toThrow()
+            // Invocation 3
+            await expect(
+                ensureDirectiveLedgerSchema(schemaDb),
+            ).resolves.not.toThrow()
+
+            // Guard prevents redundant execution, zero errors
+            expect(execCallCount).toBe(1)
+
+            // Even if guard is reset between calls, executing DDL multiple times resolves cleanly
+            resetSchemaInitializationGuard()
+            await expect(
+                ensureDirectiveLedgerSchema(schemaDb),
+            ).resolves.not.toThrow()
+            expect(execCallCount).toBe(2)
+        })
     })
 })
