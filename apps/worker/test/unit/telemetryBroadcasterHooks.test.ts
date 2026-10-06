@@ -1,119 +1,140 @@
 import { describe, it, expect, vi } from 'vitest'
-import { emitEdgeTelemetry } from '../../src/RepoBotDO.js'
+import { RepoBotDO, recordSlackReceipt } from '../../src/RepoBotDO.js'
 import { appendAuditEvent } from '../../src/audit/auditLedger.js'
 
-describe('Telemetry Broadcaster Hooks', () => {
-    it('emitEdgeTelemetry calls stub.broadcastTelemetry when available', async () => {
-        const mockStub = {
-            broadcastTelemetry: vi.fn().mockResolvedValue(undefined),
-        }
-        const mockEnv = {
-            REPO_BOT_DO: {
-                idFromName: vi.fn().mockReturnValue('mock-id'),
-                get: vi.fn().mockReturnValue(mockStub),
+function createRepoBotDO(ctx: any, env: any): RepoBotDO {
+    const instance = Object.create(RepoBotDO.prototype)
+    instance.ctx = ctx
+    instance.env = env
+    instance.telemetrySeq = 0
+    return instance
+}
+
+describe('DAY-006: Active Edge Telemetry Broadcaster Hooks', () => {
+    function createMockDOState() {
+        const storageMap = new Map<string, any>()
+        const sockets: any[] = []
+
+        return {
+            storage: {
+                get: vi.fn(async (key: string) => storageMap.get(key) || null),
+                put: vi.fn(async (key: string, val: any) => {
+                    storageMap.set(key, val)
+                }),
+                delete: vi.fn(async (key: string) => {
+                    storageMap.delete(key)
+                }),
             },
-        }
-
-        await emitEdgeTelemetry(
-            mockEnv,
-            'TEST_TYPE',
-            'test_source',
-            {},
-            'ascii',
-        )
-        expect(mockStub.broadcastTelemetry).toHaveBeenCalledWith(
-            'TEST_TYPE',
-            'test_source',
-            {},
-            'ascii',
-        )
-    })
-
-    it('emitEdgeTelemetry falls back to POST /broadcast when RPC is absent', async () => {
-        const mockStub = {
-            fetch: vi
-                .fn()
-                .mockResolvedValue(new Response(JSON.stringify({ ok: true }))),
-        }
-        const mockEnv = {
-            REPO_BOT_DO: {
-                idFromName: vi.fn().mockReturnValue('mock-id'),
-                get: vi.fn().mockReturnValue(mockStub),
-            },
-        }
-
-        await emitEdgeTelemetry(
-            mockEnv,
-            'TEST_TYPE',
-            'test_source',
-            {},
-            'ascii',
-        )
-        expect(mockStub.fetch).toHaveBeenCalled()
-    })
-
-    it('emitEdgeTelemetry catches errors safely without throwing', async () => {
-        const mockStub = {
-            broadcastTelemetry: vi
-                .fn()
-                .mockRejectedValue(new Error('rpc failed')),
-        }
-        const mockEnv = {
-            REPO_BOT_DO: {
-                idFromName: vi.fn().mockReturnValue('mock-id'),
-                get: vi.fn().mockReturnValue(mockStub),
-            },
-        }
-        const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
-        await expect(
-            emitEdgeTelemetry(mockEnv, 'TEST_TYPE', 'test_source', {}, 'ascii'),
-        ).resolves.not.toThrow()
-        expect(warnSpy).toHaveBeenCalledWith(
-            '[TELEMETRY_EMIT_WARN]',
-            'rpc failed',
-        )
-        warnSpy.mockRestore()
-    })
-
-    it('appendAuditEvent emits AUDIT_LOG packet when env is passed', async () => {
-        const mockDb = {
-            prepare: vi.fn().mockReturnValue({
-                bind: vi.fn().mockReturnThis(),
-                first: vi.fn().mockResolvedValue(null),
-                run: vi.fn().mockResolvedValue({ success: true }),
+            acceptWebSocket: vi.fn((ws: any, tags: string[]) => {
+                ws.__tags = tags
+                sockets.push(ws)
             }),
-            exec: vi.fn().mockResolvedValue(undefined),
+            getWebSockets: vi.fn((tag?: string) => {
+                if (!tag) return sockets
+                return sockets.filter((s) => s.__tags?.includes(tag))
+            }),
+            _storageMap: storageMap,
+            _sockets: sockets,
+        } as any
+    }
+
+    const mockStub = {
+        broadcastTelemetry: vi.fn(async () => {}),
+    }
+
+    const mockEnv: any = {
+        REPO_BOT_DO: {
+            idFromName: vi.fn(() => ({ toString: () => 'global-id' })),
+            get: vi.fn(() => mockStub),
+        },
+    }
+
+    it('emits SLACK_RECEIPT telemetry and persists to storage', async () => {
+        const ctx = createMockDOState()
+        const doInstance = createRepoBotDO(ctx, mockEnv)
+        const broadcastSpy = vi.spyOn(doInstance, 'broadcastTelemetry')
+
+        const receipt = {
+            timestamp: Date.now(),
+            channel: 'C0C40FMRQ9H',
+            event: 'merged',
+            ok: true,
         }
 
-        const mockStub = {
-            broadcastTelemetry: vi.fn().mockResolvedValue(undefined),
+        await recordSlackReceipt(ctx.storage, receipt, doInstance)
+
+        expect(ctx.storage.put).toHaveBeenCalledWith(
+            'last_slack_receipt',
+            receipt,
+        )
+        expect(broadcastSpy).toHaveBeenCalledWith(
+            'SLACK_RECEIPT',
+            'RepoBotDO',
+            receipt,
+            expect.stringContaining(
+                '>> [SLACK] Receipt recorded: merged on C0C40FMRQ9H [OK]',
+            ),
+        )
+    })
+
+    it('emits AUDIT_LOG telemetry through appendAuditEvent', async () => {
+        const mockDb = {
+            exec: vi.fn(),
+            prepare: vi.fn(() => ({
+                bind: vi.fn(() => ({
+                    first: vi.fn(async () => null),
+                    run: vi.fn(async () => ({})),
+                })),
+                first: vi.fn(async () => null),
+            })),
         }
-        const mockEnv = {
-            REPO_BOT_DO: {
-                idFromName: vi.fn().mockReturnValue('mock-id'),
-                get: vi.fn().mockReturnValue(mockStub),
+
+        mockStub.broadcastTelemetry.mockClear()
+
+        await appendAuditEvent(
+            mockDb,
+            {
+                taskId: 'TASK-100',
+                repository: 'camp-candor/000.repo-bot',
+                eventType: 'TEST_EVENT',
+                actorId: 'operator',
+                headSha: '1234567890abcdef1234567890abcdef12345678',
+                payload: { test: true },
             },
-        }
+            mockEnv,
+        )
 
-        const event = {
-            taskId: 'test',
-            repository: 'test/repo',
-            eventType: 'TEST_EVENT',
-            actorId: 'test_user',
-            headSha: '12345678',
-            payload: {},
-        }
-
-        await appendAuditEvent(mockDb, event, mockEnv)
-
-        // Wait a tick for the async catch to fire internally (since it's not awaited before return)
-        await new Promise((resolve) => setTimeout(resolve, 10))
+        await new Promise((resolve) => setTimeout(resolve, 20))
 
         expect(mockStub.broadcastTelemetry).toHaveBeenCalledWith(
             'AUDIT_LOG',
             'auditLedger',
             expect.objectContaining({ type: 'TEST_EVENT' }),
             expect.stringContaining('>> [AUDIT #'),
+        )
+    })
+
+    it('broadcasts TASK_TRANSITION through RepoBotDO /fsm/transition handler', async () => {
+        const ctx = createMockDOState()
+        const doInstance = createRepoBotDO(ctx, mockEnv)
+        const broadcastSpy = vi.spyOn(doInstance, 'broadcastTelemetry')
+
+        const req = new Request('http://internal/fsm/transition', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                taskId: 'TASK-23.8',
+                state: 'AWAITING_APPROVAL',
+            }),
+        })
+
+        const res = await doInstance.fetch(req)
+        expect(res.status).toBe(200)
+        expect(broadcastSpy).toHaveBeenCalledWith(
+            'TASK_TRANSITION',
+            'RepoBotDO',
+            { taskId: 'TASK-23.8', state: 'AWAITING_APPROVAL' },
+            '>> [FSM] Task TASK-23.8 transitioned to AWAITING_APPROVAL',
         )
     })
 })

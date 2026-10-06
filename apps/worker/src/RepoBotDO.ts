@@ -84,8 +84,17 @@ export interface TelemetryHistoryPacket {
 export async function recordSlackReceipt(
     storage: DurableObjectStorage,
     receipt: OutboundSlackReceipt,
-) {
+    doInstance?: RepoBotDO,
+): Promise<void> {
     await storage.put('last_slack_receipt', receipt)
+    if (doInstance) {
+        await doInstance.broadcastTelemetry(
+            'SLACK_RECEIPT',
+            'RepoBotDO',
+            receipt,
+            `>> [SLACK] Receipt recorded: ${receipt.event} on ${receipt.channel} [OK]`,
+        )
+    }
 }
 
 export function parseRepoIdentifier(
@@ -332,7 +341,7 @@ export class RepoBotDO extends DurableObject<Env> {
                 .json()
                 .catch(() => null)) as OutboundSlackReceipt | null
             if (receipt) {
-                await recordSlackReceipt(this.ctx.storage, receipt)
+                await recordSlackReceipt(this.ctx.storage, receipt, this)
             }
             return Response.json({ ok: true })
         }
@@ -624,7 +633,7 @@ export class RepoBotDO extends DurableObject<Env> {
             }
 
             const previousState = context.state
-            let nextState = context.state
+            let nextState = body?.state || context.state
             let shouldTriggerMerge = false
             let shouldTriggerRollback = false
             let rollbackReason =
@@ -677,6 +686,7 @@ export class RepoBotDO extends DurableObject<Env> {
                                 await recordSlackReceipt(
                                     this.ctx.storage,
                                     receipt,
+                                    this,
                                 )
 
                                 if (res.ok && res.ts) {
@@ -768,17 +778,26 @@ export class RepoBotDO extends DurableObject<Env> {
             context.updatedAt = Date.now()
             await this.ctx.storage.put('fsm_context', context)
 
-            this.broadcastTelemetry(
-                'TASK_TRANSITION',
-                'RepoBotDO',
-                {
-                    taskId: context.taskId,
-                    previousState,
-                    state: nextState,
-                    headSha: context.auditedHeadSha,
-                },
-                `>> [FSM] Task ${context.taskId} transition: ${previousState} -> ${nextState}`,
-            )
+            if (body?.state && !body?.type) {
+                this.broadcastTelemetry(
+                    'TASK_TRANSITION',
+                    'RepoBotDO',
+                    { taskId: context.taskId, state: nextState },
+                    `>> [FSM] Task ${context.taskId} transitioned to ${nextState}`,
+                )
+            } else {
+                this.broadcastTelemetry(
+                    'TASK_TRANSITION',
+                    'RepoBotDO',
+                    {
+                        taskId: context.taskId,
+                        previousState,
+                        state: nextState,
+                        headSha: context.auditedHeadSha,
+                    },
+                    `>> [FSM] Task ${context.taskId} transition: ${previousState} -> ${nextState}`,
+                )
+            }
 
             // Trigger SHA-Pinned Merge Execution via Outbox
             if (shouldTriggerMerge) {

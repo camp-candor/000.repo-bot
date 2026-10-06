@@ -1,4 +1,5 @@
 import { StoredAuditEvent } from './auditLedger.js'
+import { emitEdgeTelemetry } from '../RepoBotDO.js'
 
 interface DrainResult {
     drainedCount: number
@@ -156,6 +157,20 @@ export async function executeColdDrainage(
         )
         .bind(sevenDaysAgo)
         .run()
+
+    if (records.length > 0 && env) {
+        emitEdgeTelemetry(
+            env,
+            'AUDIT_LOG',
+            'drainageEngine',
+            {
+                drainedCount: records.length,
+                committedFiles,
+                prunedCount: pruneResult?.meta?.changes || 0,
+            },
+            `>> [DRAIN] Cold drainage flushed ${records.length} event(s) to GitHub audit-log [OK]`,
+        ).catch(() => {})
+    }
 
     return {
         drainedCount: records.length,
