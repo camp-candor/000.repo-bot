@@ -9,6 +9,62 @@ export const initConsole = (cpy: ConsoleModel, bal: ConsoleBit, ste: State) => {
     return cpy
 }
 
+function wrapConsoleLine(text: string, maxWidth: number): string[] {
+    if (!text) return ['']
+
+    // Clamp repeating separator banners (e.g. >> ---- or ====) to maxWidth
+    if (/^(?:>>\s*)?[-=_*~]{10,}$/.test(text)) {
+        return [text.slice(0, maxWidth)]
+    }
+
+    if (text.length <= maxWidth) {
+        return [text]
+    }
+
+    // Detect indentation/prefix (e.g. ">> ", "• ", "- ", "* ")
+    const prefixMatch = text.match(/^(\s*(?:>>|\*|-|•)\s*)/)
+    const basePrefix = prefixMatch ? prefixMatch[1] : ''
+    const contPrefix = basePrefix.trim() === '>>' ? '>>   ' : '   '
+
+    const lines: string[] = []
+    let remaining = text
+    let isFirst = true
+
+    while (remaining.length > 0) {
+        const currentPrefix = isFirst ? '' : contPrefix
+        const effectiveMax = Math.max(10, maxWidth - currentPrefix.length)
+
+        if (remaining.length <= effectiveMax) {
+            lines.push(currentPrefix + remaining)
+            break
+        }
+
+        // Try to break at a space boundary
+        let breakIdx = remaining.lastIndexOf(' ', effectiveMax)
+        if (breakIdx <= 0 || breakIdx < effectiveMax * 0.4) {
+            // No convenient whitespace boundary; hard break at effectiveMax
+            breakIdx = effectiveMax
+        }
+
+        const chunk = remaining.slice(0, breakIdx).trimEnd()
+        lines.push(currentPrefix + chunk)
+        remaining = remaining.slice(breakIdx).trimStart()
+        isFirst = false
+    }
+
+    return lines
+}
+
+function wrapConsoleContent(content: string, maxWidth: number): string[] {
+    if (!content) return ['']
+    const paragraphs = content.split(/\r?\n/)
+    const result: string[] = []
+    for (const p of paragraphs) {
+        result.push(...wrapConsoleLine(p, maxWidth))
+    }
+    return result
+}
+
 export const updateConsole = async (
     cpy: ConsoleModel,
     bal: ConsoleBit,
@@ -17,18 +73,36 @@ export const updateConsole = async (
     bit = await ste.hunt(ActCns.READ_CONSOLE, { idx: bal.idx })
     const dat: TermBit = bit.cnsBit.dat
 
-    const console = dat.bit
-
     if (bal.src == null) bal.src = ''
 
-    dat.bit
-    bal.src
+    if (dat && dat.bit) {
+        const terminal: TerminalModel = ste.value.terminal
 
-    dat.bit.log(bal.src)
+        let maxWidth = 48
+        if (typeof dat.bit.width === 'number' && dat.bit.width > 4) {
+            maxWidth = dat.bit.width - 3
+        } else if (
+            dat.bit.lpos &&
+            typeof dat.bit.lpos.xl === 'number' &&
+            typeof dat.bit.lpos.xi === 'number'
+        ) {
+            const calculated = dat.bit.lpos.xl - dat.bit.lpos.xi - 3
+            if (calculated > 10) maxWidth = calculated
+        } else if (terminal?.screen?.cols && terminal.screen.cols > 10) {
+            maxWidth = Math.max(
+                20,
+                Math.floor((terminal.screen.cols * 8) / 12) - 3,
+            )
+        }
 
-    const terminal: TerminalModel = ste.value.terminal
-    if (terminal && terminal.screen) {
-        terminal.screen.render()
+        const lines = wrapConsoleContent(bal.src, maxWidth)
+        for (const line of lines) {
+            dat.bit.log(line)
+        }
+
+        if (terminal && terminal.screen) {
+            terminal.screen.render()
+        }
     }
 
     if (bal.slv != null) bal.slv({ cnsBit: { idx: 'update-console' } })
