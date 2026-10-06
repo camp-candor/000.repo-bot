@@ -1,3 +1,4 @@
+import { routeScheduledEvent } from './crons/scheduledRouter.js'
 import { directiveRoutes } from './routes/directiveRoutes.js'
 import { emitEdgeTelemetry } from './RepoBotDO.js'
 import { ensureAuditSchema } from './audit/auditLedger.js'
@@ -891,10 +892,16 @@ app.post('/api/audit/drain', async (c) => {
 // -----------------------------------------------------------------------------
 export default {
     fetch: app.fetch,
-    async scheduled(_event: any, env: any, ctx: any) {
+
+    async scheduled(
+        controller: { cron: string; scheduledTime: number },
+        env: Env,
+        ctx: { waitUntil: (promise: Promise<any>) => void },
+    ): Promise<void> {
+        // Shift asynchronous execution into background isolate context to survive CPU limits
         ctx.waitUntil(
             Promise.all([
-                executeColdDrainage(env.DB, {
+                executeColdDrainage(env.DB as any, {
                     GITHUB_TOKEN: env.GITHUB_TOKEN,
                     ARCHIVE_REPO: env.ARCHIVE_REPO,
                 }).catch((err) =>
@@ -903,6 +910,7 @@ export default {
                 pollActiveJulesSessions(env).catch((err) =>
                     console.error('[SCHEDULED_JULES_POLLER_FAILED]', err),
                 ),
+                routeScheduledEvent(controller, env),
             ]),
         )
     },
