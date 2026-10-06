@@ -61,7 +61,9 @@ export async function reconcileTaskProjections(
             const doId = env.REPO_BOT_DO.idFromName(taskId)
             const stub = env.REPO_BOT_DO.get(doId)
 
-            const ctxRes = await stub.fetch('https://do/fsm/context')
+            const ctxRes = await stub.fetch(
+                new Request('https://do/fsm/context'),
+            )
             if (!ctxRes.ok) {
                 throw new Error(`DO_FETCH_FAILED: HTTP ${ctxRes.status}`)
             }
@@ -95,10 +97,9 @@ export async function reconcileTaskProjections(
             // 3. Trigger Outbox Drain on DO
             if (pendingOutboxCount > 0) {
                 const drainRes = await stub.fetch(
-                    'https://do/fsm/outbox/drain',
-                    {
+                    new Request('https://do/fsm/outbox/drain', {
                         method: 'POST',
-                    },
+                    }),
                 )
                 if (!drainRes.ok) {
                     throw new Error(`DO_DRAIN_FAILED: HTTP ${drainRes.status}`)
@@ -106,7 +107,9 @@ export async function reconcileTaskProjections(
             }
 
             // 4. Force-Sync verification
-            const verifyRes = await stub.fetch('https://do/fsm/context')
+            const verifyRes = await stub.fetch(
+                new Request('https://do/fsm/context'),
+            )
             const verifyData: any = await verifyRes.json()
             const reconciledDoStatus = String(verifyData.currentState)
 
