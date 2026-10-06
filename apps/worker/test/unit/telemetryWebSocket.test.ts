@@ -175,9 +175,12 @@ describe('TASK-23.2: Durable Object WebSocket Hibernation Engine & Telemetry Ing
             const doInstance = createRepoBotDO(mockCtx, mockEnv)
 
             // 1. First connection
-            const req1 = new Request('http://internal/ws/telemetry?role=operator', {
-                headers: { Upgrade: 'websocket' },
-            })
+            const req1 = new Request(
+                'http://internal/ws/telemetry?role=operator',
+                {
+                    headers: { Upgrade: 'websocket' },
+                },
+            )
             await doInstance.fetch(req1)
             const socket1 = registeredWebSockets[0]
 
@@ -193,9 +196,12 @@ describe('TASK-23.2: Durable Object WebSocket Hibernation Engine & Telemetry Ing
             expect(socket1.send).toHaveBeenCalledTimes(2)
 
             // 3. Second connection
-            const req2 = new Request('http://internal/ws/telemetry?role=operator', {
-                headers: { Upgrade: 'websocket' },
-            })
+            const req2 = new Request(
+                'http://internal/ws/telemetry?role=operator',
+                {
+                    headers: { Upgrade: 'websocket' },
+                },
+            )
             await doInstance.fetch(req2)
             const socket2 = registeredWebSockets[1]
 

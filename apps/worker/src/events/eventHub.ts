@@ -26,17 +26,24 @@ export class EventHub {
         readonly upcasters: EventUpcasterRegistry = defaultUpcasterRegistry,
     ) {}
 
-    async publish<T = any>(options: PublishEventOptions<T>): Promise<EventEnvelope> {
+    async publish<T = any>(
+        options: PublishEventOptions<T>,
+    ): Promise<EventEnvelope> {
         const cleanAscii = sanitizeToAscii(options.ascii)
-        const redactedPayloadStr = redactSensitiveData(JSON.stringify(options.payload || {}))
+        const redactedPayloadStr = redactSensitiveData(
+            JSON.stringify(options.payload || {}),
+        )
         const cleanPayload = JSON.parse(redactedPayloadStr)
 
         const now = Date.now()
-        const correlationId = options.correlationId || `corr-${now}-${Math.random().toString(36).slice(2, 8)}`
+        const correlationId =
+            options.correlationId ||
+            `corr-${now}-${Math.random().toString(36).slice(2, 8)}`
         const eventId = `evt-${now}-${Math.random().toString(36).slice(2, 10)}`
 
         let seq = 1
-        let prevHash = '0000000000000000000000000000000000000000000000000000000000000000'
+        let prevHash =
+            '0000000000000000000000000000000000000000000000000000000000000000'
 
         // 1. Resolve sequence and prevHash from D1 if available
         if (this.env.DB) {
