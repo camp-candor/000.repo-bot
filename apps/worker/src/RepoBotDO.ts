@@ -7,6 +7,7 @@ import { DurableObject } from 'cloudflare:workers'
 import { dispatchSlackApprovalCard, updateSlackMessage } from './slackBridge.js'
 import { executeShaPinnedMerge } from './mergeExecutor.js'
 import type { Env } from './tools.js'
+import { applyEpistemicScrimming, type CanonicalEventType, type EventEnvelope } from './events/eventEnvelope.js'
 
 export interface WatchedRepo {
     id: string
@@ -127,7 +128,39 @@ export class RepoBotDO extends DurableObject<Env> {
     constructor(ctx: DurableObjectState, env: Env) {
         super(ctx, env)
         this.recentTelemetry = []
+        this.recentTelemetry = []
     }
+
+
+  async broadcastEnvelope(envelope: EventEnvelope): Promise<void> {
+    this.telemetrySeq = Math.max(this.telemetrySeq, envelope.seq)
+
+    if (envelope.type !== 'TELEMETRY_HISTORY') {
+      this.recentTelemetry.push(envelope as any)
+      if (this.recentTelemetry.length > 10) {
+        this.recentTelemetry = this.recentTelemetry.slice(-10)
+      }
+      this.ctx.storage
+        .put('recent_telemetry', this.recentTelemetry)
+        .catch(() => {})
+    }
+
+    const sockets = this.ctx.getWebSockets('operator')
+    if (sockets.length === 0) return
+
+    for (const socket of sockets) {
+      try {
+        const attachment: any = socket.deserializeAttachment() || {}
+        const role = attachment.role || 'operator'
+        const projected = applyEpistemicScrimming(envelope, role)
+        socket.send(JSON.stringify(projected))
+      } catch {
+        try {
+          socket.close(1011, 'Broadcast transmission failure')
+        } catch {}
+      }
+    }
+  }
 
     async broadcastTelemetry(
         type: TelemetryPacket['type'],
@@ -925,33 +958,22 @@ export class RepoBotDO extends DurableObject<Env> {
 }
 
 export async function emitEdgeTelemetry(
-    env: any,
-    type: string,
-    source: string,
-    payload: any,
-    asciiMsg: string,
+  env: Env,
+  type: CanonicalEventType,
+  source: string,
+  payload: any,
+  asciiMsg: string,
 ): Promise<void> {
-    if (!env?.REPO_BOT_DO) return
-    try {
-        const id = env.REPO_BOT_DO.idFromName('global')
-        const stub = env.REPO_BOT_DO.get(id)
-        if (typeof stub.broadcastTelemetry === 'function') {
-            await stub.broadcastTelemetry(type, source, payload, asciiMsg)
-        } else {
-            await stub.fetch(
-                new Request('https://internal/broadcast', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        type,
-                        source,
-                        payload,
-                        ascii: asciiMsg,
-                    }),
-                }),
-            )
-        }
-    } catch (err: any) {
-        console.warn('[TELEMETRY_EMIT_WARN]', err.message)
-    }
+  if (!env.REPO_BOT_DO) return
+  try {
+    const id = env.REPO_BOT_DO.idFromName('global')
+    const stub = env.REPO_BOT_DO.get(id)
+    await stub.fetch(
+      new Request('https://internal/broadcast', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type, source, payload, ascii: asciiMsg }),
+      }),
+    )
+  } catch {}
 }
