@@ -40,6 +40,7 @@ describe('DAY-006: Active Edge Telemetry Broadcaster Hooks', () => {
 
     const mockStub = {
         broadcastTelemetry: vi.fn(async () => {}),
+        fetch: vi.fn(async () => new Response('{"ok":true}')),
     }
 
     const mockEnv: any = {
@@ -89,7 +90,7 @@ describe('DAY-006: Active Edge Telemetry Broadcaster Hooks', () => {
             })),
         }
 
-        mockStub.broadcastTelemetry.mockClear()
+        mockStub.fetch.mockClear()
 
         await appendAuditEvent(
             mockDb,
@@ -106,12 +107,14 @@ describe('DAY-006: Active Edge Telemetry Broadcaster Hooks', () => {
 
         await new Promise((resolve) => setTimeout(resolve, 20))
 
-        expect(mockStub.broadcastTelemetry).toHaveBeenCalledWith(
-            'AUDIT_LOG',
-            'auditLedger',
-            expect.objectContaining({ type: 'TEST_EVENT' }),
-            expect.stringContaining('>> [AUDIT #'),
-        )
+        expect(mockStub.fetch).toHaveBeenCalled()
+        const req = (mockStub.fetch.mock.calls as any)[0][0] as Request
+        expect(req.url).toContain('/broadcast')
+        const bodyStr = await req.clone().text()
+        const body = JSON.parse(bodyStr)
+        expect(body.type).toBe('AUDIT_LOG')
+        expect(body.source).toBe('auditLedger')
+        expect(body.ascii).toContain('>> [AUDIT #')
     })
 
     it('broadcasts TASK_TRANSITION through RepoBotDO /fsm/transition handler', async () => {
