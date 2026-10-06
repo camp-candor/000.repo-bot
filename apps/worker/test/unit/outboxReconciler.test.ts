@@ -37,7 +37,7 @@ class MockD1Database {
     attempts: Map<string, any> = new Map()
     events: Map<string, any> = new Map()
     shouldFailBatch = false
-    updateCount = 0
+    updateTaskCount = 0
 
     prepare(sql: string) {
         return new MockPreparedStatement(sql, [], this)
@@ -93,7 +93,7 @@ class MockD1Database {
         }
 
         if (trimmed.startsWith('UPDATE tasks')) {
-            this.updateCount++
+            this.updateTaskCount++
             const [status, attNum, now, taskId] = params
             const task = this.tasks.get(taskId)
             if (task) {
@@ -381,53 +381,49 @@ describe('Transactional Outbox & Projection Sync Reconciler Suite', () => {
         expect(report.details[0].actionTaken).toBe('ALIGNED')
     })
 
-    describe('Adversarial Verification Controls (5 Non-Negotiable Invariants)', () => {
-        it('Invariant 1: Atomic Staging Invariant (Zero Unstaged Transitions)', async () => {
+    describe('Antigravity Adversarial Verification Battery (Gauntlet Level 3 & Level 4)', () => {
+        it('INV-1: Atomic Staging Invariant (Zero Unstaged Transitions)', async () => {
             // Step 1: Initialize and claim task TASK-OUTBOX-01
-            const testState = new MockDurableObjectState()
-            const testCoordinator = new ShotCoordinatorDO(testState as any, {
-                DB: mockDb,
-            })
-            await testCoordinator.fetch(
+            await coordinator.fetch(
                 new Request('https://do/fsm/initialize', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         taskId: 'TASK-OUTBOX-01',
                         branchName: 'spec/task-outbox-01',
+                        isHighRiskPath: false,
+                        force: true,
                     }),
                 }),
             )
-            await testCoordinator.fetch(
+
+            await coordinator.fetch(
                 new Request('https://do/fsm/claim', { method: 'POST' }),
             )
 
             // Step 2: Read NVMe storage via state.storage.get('fsm_record') immediately after claim
-            const record = await testState.storage.get('fsm_record')
+            const record = await mockState.storage.get('fsm_record')
             expect(record).toBeDefined()
 
             // ASSERTION: outbox.length is strictly >= 1
             expect(record.outbox.length).toBeGreaterThanOrEqual(1)
 
-            // ASSERTION: outbox[0].toState === 'CLAIMED', outbox[0].sequenceNumber === 1, and outbox[0].epoch === 2
-            expect(record.outbox[0].toState).toBe('CLAIMED')
-            expect(record.outbox[0].sequenceNumber).toBe(1)
-            expect(record.outbox[0].epoch).toBe(2)
+            // ASSERTION: outbox[0].toState === 'CLAIMED', sequenceNumber === 1, epoch === 2
+            const first = record.outbox[0]
+            expect(first.toState).toBe('CLAIMED')
+            expect(first.sequenceNumber).toBe(1)
+            expect(first.epoch).toBe(2)
         })
 
-        it('Invariant 2: Partitioned D1 Network Failure Trap (Non-Destructive Retention)', async () => {
-            const isolatedDb = new MockD1Database()
-            isolatedDb.tasks.set('TASK-OUTBOX-02', {
-                task_id: 'TASK-OUTBOX-02',
-                current_status: 'PENDING',
-                current_attempt_number: 1,
-                updated_at_ms: Date.now(),
-            })
+        it('INV-2: Partitioned D1 Network Failure Trap (Non-Destructive Retention)', async () => {
+            // Setup isolated coordinator without auto-drain during stage progression
+            const isolatedState = new MockDurableObjectState()
+            const isolatedCoordinator = new ShotCoordinatorDO(
+                isolatedState as any,
+                {},
+            )
 
-            const testState = new MockDurableObjectState()
-            const testEnv: any = { DB: isolatedDb, disableAutoDrain: true }
-            const testCoord = new ShotCoordinatorDO(testState as any, testEnv)
-            await testCoord.fetch(
+            await isolatedCoordinator.fetch(
                 new Request('https://do/fsm/initialize', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -439,10 +435,10 @@ describe('Transactional Outbox & Projection Sync Reconciler Suite', () => {
             )
 
             // Step 1: Advance task through 3 state transitions (CLAIMED -> RUNNING -> VERIFYING)
-            await testCoord.fetch(
+            await isolatedCoordinator.fetch(
                 new Request('https://do/fsm/claim', { method: 'POST' }),
             )
-            await testCoord.fetch(
+            await isolatedCoordinator.fetch(
                 new Request('https://do/fsm/transition', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -450,80 +446,90 @@ describe('Transactional Outbox & Projection Sync Reconciler Suite', () => {
                         event: 'WORKER_ACK',
                         actor: {
                             type: 'REMOTE_WORKER',
-                            workerId: 'w-1',
+                            workerId: 'worker-inv2',
                             epoch: 2,
                         },
                     }),
                 }),
             )
-            await testCoord.fetch(
-                new Request('https://do/fsm/transition', {
+            await isolatedCoordinator.fetch(
+                new Request('https://do/tasks/complete', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        event: 'SUBMIT_VERIFY',
-                        actor: {
-                            type: 'REMOTE_WORKER',
-                            workerId: 'w-1',
-                            epoch: 2,
-                        },
-                        payload: { headSha: 'aabbcc' },
+                        epoch: 2,
+                        headSha: 'headsha-12345678901234567890123456789012',
                     }),
                 }),
             )
 
-            // Step 2: Simulate a total D1 partition (db.batch throws SIMULATED_D1_NETWORK_PARTITION)
-            isolatedDb.shouldFailBatch = true
+            // Step 2: Attach D1 and simulate a total D1 partition (db.batch throws SIMULATED_D1_NETWORK_PARTITION)
+            const partitionDb = new MockD1Database()
+            partitionDb.tasks.set('TASK-OUTBOX-02', {
+                task_id: 'TASK-OUTBOX-02',
+                current_status: 'PENDING',
+                current_attempt_number: 1,
+                updated_at_ms: Date.now(),
+            })
+            partitionDb.shouldFailBatch = true
+            Object.defineProperty(isolatedCoordinator, 'env', {
+                value: { DB: partitionDb },
+                writable: true,
+            })
 
             // Step 3: Trigger POST /fsm/outbox/drain
-            const drainRes = await testCoord.fetch(
+            const failDrainRes = await isolatedCoordinator.fetch(
                 new Request('https://do/fsm/outbox/drain', { method: 'POST' }),
             )
-            expect(drainRes.status).toBe(500)
+            expect(failDrainRes.status).toBe(500)
 
-            // ASSERTION: The request rejects or logs failure, but zero outbox records are deleted from DO storage
-            const record = await testState.storage.get('fsm_record')
-            expect(record.outbox.length).toBe(3)
+            // ASSERTION: Zero outbox records are deleted from DO storage
+            const recordAfterFailure =
+                await isolatedState.storage.get('fsm_record')
+            expect(recordAfterFailure.outbox.length).toBe(3)
 
             // ASSERTION: outboxPendingCount remains exactly 3, and each record has attempts === 1
-            const ctxRes = await testCoord.fetch(
+            const ctxRes = await isolatedCoordinator.fetch(
                 new Request('https://do/fsm/context'),
             )
             const ctxData: any = await ctxRes.json()
             expect(ctxData.outboxPendingCount).toBe(3)
-            for (const item of record.outbox) {
+            for (const item of recordAfterFailure.outbox) {
                 expect(item.attempts).toBe(1)
             }
 
             // Step 4: Restore D1 connectivity and re-trigger drain
-            isolatedDb.shouldFailBatch = false
-            const drainRes2 = await testCoord.fetch(
+            partitionDb.shouldFailBatch = false
+            const recoveryDrainRes = await isolatedCoordinator.fetch(
                 new Request('https://do/fsm/outbox/drain', { method: 'POST' }),
             )
-            expect(drainRes2.status).toBe(200)
-            const drainData2: any = await drainRes2.json()
+            expect(recoveryDrainRes.status).toBe(200)
+            const recoveryData: any = await recoveryDrainRes.json()
 
             // ASSERTION: drainedCount === 3, outboxPendingCount === 0, and D1 reflects current_status === 'VERIFYING'
-            expect(drainData2.drainedCount).toBe(3)
-            expect(drainData2.remainingCount).toBe(0)
+            expect(recoveryData.drainedCount).toBe(3)
+            expect(recoveryData.remainingCount).toBe(0)
 
-            const finalCtxRes = await testCoord.fetch(
-                new Request('https://do/fsm/context'),
-            )
-            const finalCtxData: any = await finalCtxRes.json()
-            expect(finalCtxData.outboxPendingCount).toBe(0)
-
-            expect(isolatedDb.tasks.get('TASK-OUTBOX-02')?.current_status).toBe(
+            const finalRecord = await isolatedState.storage.get('fsm_record')
+            expect(finalRecord.outbox.length).toBe(0)
+            expect(partitionDb.tasks.get('TASK-OUTBOX-02').current_status).toBe(
                 'VERIFYING',
             )
         })
 
-        it('Invariant 3: Replay Deduplication (Idempotent Projection Invariant)', async () => {
-            // Step 1: Manually invoke drainOutboxBatch(db, records) with 2 valid records
+        it('INV-3: Replay Deduplication (Idempotent Projection Invariant)', async () => {
+            const testDb = new MockD1Database()
+            testDb.tasks.set('TASK-REPLAY-01', {
+                task_id: 'TASK-REPLAY-01',
+                current_status: 'PENDING',
+                current_attempt_number: 1,
+                updated_at_ms: Date.now(),
+            })
+
             const records: OutboxRecord[] = [
                 {
-                    id: 'outbox-dedup-1',
-                    taskId: 'TASK-DEDUP-01',
+                    id: 'outbox-replay-1',
+                    taskId: 'TASK-REPLAY-01',
                     attemptNumber: 1,
                     sequenceNumber: 1,
                     fromState: 'PENDING',
@@ -532,13 +538,13 @@ describe('Transactional Outbox & Projection Sync Reconciler Suite', () => {
                     epoch: 2,
                     actor: 'SYSTEM_INTERNAL',
                     payloadJson: '{}',
-                    timestampMs: Date.now(),
-                    createdAtMs: Date.now(),
+                    timestampMs: Date.now() - 1000,
+                    createdAtMs: Date.now() - 1000,
                     attempts: 0,
                 },
                 {
-                    id: 'outbox-dedup-2',
-                    taskId: 'TASK-DEDUP-01',
+                    id: 'outbox-replay-2',
+                    taskId: 'TASK-REPLAY-01',
                     attemptNumber: 1,
                     sequenceNumber: 2,
                     fromState: 'CLAIMED',
@@ -553,51 +559,51 @@ describe('Transactional Outbox & Projection Sync Reconciler Suite', () => {
                 },
             ]
 
-            const result1 = await drainOutboxBatch(mockDb, records)
-            expect(result1.drainedCount).toBe(2)
+            // Step 1: Manually invoke drainOutboxBatch with 2 valid records
+            const res1 = await drainOutboxBatch(testDb, records)
+            expect(res1.drainedCount).toBe(2)
 
-            // Step 2: Immediately re-invoke drainOutboxBatch(db, records) with the exact same records (simulating duplicate delivery)
-            const result2 = await drainOutboxBatch(mockDb, records)
-
+            // Step 2: Immediately re-invoke drainOutboxBatch with exact same records (simulating duplicate delivery)
             // ASSERTION: Replay completes with zero unique constraint violations
-            expect(result2.drainedCount).toBe(2)
+            const res2 = await drainOutboxBatch(testDb, records)
+            expect(res2.drainedCount).toBe(2)
 
             // ASSERTION: task_events count for that task remains exactly 2 (duplicates suppressed via ON CONFLICT DO NOTHING)
-            const eventsForTask = Array.from(mockDb.events.values()).filter(
-                (e: any) => e.task_id === 'TASK-DEDUP-01',
+            const eventsForTask = Array.from(testDb.events.values()).filter(
+                (e) => e.task_id === 'TASK-REPLAY-01',
             )
             expect(eventsForTask.length).toBe(2)
         })
 
-        it('Invariant 4: Anti-Entropy Drift Healing (Reconciler Healing Loop)', async () => {
-            const isolatedDb = new MockD1Database()
+        it('INV-4: Anti-Entropy Drift Healing (Reconciler Healing Loop)', async () => {
             // Step 1: Advance task in DO to RUNNING under attempt 1
-            isolatedDb.tasks.set('TASK-HEAL-01', {
-                task_id: 'TASK-HEAL-01',
+            const driftDb = new MockD1Database()
+            driftDb.tasks.set('TASK-DRIFT-01', {
+                task_id: 'TASK-DRIFT-01',
                 current_status: 'PENDING',
                 current_attempt_number: 1,
                 updated_at_ms: Date.now(),
             })
 
-            const testState = new MockDurableObjectState()
-            const testCoord = new ShotCoordinatorDO(testState as any, {
-                DB: isolatedDb,
-                disableAutoDrain: true,
+            const driftState = new MockDurableObjectState()
+            const driftCoordinator = new ShotCoordinatorDO(driftState as any, {
+                DB: driftDb,
             })
-            await testCoord.fetch(
+
+            await driftCoordinator.fetch(
                 new Request('https://do/fsm/initialize', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        taskId: 'TASK-HEAL-01',
-                        branchName: 'spec/task-heal-01',
+                        taskId: 'TASK-DRIFT-01',
+                        branchName: 'spec/task-drift-01',
                     }),
                 }),
             )
-            await testCoord.fetch(
+            await driftCoordinator.fetch(
                 new Request('https://do/fsm/claim', { method: 'POST' }),
             )
-            await testCoord.fetch(
+            await driftCoordinator.fetch(
                 new Request('https://do/fsm/transition', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -605,108 +611,174 @@ describe('Transactional Outbox & Projection Sync Reconciler Suite', () => {
                         event: 'WORKER_ACK',
                         actor: {
                             type: 'REMOTE_WORKER',
-                            workerId: 'w-1',
+                            workerId: 'worker-drift',
                             epoch: 2,
                         },
                     }),
                 }),
             )
 
-            // Step 2: Manually corrupt D1: set tasks.current_status = 'PENDING' while DO holds staged outbox records
-            isolatedDb.tasks.get('TASK-HEAL-01').current_status = 'PENDING'
+            // Step 2: Manually corrupt D1: set tasks.current_status = 'PENDING'
+            driftDb.tasks.get('TASK-DRIFT-01').current_status = 'PENDING'
 
-            const testEnv = {
-                DB: isolatedDb,
+            const driftEnv = {
+                DB: driftDb,
                 REPO_BOT_DO: {
                     idFromName: (name: string) => name,
-                    get: (_id: string) => testCoord,
+                    get: (_id: string) => ({
+                        fetch: (req: any, init: any) =>
+                            driftCoordinator.fetch(
+                                typeof req === 'string'
+                                    ? new Request(req, init)
+                                    : req,
+                            ),
+                    }),
                 },
             }
 
             // Step 3: Run reconcileTaskProjections(env)
-            const report = await reconcileTaskProjections(testEnv)
+            const report = await reconcileTaskProjections(driftEnv)
 
             // ASSERTION: Report logs driftedCount >= 1 and repairedCount >= 1
             expect(report.driftedCount).toBeGreaterThanOrEqual(1)
             expect(report.repairedCount).toBeGreaterThanOrEqual(1)
 
             // ASSERTION: D1 tasks.current_status is updated to 'RUNNING', healing the divergence
-            expect(isolatedDb.tasks.get('TASK-HEAL-01').current_status).toBe(
+            expect(driftDb.tasks.get('TASK-DRIFT-01').current_status).toBe(
                 'RUNNING',
             )
         })
 
-        it('Invariant 5: Aligned Task Bypass (Zero Unnecessary D1 Writes)', async () => {
-            const isolatedDb = new MockD1Database()
-            // Step 1: Ensure DO and D1 are fully synchronized with an empty outbox
-            isolatedDb.tasks.set('TASK-ALIGNED-01', {
+        it('INV-5: Aligned Task Bypass (Zero Unnecessary D1 Writes)', async () => {
+            const bypassDb = new MockD1Database()
+            bypassDb.tasks.set('TASK-ALIGNED-01', {
                 task_id: 'TASK-ALIGNED-01',
                 current_status: 'RUNNING',
                 current_attempt_number: 1,
                 updated_at_ms: Date.now(),
             })
 
-            const testState = new MockDurableObjectState()
-            const testCoord = new ShotCoordinatorDO(testState as any, {
-                DB: isolatedDb,
+            const bypassState = new MockDurableObjectState()
+            await bypassState.storage.put('fsm_record', {
+                currentState: 'RUNNING',
+                ctx: {
+                    taskId: 'TASK-ALIGNED-01',
+                    currentEpoch: 2,
+                    attemptCount: 1,
+                    maxAttempts: 3,
+                    isHighRiskPath: false,
+                    scopeCheckPassed: false,
+                    qualityCheckPassed: false,
+                    branchName: 'spec/task-aligned-01',
+                    targetRepo: 'camp-candor/000.repo-bot',
+                    baseCommitSha: '0000000000000000000000000000000000000000',
+                },
+                outbox: [],
+                sequenceCounter: 2,
             })
-            await testCoord.fetch(
-                new Request('https://do/fsm/initialize', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        taskId: 'TASK-ALIGNED-01',
-                        branchName: 'spec/task-aligned-01',
-                    }),
-                }),
-            )
-            await testCoord.fetch(
-                new Request('https://do/fsm/claim', { method: 'POST' }),
-            )
-            await testCoord.fetch(
-                new Request('https://do/fsm/transition', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        event: 'WORKER_ACK',
-                        actor: {
-                            type: 'REMOTE_WORKER',
-                            workerId: 'w-1',
-                            epoch: 2,
-                        },
-                    }),
-                }),
-            )
-            await testCoord.fetch(
-                new Request('https://do/fsm/outbox/drain', { method: 'POST' }),
+            const bypassCoordinator = new ShotCoordinatorDO(
+                bypassState as any,
+                { DB: bypassDb },
             )
 
-            const testEnv = {
-                DB: isolatedDb,
+            const bypassEnv = {
+                DB: bypassDb,
                 REPO_BOT_DO: {
                     idFromName: (name: string) => name,
-                    get: (_id: string) => testCoord,
+                    get: (_id: string) => ({
+                        fetch: (req: any, init: any) =>
+                            bypassCoordinator.fetch(
+                                typeof req === 'string'
+                                    ? new Request(req, init)
+                                    : req,
+                            ),
+                    }),
                 },
             }
 
-            // Reset update counter
-            isolatedDb.updateCount = 0
+            // Step 1: Ensure DO and D1 are fully synchronized with an empty outbox. Record update count.
+            const initialUpdateCount = bypassDb.updateTaskCount
 
             // Step 2: Run reconcileTaskProjections(env)
-            const report = await reconcileTaskProjections(testEnv)
+            const report = await reconcileTaskProjections(bypassEnv)
 
-            // ASSERTION: Report records checkedCount >= 1, driftedCount === 0, repairedCount === 0, and actionTaken === 'ALIGNED'
-            const detail = report.details.find(
-                (d) => d.taskId === 'TASK-ALIGNED-01',
-            )
-            expect(detail).toBeDefined()
-            expect(detail?.actionTaken).toBe('ALIGNED')
+            // ASSERTION: Report records checkedCount >= 1, driftedCount === 0, repairedCount === 0, actionTaken === 'ALIGNED'
             expect(report.checkedCount).toBeGreaterThanOrEqual(1)
             expect(report.driftedCount).toBe(0)
             expect(report.repairedCount).toBe(0)
+            expect(report.details[0].actionTaken).toBe('ALIGNED')
 
             // ASSERTION: Zero redundant UPDATE queries are executed against D1
-            expect(isolatedDb.updateCount).toBe(0)
+            expect(bypassDb.updateTaskCount).toBe(initialUpdateCount)
+        })
+
+        it('LEVEL 4: Error Isolation in Multi-Task Sweeps', async () => {
+            const multiDb = new MockD1Database()
+            multiDb.tasks.set('TASK-ERROR-A', {
+                task_id: 'TASK-ERROR-A',
+                current_status: 'CLAIMED',
+                current_attempt_number: 1,
+                updated_at_ms: Date.now() - 1000,
+            })
+            multiDb.tasks.set('TASK-CLEAN-B', {
+                task_id: 'TASK-CLEAN-B',
+                current_status: 'RUNNING',
+                current_attempt_number: 1,
+                updated_at_ms: Date.now(),
+            })
+
+            const cleanState = new MockDurableObjectState()
+            await cleanState.storage.put('fsm_record', {
+                currentState: 'RUNNING',
+                ctx: {
+                    taskId: 'TASK-CLEAN-B',
+                    currentEpoch: 2,
+                    attemptCount: 1,
+                },
+                outbox: [],
+                sequenceCounter: 1,
+            })
+            const cleanCoordinator = new ShotCoordinatorDO(cleanState as any, {
+                DB: multiDb,
+            })
+
+            const multiEnv = {
+                DB: multiDb,
+                REPO_BOT_DO: {
+                    idFromName: (name: string) => name,
+                    get: (id: string) => ({
+                        fetch: async (req: any, init: any) => {
+                            if (id === 'TASK-ERROR-A') {
+                                throw new Error('DO_COMMUNICATION_TIMEOUT')
+                            }
+                            return cleanCoordinator.fetch(
+                                typeof req === 'string'
+                                    ? new Request(req, init)
+                                    : req,
+                            )
+                        },
+                    }),
+                },
+            }
+
+            const report = await reconcileTaskProjections(multiEnv)
+
+            // ASSERTION: Sweep does not abort across tasks
+            expect(report.checkedCount).toBe(2)
+            expect(report.unrepairableCount).toBe(1)
+
+            const errorDetail = report.details.find(
+                (d) => d.taskId === 'TASK-ERROR-A',
+            )
+            expect(errorDetail).toBeDefined()
+            expect(errorDetail!.actionTaken).toBe('ERROR')
+            expect(errorDetail!.error).toContain('DO_COMMUNICATION_TIMEOUT')
+
+            const cleanDetail = report.details.find(
+                (d) => d.taskId === 'TASK-CLEAN-B',
+            )
+            expect(cleanDetail).toBeDefined()
+            expect(cleanDetail!.actionTaken).toBe('ALIGNED')
         })
     })
 })
