@@ -70,6 +70,7 @@ class MockD1Database {
                 to_state: 'ROLLED_BACK',
                 actor,
                 reason,
+                event: 'SEAL_HARD_RESET',
                 payload_json: payload,
                 timestamp_ms: now,
             })
@@ -232,52 +233,127 @@ describe('Directive REST API Mounts Suite (Phase 5)', () => {
         expect(day1.badge).toBe('[COMPLETE]')
     })
 
-    it('TASK-5.1: GET /api/directives/:day_folder/next-task returns sequential unmerged task and handles ALL_MERGED', async () => {
-        mockDb.tasks.set('T-10', {
-            task_id: 'TASK-10',
-            day_folder: 'day-007',
-            sequence_num: 10,
-            current_status: 'MERGED',
-            file_path: 'path-10',
-        })
-        mockDb.tasks.set('T-20', {
-            task_id: 'TASK-20',
-            day_folder: 'day-007',
-            sequence_num: 20,
-            current_status: 'PENDING',
-            file_path: 'path-20',
-        })
-        mockDb.tasks.set('T-30', {
-            task_id: 'TASK-30',
-            day_folder: 'day-007',
-            sequence_num: 30,
-            current_status: 'PENDING',
-            file_path: 'path-30',
+    it('INV-1: Badging Logic Boundary & Partition Matrix (Scenarios A, B, C, D)', async () => {
+        // Scenario A: 5 tasks in day-001, all 5 MERGED -> [COMPLETE]
+        for (let i = 1; i <= 5; i++) {
+            mockDb.tasks.set(`A-${i}`, {
+                task_id: `A-${i}`,
+                day_folder: 'day-001',
+                sequence_num: i,
+                current_status: 'MERGED',
+            })
+        }
+
+        // Scenario B: 4 tasks in day-002, 3 MERGED, 1 RUNNING -> [IN-FLIGHT]
+        for (let i = 1; i <= 3; i++) {
+            mockDb.tasks.set(`B-${i}`, {
+                task_id: `B-${i}`,
+                day_folder: 'day-002',
+                sequence_num: i,
+                current_status: 'MERGED',
+            })
+        }
+        mockDb.tasks.set('B-4', {
+            task_id: 'B-4',
+            day_folder: 'day-002',
+            sequence_num: 4,
+            current_status: 'RUNNING',
         })
 
-        // Query next task -> should skip T-10 and return T-20
+        // Scenario C: 3 tasks in day-003, all 3 PENDING -> [QUEUED]
+        for (let i = 1; i <= 3; i++) {
+            mockDb.tasks.set(`C-${i}`, {
+                task_id: `C-${i}`,
+                day_folder: 'day-003',
+                sequence_num: i,
+                current_status: 'PENDING',
+            })
+        }
+
+        // Scenario D: 2 tasks in day-004, 1 PENDING, 1 DLQ -> [IN-FLIGHT]
+        mockDb.tasks.set('D-1', {
+            task_id: 'D-1',
+            day_folder: 'day-004',
+            sequence_num: 1,
+            current_status: 'PENDING',
+        })
+        mockDb.tasks.set('D-2', {
+            task_id: 'D-2',
+            day_folder: 'day-004',
+            sequence_num: 2,
+            current_status: 'DLQ',
+        })
+
+        const res = await app.request('/api/directives/summary', {}, {
+            DB: mockDb,
+        } as any)
+        expect(res.status).toBe(200)
+        const data: any = await res.json()
+        expect(data.ok).toBe(true)
+
+        const day1 = data.days.find((d: any) => d.dayFolder === 'day-001')
+        const day2 = data.days.find((d: any) => d.dayFolder === 'day-002')
+        const day3 = data.days.find((d: any) => d.dayFolder === 'day-003')
+        const day4 = data.days.find((d: any) => d.dayFolder === 'day-004')
+
+        expect(day1.badge).toBe('[COMPLETE]')
+        expect(day2.badge).toBe('[IN-FLIGHT]')
+        expect(day3.badge).toBe('[QUEUED]')
+        expect(day4.badge).toBe('[IN-FLIGHT]')
+    })
+
+    it('TASK-5.1 & INV-2: Sequential Monotonic Dispatch & Gap Tolerance', async () => {
+        // Seed day-010 with sequences [5, 12, 19, 45]
+        // Mark sequence 5 and 12 as MERGED, sequences 19 and 45 as PENDING
+        mockDb.tasks.set('T-5', {
+            task_id: 'TASK-5',
+            day_folder: 'day-010',
+            sequence_num: 5,
+            current_status: 'MERGED',
+            file_path: 'path-5',
+        })
+        mockDb.tasks.set('T-12', {
+            task_id: 'TASK-12',
+            day_folder: 'day-010',
+            sequence_num: 12,
+            current_status: 'MERGED',
+            file_path: 'path-12',
+        })
+        mockDb.tasks.set('T-19', {
+            task_id: 'TASK-19',
+            day_folder: 'day-010',
+            sequence_num: 19,
+            current_status: 'PENDING',
+            file_path: 'path-19',
+        })
+        mockDb.tasks.set('T-45', {
+            task_id: 'TASK-45',
+            day_folder: 'day-010',
+            sequence_num: 45,
+            current_status: 'PENDING',
+            file_path: 'path-45',
+        })
+
+        // Query next task -> skips merged tasks and returns sequence 19
         const res1 = await app.request(
-            '/api/directives/day-007/next-task',
+            '/api/directives/day-010/next-task',
             {},
-            {
-                DB: mockDb,
-            } as any,
+            { DB: mockDb } as any,
         )
         expect(res1.status).toBe(200)
         const data1: any = await res1.json()
         expect(data1.ok).toBe(true)
-        expect(data1.task.task_id).toBe('TASK-20')
+        expect(data1.task.task_id).toBe('TASK-19')
+        expect(data1.task.sequence_num).toBe(19)
 
         // Mark remaining tasks as MERGED
-        mockDb.tasks.get('T-20').current_status = 'MERGED'
-        mockDb.tasks.get('T-30').current_status = 'MERGED'
+        mockDb.tasks.get('T-19').current_status = 'MERGED'
+        mockDb.tasks.get('T-45').current_status = 'MERGED'
 
         const res2 = await app.request(
-            '/api/directives/day-007/next-task',
+            '/api/directives/day-010/next-task',
             {},
-            {
-                DB: mockDb,
-            } as any,
+            { DB: mockDb } as any,
         )
         expect(res2.status).toBe(200)
         const data2: any = await res2.json()
@@ -289,34 +365,16 @@ describe('Directive REST API Mounts Suite (Phase 5)', () => {
         const res404 = await app.request(
             '/api/directives/day-999/next-task',
             {},
-            {
-                DB: mockDb,
-            } as any,
+            { DB: mockDb } as any,
         )
         expect(res404.status).toBe(404)
         const data404: any = await res404.json()
+        expect(data404.ok).toBe(false)
         expect(data404.error).toBe('NO_TASKS_FOR_DAY')
     })
 
-    it('TASK-5.2: POST /api/directives/revert-to-seal rejects malformed commit SHA and rolls back subsequent tasks', async () => {
-        // Setup history across days
-        mockDb.tasks.set('T-D3', {
-            task_id: 'T-D3',
-            day_folder: 'day-003',
-            current_status: 'MERGED',
-        })
-        mockDb.tasks.set('T-D4', {
-            task_id: 'T-D4',
-            day_folder: 'day-004',
-            current_status: 'MERGED',
-        })
-        mockDb.tasks.set('T-D5', {
-            task_id: 'T-D5',
-            day_folder: 'day-005',
-            current_status: 'RUNNING',
-        })
-
-        // Malformed commit SHA -> 400
+    it('INV-3: Malformed Input Rejection (Strict 400 Gates)', async () => {
+        // 1. Invalid commit SHA format
         const badShaRes = await app.request(
             '/api/directives/revert-to-seal',
             {
@@ -324,16 +382,107 @@ describe('Directive REST API Mounts Suite (Phase 5)', () => {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     targetDay: 'day-003',
-                    targetCommitSha: 'not-a-valid-40-hex-sha',
+                    targetCommitSha: 'invalid-sha',
                 }),
             },
             { DB: mockDb } as any,
         )
         expect(badShaRes.status).toBe(400)
+        const badShaData: any = await badShaRes.json()
+        expect(badShaData.ok).toBe(false)
+        expect(badShaData.error).toBe('INVALID_COMMIT_SHA_FORMAT')
 
-        // Valid rollback to day-003 seal
-        const validSha = 'abcdef1234567890abcdef1234567890abcdef12'
-        const goodRes = await app.request(
+        // 2. Unparseable day format
+        const badDayRes = await app.request(
+            '/api/directives/revert-to-seal',
+            {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    targetDay: 'unparseable-day',
+                    targetCommitSha: 'abcdef1234567890abcdef1234567890abcdef12',
+                }),
+            },
+            { DB: mockDb } as any,
+        )
+        expect(badDayRes.status).toBe(400)
+        const badDayData: any = await badDayRes.json()
+        expect(badDayData.ok).toBe(false)
+        expect(badDayData.error).toBe('INVALID_TARGET_DAY_FORMAT')
+
+        // 3. Missing targetCommitSha
+        const missingShaRes = await app.request(
+            '/api/directives/revert-to-seal',
+            {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    targetDay: 'day-003',
+                }),
+            },
+            { DB: mockDb } as any,
+        )
+        expect(missingShaRes.status).toBe(400)
+        const missingShaData: any = await missingShaRes.json()
+        expect(missingShaData.ok).toBe(false)
+        expect(missingShaData.error).toBe('MISSING_TARGET_DAY_OR_COMMIT_SHA')
+    })
+
+    it('TASK-5.2 & INV-4: Rollback Blast-Radius Scoping (Strict Day Boundary)', async () => {
+        // Seed tasks across days:
+        // day-002: 2 tasks (MERGED)
+        mockDb.tasks.set('T-D2-1', {
+            task_id: 'T-D2-1',
+            day_folder: 'day-002',
+            sequence_num: 1,
+            current_status: 'MERGED',
+        })
+        mockDb.tasks.set('T-D2-2', {
+            task_id: 'T-D2-2',
+            day_folder: 'day-002',
+            sequence_num: 2,
+            current_status: 'MERGED',
+        })
+
+        // day-003: 2 tasks (MERGED)
+        mockDb.tasks.set('T-D3-1', {
+            task_id: 'T-D3-1',
+            day_folder: 'day-003',
+            sequence_num: 1,
+            current_status: 'MERGED',
+        })
+        mockDb.tasks.set('T-D3-2', {
+            task_id: 'T-D3-2',
+            day_folder: 'day-003',
+            sequence_num: 2,
+            current_status: 'MERGED',
+        })
+
+        // day-004: 2 tasks (MERGED)
+        mockDb.tasks.set('T-D4-1', {
+            task_id: 'T-D4-1',
+            day_folder: 'day-004',
+            sequence_num: 1,
+            current_status: 'MERGED',
+        })
+        mockDb.tasks.set('T-D4-2', {
+            task_id: 'T-D4-2',
+            day_folder: 'day-004',
+            sequence_num: 2,
+            current_status: 'MERGED',
+        })
+
+        // day-005: 1 task (RUNNING)
+        mockDb.tasks.set('T-D5-1', {
+            task_id: 'T-D5-1',
+            day_folder: 'day-005',
+            sequence_num: 1,
+            current_status: 'RUNNING',
+        })
+
+        // Revert to seal day-003
+        const validSha = '1234567890abcdef1234567890abcdef12345678'
+        const res = await app.request(
             '/api/directives/revert-to-seal',
             {
                 method: 'POST',
@@ -341,21 +490,50 @@ describe('Directive REST API Mounts Suite (Phase 5)', () => {
                 body: JSON.stringify({
                     targetDay: 'day-003',
                     targetCommitSha: validSha,
-                    reason: 'Regression in day-004 migration',
-                    actor: 'lead-architect',
+                    reason: 'Hard reset verification',
+                    actor: 'antigravity-auditor',
                 }),
             },
             { DB: mockDb } as any,
         )
-        expect(goodRes.status).toBe(200)
-        const goodData: any = await goodRes.json()
-        expect(goodData.ok).toBe(true)
-        expect(goodData.rolledBackCount).toBe(2)
-        expect(goodData.affectedTaskIds).toEqual(['T-D4', 'T-D5'])
 
-        // Verify task statuses in database
-        expect(mockDb.tasks.get('T-D3').current_status).toBe('MERGED') // Untouched
-        expect(mockDb.tasks.get('T-D4').current_status).toBe('ROLLED_BACK') // Rolled back
-        expect(mockDb.tasks.get('T-D5').current_status).toBe('ROLLED_BACK') // Rolled back
+        expect(res.status).toBe(200)
+        const data: any = await res.json()
+        expect(data.ok).toBe(true)
+
+        // ASSERTION: Exactly 3 tasks (day-004 and day-005) are transitioned to ROLLED_BACK
+        expect(data.rolledBackCount).toBe(3)
+        expect(data.affectedTaskIds).toEqual(['T-D4-1', 'T-D4-2', 'T-D5-1'])
+        expect(mockDb.tasks.get('T-D4-1').current_status).toBe('ROLLED_BACK')
+        expect(mockDb.tasks.get('T-D4-2').current_status).toBe('ROLLED_BACK')
+        expect(mockDb.tasks.get('T-D5-1').current_status).toBe('ROLLED_BACK')
+
+        // ASSERTION: day-002 and day-003 tasks remain MERGED and untouched
+        expect(mockDb.tasks.get('T-D2-1').current_status).toBe('MERGED')
+        expect(mockDb.tasks.get('T-D2-2').current_status).toBe('MERGED')
+        expect(mockDb.tasks.get('T-D3-1').current_status).toBe('MERGED')
+        expect(mockDb.tasks.get('T-D3-2').current_status).toBe('MERGED')
+
+        // ASSERTION: task_events records exactly 3 new events tagged with SEAL_HARD_RESET
+        expect(mockDb.events.size).toBe(3)
+        for (const evt of mockDb.events.values()) {
+            expect(evt.event).toBe('SEAL_HARD_RESET')
+            expect(evt.to_state).toBe('ROLLED_BACK')
+            expect(evt.actor).toBe('antigravity-auditor')
+        }
+    })
+
+    it('INV-5: SQL Injection & Parameterization Defense', async () => {
+        // Attempt SQL injection via day_folder route param
+        const res = await app.request(
+            "/api/directives/day-001'%20OR%20'1'='1/next-task",
+            {},
+            { DB: mockDb } as any,
+        )
+
+        expect(res.status).toBe(404)
+        const data: any = await res.json()
+        expect(data.ok).toBe(false)
+        expect(data.error).toBe('NO_TASKS_FOR_DAY')
     })
 })

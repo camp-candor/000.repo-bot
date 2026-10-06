@@ -130,19 +130,22 @@ directiveRoutes.post('/revert-to-seal', async (c) => {
         .catch(() => null)
 
     if (!body || !body.targetDay || !body.targetCommitSha) {
-        return c.json({ error: 'MISSING_TARGET_DAY_OR_COMMIT_SHA' }, 400)
+        return c.json(
+            { ok: false, error: 'MISSING_TARGET_DAY_OR_COMMIT_SHA' },
+            400,
+        )
     }
 
     const { targetDay, targetCommitSha, reason, actor } = body
 
     // Validate 40-character hexadecimal commit SHA pin
     if (!/^[0-9a-fA-F]{40}$/.test(targetCommitSha)) {
-        return c.json({ error: 'INVALID_COMMIT_SHA_FORMAT' }, 400)
+        return c.json({ ok: false, error: 'INVALID_COMMIT_SHA_FORMAT' }, 400)
     }
 
     const targetDayMatch = targetDay.match(/\d+/)
     if (!targetDayMatch) {
-        return c.json({ error: 'INVALID_TARGET_DAY_FORMAT' }, 400)
+        return c.json({ ok: false, error: 'INVALID_TARGET_DAY_FORMAT' }, 400)
     }
     const targetDayNum = parseInt(targetDayMatch[0], 10)
 
