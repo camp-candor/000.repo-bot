@@ -5,6 +5,11 @@ import {
 import { DurableObject } from 'cloudflare:workers'
 
 import { dispatchSlackApprovalCard, updateSlackMessage } from './slackBridge.js'
+import {
+  applyEpistemicScrimming,
+  type CanonicalEventType,
+  type EventEnvelope,
+} from './events/eventEnvelope.js'
 import { executeShaPinnedMerge } from './mergeExecutor.js'
 import type { Env } from './tools.js'
 
@@ -54,31 +59,24 @@ export interface OutboundSlackReceipt {
 }
 
 export interface TelemetryPacket {
-    seq: number
-    ts: number
-    type:
-        | 'HEARTBEAT'
-        | 'TASK_TRANSITION'
-        | 'AUDIT_LOG'
-        | 'PR_EVENT'
-        | 'JULES_EVENT'
-        | 'SLACK_RECEIPT'
-        | 'TELEMETRY_HISTORY'
-    source: string
-    payload: Record<string, any>
-    ascii: string
+  seq: number
+  ts: number
+  type: CanonicalEventType
+  source: string
+  payload: Record<string, any>
+  ascii: string
 }
 
 export interface TelemetryHistoryPacket {
-    seq: number
-    ts: number
-    type: 'TELEMETRY_HISTORY'
-    source: 'RepoBotDO'
-    payload: {
-        count: number
-        items: TelemetryPacket[]
-    }
-    ascii: string
+  seq: number
+  ts: number
+  type: 'TELEMETRY_HISTORY'
+  source: 'RepoBotDO'
+  payload: {
+    count: number
+    items: (TelemetryPacket | EventEnvelope)[]
+  }
+  ascii: string
 }
 
 export async function recordSlackReceipt(
@@ -120,58 +118,84 @@ export function parseRepoIdentifier(
 }
 
 export class RepoBotDO extends DurableObject<Env> {
-    private telemetrySeq = 0
+  private telemetrySeq = 0
+  private recentTelemetry: (TelemetryPacket | EventEnvelope)[] = []
 
-    private recentTelemetry: TelemetryPacket[] = []
+  constructor(ctx: DurableObjectState, env: Env) {
+    super(ctx, env)
+    this.recentTelemetry = []
+  }
 
-    constructor(ctx: DurableObjectState, env: Env) {
-        super(ctx, env)
-        this.recentTelemetry = []
+  async broadcastEnvelope(envelope: EventEnvelope): Promise<void> {
+    this.telemetrySeq = Math.max(this.telemetrySeq, envelope.seq)
+
+    if (envelope.type !== 'TELEMETRY_HISTORY') {
+      this.recentTelemetry.push(envelope)
+      if (this.recentTelemetry.length > 10) {
+        this.recentTelemetry = this.recentTelemetry.slice(-10)
+      }
+      this.ctx.storage
+        .put('recent_telemetry', this.recentTelemetry)
+        .catch(() => {})
     }
 
-    async broadcastTelemetry(
-        type: TelemetryPacket['type'],
-        source: string,
-        payload: any,
-        asciiMsg: string,
-    ): Promise<void> {
-        const packet: TelemetryPacket = {
-            seq: ++this.telemetrySeq,
-            ts: Date.now(),
-            type,
-            source,
-            payload: payload || {},
-            ascii: asciiMsg,
-        }
+    const sockets = this.ctx.getWebSockets('operator')
+    if (sockets.length === 0) return
 
-        // Maintain rolling FIFO ring buffer (K=10)
-        if (type !== 'TELEMETRY_HISTORY') {
-            if (!this.recentTelemetry) {
-                this.recentTelemetry = []
-            }
-            this.recentTelemetry.push(packet)
-            if (this.recentTelemetry.length > 10) {
-                this.recentTelemetry = this.recentTelemetry.slice(-10)
-            }
-            this.ctx.storage
-                .put('recent_telemetry', this.recentTelemetry)
-                .catch(() => {})
-        }
-
-        const sockets = this.ctx.getWebSockets('operator')
-        if (sockets.length === 0) return
-
-        const raw = JSON.stringify(packet)
-        for (const socket of sockets) {
-            try {
-                socket.send(raw)
-            } catch {
-                try {
-                    socket.close(1011, 'Broadcast transmission failure')
-                } catch {}
-            }
-        }
+    for (const socket of sockets) {
+      try {
+        const attachment: any = socket.deserializeAttachment() || {}
+        const role = attachment.role || 'operator'
+        const projected = applyEpistemicScrimming(envelope, role)
+        socket.send(JSON.stringify(projected))
+      } catch {
+        try {
+          socket.close(1011, 'Broadcast transmission failure')
+        } catch (e) { console.log('emit error:', e); }
+      }
     }
+  }
+
+  async broadcastTelemetry(
+    type: CanonicalEventType,
+    source: string,
+    payload: any,
+    asciiMsg: string,
+  ): Promise<void> {
+    const packet: TelemetryPacket = {
+      seq: ++this.telemetrySeq,
+      ts: Date.now(),
+      type,
+      source,
+      payload: payload || {},
+      ascii: asciiMsg,
+    }
+
+    if (type !== 'TELEMETRY_HISTORY') {
+      if (!this.recentTelemetry) { this.recentTelemetry = [] }
+      this.recentTelemetry.push(packet)
+      if (this.recentTelemetry.length > 10) {
+        this.recentTelemetry = this.recentTelemetry.slice(-10)
+      }
+      this.ctx.storage
+        .put('recent_telemetry', this.recentTelemetry)
+        .catch(() => {})
+    }
+
+    const sockets = this.ctx.getWebSockets('operator')
+    if (sockets.length === 0) return
+
+    const raw = JSON.stringify(packet)
+    for (const socket of sockets) {
+      try {
+        socket.send(raw)
+      } catch {
+        try {
+          socket.close(1011, 'Broadcast transmission failure')
+        } catch (e) { console.log('emit error:', e); }
+      }
+    }
+  }
 
     async webSocketMessage(
         socket: WebSocket,
@@ -186,7 +210,7 @@ export class RepoBotDO extends DurableObject<Env> {
             try {
                 const parsed = JSON.parse(text)
                 if (parsed?.type === 'PING') isPing = true
-            } catch {}
+            } catch (e) { console.log('emit error:', e); }
         }
         if (isPing) {
             socket.send(JSON.stringify({ type: 'PONG', ts: Date.now() }))
@@ -201,13 +225,13 @@ export class RepoBotDO extends DurableObject<Env> {
     ): Promise<void> {
         try {
             socket.close(code, reason)
-        } catch {}
+        } catch (e) { console.log('emit error:', e); }
     }
 
     async webSocketError(socket: WebSocket, _error: unknown): Promise<void> {
         try {
             socket.close(1011, 'WebSocket error')
-        } catch {}
+        } catch (e) { console.log('emit error:', e); }
     }
 
     /**
@@ -246,74 +270,76 @@ export class RepoBotDO extends DurableObject<Env> {
         const path = url.pathname
 
         if (request.method === 'POST' && path === '/broadcast') {
-            const body: any = await request.json().catch(() => null)
-            if (body && body.type && body.ascii) {
-                await this.broadcastTelemetry(
-                    body.type,
-                    body.source || 'edgeSubsystem',
-                    body.payload || {},
-                    body.ascii,
-                )
-            }
-            return Response.json({ ok: true })
+      const body: any = await request.json().catch(() => null)
+      if (body && body.type && body.ascii) {
+        if (body.domain && body.recordHash) {
+          await this.broadcastEnvelope(body as EventEnvelope)
+        } else {
+          await this.broadcastTelemetry(
+            body.type,
+            body.source || 'edgeSubsystem',
+            body.payload || {},
+            body.ascii,
+          )
         }
+      }
+      return Response.json({ ok: true })
+    }
 
-        // WebSocket Ingress & Hibernation Handshake
-        if (path === '/ws/telemetry' || path === '/ws') {
-            if (request.headers.get('Upgrade') !== 'websocket') {
-                return new Response('Expected Upgrade: websocket', {
-                    status: 426,
-                })
-            }
-            const pair = new WebSocketPair()
-            const [client, server] = Object.values(pair)
-            this.ctx.acceptWebSocket(server, ['operator'])
-            server.serializeAttachment({
-                connectedAt: Date.now(),
-                role: url.searchParams.get('role') || 'operator',
-            })
-            const initPacket: TelemetryPacket = {
-                seq: ++this.telemetrySeq,
-                ts: Date.now(),
-                type: 'HEARTBEAT',
-                source: 'RepoBotDO',
-                payload: {
-                    status: 'ONLINE',
-                    role: url.searchParams.get('role') || 'operator',
-                },
-                ascii: '>> [TELEMETRY] Edge tunnel established. Live streaming engaged.',
-            }
-            try {
-                server.send(JSON.stringify(initPacket))
-            } catch {}
+    // WebSocket Handshake & Replay (K=10)
+    if (path === '/ws/telemetry' || path === '/ws') {
+      if (request.headers.get('Upgrade') !== 'websocket') {
+        return new Response('Expected Upgrade: websocket', { status: 426 })
+      }
+      const pair = new WebSocketPair()
+      const [client, server] = Object.values(pair)
+      const role = url.searchParams.get('role') || 'operator'
 
-            // 1.2 Hydrate and Replay Last 10 Telemetry Events (K=10)
-            if (!this.recentTelemetry || this.recentTelemetry.length === 0) {
-                this.recentTelemetry =
-                    (await this.ctx.storage.get<TelemetryPacket[]>(
-                        'recent_telemetry',
-                    )) || []
-            }
+      this.ctx.acceptWebSocket(server, ['operator'])
+      server.serializeAttachment({
+        connectedAt: Date.now(),
+        role,
+      })
 
-            if (this.recentTelemetry.length > 0) {
-                const historyPacket: TelemetryHistoryPacket = {
-                    seq: this.telemetrySeq,
-                    ts: Date.now(),
-                    type: 'TELEMETRY_HISTORY',
-                    source: 'RepoBotDO',
-                    payload: {
-                        count: this.recentTelemetry.length,
-                        items: [...this.recentTelemetry],
-                    },
-                    ascii: `>> [TELEMETRY] Replaying last ${this.recentTelemetry.length} edge event(s)...`,
-                }
-                try {
-                    server.send(JSON.stringify(historyPacket))
-                } catch {}
-            }
+      const initPacket: TelemetryPacket = {
+        seq: ++this.telemetrySeq,
+        ts: Date.now(),
+        type: 'HEARTBEAT',
+        source: 'RepoBotDO',
+        payload: { status: 'ONLINE', role },
+        ascii:
+          '>> [TELEMETRY] Edge tunnel established. Live streaming engaged.',
+      }
+      try {
+        server.send(JSON.stringify(initPacket))
+      } catch (e) { console.log('emit error:', e); }
 
-            return new Response(null, { status: 101, webSocket: client })
+      if (!this.recentTelemetry || this.recentTelemetry.length === 0) {
+        this.recentTelemetry =
+          (await this.ctx.storage.get<(TelemetryPacket | EventEnvelope)[]>(
+            'recent_telemetry',
+          )) || []
+      }
+
+      if (this.recentTelemetry.length > 0) {
+        const historyPacket: TelemetryHistoryPacket = {
+          seq: this.telemetrySeq,
+          ts: Date.now(),
+          type: 'TELEMETRY_HISTORY',
+          source: 'RepoBotDO',
+          payload: {
+            count: this.recentTelemetry.length,
+            items: [...this.recentTelemetry],
+          },
+          ascii: `>> [TELEMETRY] Replaying last ${this.recentTelemetry.length} edge event(s)...`,
         }
+        try {
+          server.send(JSON.stringify(historyPacket))
+        } catch (e) { console.log('emit error:', e); }
+      }
+
+      return new Response(null, { status: 101, webSocket: client })
+    }
 
         // 0. GET /api/slack/status
         if (request.method === 'GET' && path === '/api/slack/status') {
@@ -925,33 +951,22 @@ export class RepoBotDO extends DurableObject<Env> {
 }
 
 export async function emitEdgeTelemetry(
-    env: any,
-    type: string,
-    source: string,
-    payload: any,
-    asciiMsg: string,
+  env: Env,
+  type: CanonicalEventType,
+  source: string,
+  payload: any,
+  asciiMsg: string,
 ): Promise<void> {
-    if (!env?.REPO_BOT_DO) return
-    try {
-        const id = env.REPO_BOT_DO.idFromName('global')
-        const stub = env.REPO_BOT_DO.get(id)
-        if (typeof stub.broadcastTelemetry === 'function') {
-            await stub.broadcastTelemetry(type, source, payload, asciiMsg)
-        } else {
-            await stub.fetch(
-                new Request('https://internal/broadcast', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        type,
-                        source,
-                        payload,
-                        ascii: asciiMsg,
-                    }),
-                }),
-            )
-        }
-    } catch (err: any) {
-        console.warn('[TELEMETRY_EMIT_WARN]', err.message)
-    }
+  if (!env.REPO_BOT_DO) return
+  try {
+    const id = env.REPO_BOT_DO.idFromName('global')
+    const stub = env.REPO_BOT_DO.get(id)
+    await stub.fetch(
+      new Request('https://internal/broadcast', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type, source, payload, ascii: asciiMsg }),
+      }),
+    )
+  } catch {}
 }
