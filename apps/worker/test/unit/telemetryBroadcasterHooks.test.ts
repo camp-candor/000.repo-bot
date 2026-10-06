@@ -82,8 +82,7 @@ describe('DAY-006: Telemetry Broadcaster Hooks & Envelope Ingestion', () => {
       })),
     }
 
-    const stub = mockEnv.REPO_BOT_DO.get()
-    mockStub.fetch.mockClear()
+        mockStub.fetch.mockClear()
 
     await appendAuditEvent(
       mockDb,
@@ -101,7 +100,7 @@ describe('DAY-006: Telemetry Broadcaster Hooks & Envelope Ingestion', () => {
     await new Promise(r => setTimeout(r, 10))
 
     // Using `fetch` since emitEdgeTelemetry is using stub.fetch now for canonical
-    expect(mockStub.fetch.mock.calls[0][0].url).toBe('https://internal/broadcast')
+    expect((mockStub.fetch.mock.calls[0] as any[])[0].url).toBe('https://internal/broadcast')
   })
 
   it('broadcasts TASK_TRANSITION through RepoBotDO /fsm/transition handler', async () => {

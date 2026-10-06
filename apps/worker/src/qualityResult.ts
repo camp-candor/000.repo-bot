@@ -1,5 +1,7 @@
 import type { Context } from 'hono'
 import type { Env } from './tools.js'
+import { emitCanonicalEvent } from './events/eventHub.js'
+import { sanitizeToAscii } from './events/eventEnvelope.js'
 
 export interface GitHubCheckRunPayload {
     action: string
@@ -61,14 +63,39 @@ export async function handleCheckRunEvent(
         )
     }
 
+    // Extract Task ID from branch (avoids D1 projection lag)
+    const branchName = check_run.check_suite?.head_branch
+    const taskId = extractTaskIdFromBranch(branchName)
+
     // 2. Only process completed evaluations
     if (payload.action !== 'completed' || check_run.status !== 'completed') {
         return c.json({ status: 'IN_PROGRESS_WAITING' }, 200)
     }
 
-    // 3. Extract Task ID from branch (avoids D1 projection lag)
-    const branchName = check_run.check_suite?.head_branch
-    const taskId = extractTaskIdFromBranch(branchName)
+    if (check_run.conclusion !== 'success') {
+        const rawOutput =
+            check_run.output?.summary || check_run.output?.title || 'Check run failed'
+        const cleanLog = sanitizeToAscii(rawOutput)
+
+        emitCanonicalEvent(c.env, {
+            domain: 'GOVERNANCE',
+            type: 'CHECK_FAILURE',
+            source: 'GitHubCheckRunner',
+            correlationId: taskId || 'unknown',
+            payload: {
+                checkRunId: check_run.id,
+                runName: check_run.name,
+                repository: payload.repository?.full_name || 'camp-candor/000.repo-bot',
+                targetBranch: branchName || 'unknown',
+                headSha: check_run.head_sha,
+                taskId: taskId || 'unknown',
+                category: check_run.conclusion || 'failure',
+                primaryError: cleanLog.slice(0, 140),
+                logExcerpt: cleanLog.slice(0, 500),
+            },
+            ascii: `>> [CHECK FAILURE] ${taskId}@${check_run.head_sha.slice(0, 7)}: '${check_run.name}' [${check_run.conclusion}]`,
+        }).catch(() => {})
+    }
 
     if (!taskId) {
         return c.json(

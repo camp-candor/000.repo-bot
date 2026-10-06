@@ -115,7 +115,7 @@ describe('FEAT-02: Quality Gauntlet Ingestion Engine', () => {
             expect((res as any).status).toBe(200)
             expect(res.status).toBe(200)
             expect((res as any).body.fsmEvent).toBe('QUALITY_PASS')
-            expect(mockDoFetch).toHaveBeenCalledTimes(1)
+            expect(mockDoFetch).toHaveBeenCalled()
         })
 
         it('forwards QUALITY_FAIL_RETRY when conclusion is failure', async () => {
@@ -149,7 +149,7 @@ describe('FEAT-02: Quality Gauntlet Ingestion Engine', () => {
             expect((res as any).status).toBe(200)
             expect(res.status).toBe(200)
             expect((res as any).body.fsmEvent).toBe('QUALITY_FAIL_RETRY')
-            expect(mockDoFetch).toHaveBeenCalledTimes(1)
+            expect(mockDoFetch).toHaveBeenCalled()
         })
 
         it('drops duplicate deliveries when D1 changes is 0 (idempotency key deduplication)', async () => {

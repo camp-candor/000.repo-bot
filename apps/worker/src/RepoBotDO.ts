@@ -1,3 +1,4 @@
+import { emitCanonicalEvent } from './events/eventHub.js'
 import {
     executeCompensatingSaga,
     type RollbackParams,
@@ -617,6 +618,34 @@ export class RepoBotDO extends DurableObject<Env> {
         }
 
         // 6. POST /fsm/transition
+        if (request.method === 'POST' && path === '/api/director/override') {
+            const body: any = await request.json().catch(() => null)
+            if (!body || !body.target || !body.property) {
+                return Response.json(
+                    { error: 'target and property required' },
+                    { status: 400 },
+                )
+            }
+
+            const overrideEvent = await emitCanonicalEvent(this.env, {
+                domain: 'AGENT',
+                type: 'DIRECTOR_OVERRIDE',
+                source: 'DirectorConsole',
+                correlationId: body.target,
+                payload: {
+                    target: body.target,
+                    property: body.property,
+                    from: body.from,
+                    to: body.to,
+                    actor: body.actor || 'showrunner',
+                    reason: body.reason || 'Manual directorial calibration',
+                },
+                ascii: `>> [OVERRIDE] DIRECTOR_OVERRIDE on ${body.target}.${body.property}: ${body.from} -> ${body.to} (${body.reason || 'no reason'})`,
+            })
+
+            return Response.json({ ok: true, event: overrideEvent })
+        }
+
         if (request.method === 'POST' && path === '/fsm/transition') {
             const body: any = await request.json().catch(() => null)
             const context =
@@ -656,6 +685,41 @@ export class RepoBotDO extends DurableObject<Env> {
                         headers: { 'Content-Type': 'application/json' },
                     },
                 )
+            }
+
+            if (body.attempts && body.attempts >= 3) {
+                context.state = 'DEAD_LETTER'
+                await this.ctx.storage.put('fsm_context', context)
+
+                await emitCanonicalEvent(this.env, {
+                    domain: 'FSM',
+                    type: 'BUDGET_EXHAUSTED',
+                    source: 'RepoBotDO.fsm',
+                    correlationId: body.taskId,
+                    payload: {
+                        taskId: body.taskId,
+                        attemptsRun: body.attempts,
+                        maxAttempts: 3,
+                        primaryFailureClass: body.failureReason || 'EXCESSIVE_FAILURES',
+                        terminalState: 'HALTED_FOR_TRIAGE',
+                    },
+                    ascii: `>> [FSM CIRCUIT TRIP] BUDGET_EXHAUSTED: Task ${body.taskId} failed 3 attempts. Tripping to DLQ.`,
+                })
+
+                await emitCanonicalEvent(this.env, {
+                    domain: 'FSM',
+                    type: 'DEAD_LETTER_ENQUEUE',
+                    source: 'RepoBotDO.fsm',
+                    correlationId: body.taskId,
+                    payload: {
+                        taskId: body.taskId,
+                        entryReason: 'BUDGET_EXHAUSTED',
+                        frozenContext: context as any,
+                    },
+                    ascii: `>> [DEAD LETTER QUEUE] Task ${body.taskId} quarantined for operator analysis.`,
+                })
+
+                return Response.json({ ok: false, context, deadLetter: true })
             }
 
             const previousState = context.state
