@@ -135,7 +135,6 @@ class MockD1Database {
     }
 
     async _query(sql: string, params: any[]) {
-        const trimmed = sql.trim()
         const normalizedSql = sql.replace(/\s+/g, ' ')
         if (
             normalizedSql.includes(
