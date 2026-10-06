@@ -200,6 +200,21 @@ export class ShotCoordinatorDO {
             // 2. POST /fsm/initialize
             if (request.method === 'POST' && path === '/fsm/initialize') {
                 const body: any = await request.json()
+                if (
+                    !body?.force &&
+                    this.ctx.taskId !== 'UNINITIALIZED' &&
+                    this.currentState !== 'PENDING'
+                ) {
+                    return new Response(
+                        JSON.stringify({
+                            error: `CANNOT_INITIALIZE_ACTIVE_TASK: Task '${this.ctx.taskId}' is currently in state '${this.currentState}'. Cannot re-initialize active task without authorization.`,
+                        }),
+                        {
+                            headers: { 'Content-Type': 'application/json' },
+                            status: 409,
+                        },
+                    )
+                }
                 this.ctx = {
                     ...this.ctx,
                     ...body,
