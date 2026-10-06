@@ -136,19 +136,18 @@ class MockD1Database {
 
     async _query(sql: string, params: any[]) {
         const trimmed = sql.trim()
+        const normalizedSql = sql.replace(/\s+/g, ' ')
         if (
-            trimmed
-                .replace(/\s+/g, ' ')
-                .includes(
-                    "FROM tasks WHERE current_status NOT IN ('MERGED', 'DLQ')",
-                )
+            normalizedSql.includes(
+                "FROM tasks WHERE current_status NOT IN ('MERGED', 'DLQ')",
+            )
         ) {
             const limit = params[0] || 50
             return Array.from(this.tasks.values())
                 .filter((t) => !['MERGED', 'DLQ'].includes(t.current_status))
                 .slice(0, limit)
         }
-        if (trimmed.includes('FROM tasks WHERE task_id = ?')) {
+        if (normalizedSql.includes('FROM tasks WHERE task_id = ?')) {
             const taskId = params[0]
             const match = this.tasks.get(taskId)
             return match ? [match] : []
@@ -204,35 +203,7 @@ describe('Transactional Outbox & Projection Sync Reconciler Suite', () => {
     beforeEach(async () => {
         mockDb = new MockD1Database()
         mockState = new MockDurableObjectState()
-        coordinator = Object.create(
-            ShotCoordinatorDO.prototype,
-        ) as ShotCoordinatorDO
-        Object.defineProperty(coordinator, 'state', {
-            value: mockState as any,
-            writable: true,
-        })
-        Object.defineProperty(coordinator, 'env', {
-            value: { DB: mockDb },
-            writable: true,
-        })
-        coordinator['timerScheduler'] = {
-            armWatchdog: async () => {},
-            disarmWatchdog: async () => {},
-            getActiveTimer: async () => null,
-            isAlarmValidForEpoch: async () => true,
-        } as any
-        coordinator['ctx'] = {
-            taskId: 'UNINITIALIZED',
-            currentEpoch: 1,
-            attemptCount: 1,
-            maxAttempts: 3,
-            isHighRiskPath: false,
-            scopeCheckPassed: false,
-            qualityCheckPassed: false,
-            branchName: 'spec/uninitialized',
-            targetRepo: 'camp-candor/000.repo-bot',
-            baseCommitSha: '0000000000000000000000000000000000000000',
-        } as any
+        coordinator = new ShotCoordinatorDO(mockState as any, { DB: mockDb })
 
         // Seed D1 and DO with task
         mockDb.tasks.set('TASK-SYNC-001', {
@@ -335,7 +306,7 @@ describe('Transactional Outbox & Projection Sync Reconciler Suite', () => {
         // Verify items are preserved in DO storage
         const record = await mockState.storage.get('fsm_record')
         expect(record.outbox.length).toBe(1)
-        expect(record.outbox[0].attempts).toBeGreaterThanOrEqual(1)
+        expect(record.outbox[0].attempts).toBe(2) // 1 from auto-drain, 1 from manual drain
 
         // Restore D1 and drain again
         mockDb.shouldFailBatch = false
@@ -371,14 +342,7 @@ describe('Transactional Outbox & Projection Sync Reconciler Suite', () => {
             DB: mockDb,
             REPO_BOT_DO: {
                 idFromName: (name: string) => name,
-                get: (_id: string) => ({
-                    fetch: (req: any, init: any) =>
-                        coordinator.fetch(
-                            typeof req === 'string'
-                                ? new Request(req, init)
-                                : req,
-                        ),
-                }),
+                get: (_id: string) => coordinator,
             },
         }
 
@@ -407,14 +371,7 @@ describe('Transactional Outbox & Projection Sync Reconciler Suite', () => {
             DB: mockDb,
             REPO_BOT_DO: {
                 idFromName: (name: string) => name,
-                get: (_id: string) => ({
-                    fetch: (req: any, init: any) =>
-                        coordinator.fetch(
-                            typeof req === 'string'
-                                ? new Request(req, init)
-                                : req,
-                        ),
-                }),
+                get: (_id: string) => coordinator,
             },
         }
 

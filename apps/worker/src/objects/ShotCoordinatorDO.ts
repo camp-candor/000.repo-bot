@@ -396,16 +396,12 @@ export class ShotCoordinatorDO {
                     )
                 }
 
-                const transitionResult = await this.applyTransition(
-                    event,
-                    actor,
-                    payload,
-                )
+                const res = await this.applyTransition(event, actor, payload)
                 return new Response(
                     JSON.stringify({
                         ok: true,
                         state: this.currentState,
-                        transition: transitionResult,
+                        transition: res,
                     }),
                     {
                         headers: { 'Content-Type': 'application/json' },
