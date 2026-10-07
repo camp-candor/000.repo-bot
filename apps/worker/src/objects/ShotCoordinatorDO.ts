@@ -37,6 +37,7 @@ import {
     type R2ScrubReport,
     type R2BucketInterface,
 } from '../archive/r2Scrubber.js'
+import { WatchdogController } from '../lifecycle/watchdogController.js'
 
 export class ShotCoordinatorDO {
     private fairQueue = new FairQueue()
@@ -194,20 +195,22 @@ export class ShotCoordinatorDO {
     }
 
     async alarm(): Promise<void> {
-        console.warn(
-            `>> [WATCHDOG:TRIP] Lease timeout for task '${this.activeJob?.taskId || 'NONE'}' [ALERT]`,
+        const evaluation = WatchdogController.evaluateAlarm(
+            this.activeJob,
+            this.fsmState,
         )
-        if (!this.activeJob) {
+
+        if (evaluation === 'IGNORE_EMPTY' || evaluation === 'IGNORE_ABORTED') {
             await this.ctx.storage.deleteAlarm()
             return
         }
 
-        const task = this.activeJob
+        const task = this.activeJob!
         const previousEpoch = this.currentEpoch
         task.attemptCount += 1
         this.currentEpoch += 1
 
-        if (task.attemptCount < task.maxAttempts) {
+        if (evaluation === 'RETRY_REQUIRED') {
             this.fsmState = 'RETRYING'
             this.fairQueue.requeue(task)
             this.activeJob = null
@@ -231,7 +234,7 @@ export class ShotCoordinatorDO {
                     metadata: { attempt: task.attemptCount },
                 })
             })
-        } else {
+        } else if (evaluation === 'DLQ_REQUIRED') {
             this.fsmState = 'DLQ'
             this.activeJob = null
             this.ledgerChain = await appendLedgerEntry(
@@ -391,6 +394,55 @@ export class ShotCoordinatorDO {
                         ok: true,
                         taskId,
                         position: this.fairQueue.size(),
+                    }),
+                    { status: 200 },
+                )
+            }
+
+            if (
+                request.method === 'POST' &&
+                url.pathname.endsWith('/leases/claim')
+            ) {
+                if (this.activeJob !== null) {
+                    return new Response(
+                        JSON.stringify({ ok: false, busy: true }),
+                        {
+                            status: 200,
+                        },
+                    )
+                }
+
+                const job = this.fairQueue.dequeueNextFair(null)
+                if (!job) return new Response(null, { status: 204 })
+
+                this.currentEpoch += 1
+                this.activeJob = job
+                this.fsmState = 'RUNNING'
+
+                this.ledgerChain = await appendLedgerEntry(
+                    this.ledgerChain,
+                    'LEASE_CLAIMED',
+                    {
+                        taskId: job.taskId,
+                        epoch: this.currentEpoch,
+                    },
+                )
+
+                // Arm the watchdog lease ceiling
+                await WatchdogController.armWatchdog(
+                    this.ctx,
+                    job.taskId,
+                    30_000,
+                )
+                await this.persistState()
+
+                return new Response(
+                    JSON.stringify({
+                        ok: true,
+                        taskId: job.taskId,
+                        epoch: this.currentEpoch,
+                        prompts: job.prompts,
+                        seeds: job.seeds,
                     }),
                     { status: 200 },
                 )
@@ -956,13 +1008,17 @@ export class ShotCoordinatorDO {
                     )
                 }
 
-                await this.ctx.storage.deleteAlarm()
+                // 1. Hardware alarm disarm
+                await WatchdogController.disarmWatchdog(this.ctx, cmd.taskId)
+
+                // 2. Terminal State Transition
                 this.fsmState = 'ABORTED'
 
-                // Clear from queue if it was pending
+                // 3. Clear from queue if pending, or nullify active job
                 this.fairQueue.remove(cmd.taskId)
                 this.activeJob = null
 
+                // 4. Asynchronous Ledger Commitment
                 this.ledgerChain = await appendLedgerEntry(
                     this.ledgerChain,
                     'CHATOPS_TASK_ABORTED',
@@ -974,7 +1030,7 @@ export class ShotCoordinatorDO {
                 )
 
                 console.log(
-                    `>> [MUTATION:ABORT] Task '${cmd.taskId}' aborted by '${cmd.operatorId}' [HALT]`,
+                    `>> [TERMINAL:ABORT] Task '${cmd.taskId}' permanently aborted by '${cmd.operatorId}'. Watchdog neutralized [HALT]`,
                 )
 
                 await this.persistState()
