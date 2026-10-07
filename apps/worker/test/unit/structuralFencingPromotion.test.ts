@@ -45,7 +45,7 @@ describe('Structural Fencing & Content-Addressed Promotion Battery (Phase 3)', (
 
     beforeEach(() => {
         mockCtx = new MockDurableObjectContext()
-        coordinator = new ShotCoordinatorDO(mockCtx as any)
+        coordinator = new ShotCoordinatorDO(mockCtx as any, {})
     })
 
     it('TASK-3.1: parses and validates content-addressed epoch-scoped staging keys', () => {

@@ -41,7 +41,7 @@ describe('Monotonic Epoch Generation & DO Queue Mechanics Battery (Phase 2)', ()
 
     beforeEach(() => {
         mockCtx = new MockDurableObjectContext()
-        coordinator = new ShotCoordinatorDO(mockCtx as any)
+        coordinator = new ShotCoordinatorDO(mockCtx as any, {})
     })
 
     it('TASK-2.1: interleaves multi-tenant queue [A, A, A, B] to [A, B, A, A] via tenant round-robin', () => {
