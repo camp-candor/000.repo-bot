@@ -1,487 +1,530 @@
+import { FairQueue, type ExecutionJob } from '../queue/fairQueue.js'
 import {
-    evaluateTransition,
-    TaskState,
-    FSMEvent,
-    AuthenticatedActor,
-    FSMContext,
-    TransitionResult,
-} from '../fsm/transitions.js'
-import { TimerScheduler } from './timerScheduler.js'
-import { OutboxRecord, drainOutboxBatch } from '../ledger/outboxDrainer.js'
+    validateStagingKey,
+    buildCanonicalKey,
+    type CanonicalManifestEntry,
+} from '../storage/r2Promotion.js'
 
-export interface ShotCoordinatorStateRecord {
-    currentState: TaskState
-    ctx: FSMContext
-    outbox: OutboxRecord[]
-    sequenceCounter: number
+export interface DlqRecord {
+    taskId: string
+    artistId: string
+    attemptCount: number
+    quarantinedAt: number
+    errorTrajectoryVector: {
+        domain: string
+        targetEntity: string
+        ruleId: string
+        offendingTokens: string
+    }
+    lastHeartbeatMetrics?: Record<string, any>
+}
+
+export interface ActiveLeaseSnapshot {
+    taskId: string
+    artistId: string
+    epoch: number
+    dispatchedAt: number
+    leaseExpiresAt: number
+    workerId: string
 }
 
 export class ShotCoordinatorDO {
-    private currentState: TaskState = 'PENDING'
-    private ctx: FSMContext
-    private timerScheduler: TimerScheduler
-    private outbox: OutboxRecord[] = []
-    private sequenceCounter = 0
-    private isHydrated = false
+    private fairQueue = new FairQueue()
+    private activeJob: ExecutionJob | null = null
+    private activeLease: ActiveLeaseSnapshot | null = null
+    private lastArtistId: string | null = null
+    private currentEpoch = 0
+    private dlqRecords: Map<string, DlqRecord> = new Map()
+    private canonicalManifests: Map<string, CanonicalManifestEntry> = new Map()
 
-    constructor(
-        private readonly state: DurableObjectState,
-        private readonly env?: any,
-    ) {
-        this.timerScheduler = new TimerScheduler(this.state.storage)
-        this.ctx = {
-            taskId: 'UNINITIALIZED',
-            currentEpoch: 1,
-            attemptCount: 1,
-            maxAttempts: 3,
-            isHighRiskPath: false,
-            scopeCheckPassed: false,
-            qualityCheckPassed: false,
-            branchName: 'spec/uninitialized',
-            targetRepo: 'camp-candor/000.repo-bot',
-            baseCommitSha: '0000000000000000000000000000000000000000',
-        }
-    }
-
-    /**
-     * Hydrates in-memory context and persistent outbox from NVMe storage.
-     */
-    private async ensureHydrated(): Promise<void> {
-        if (this.isHydrated) return
-
-        const stored =
-            await this.state.storage.get<ShotCoordinatorStateRecord>(
-                'fsm_record',
-            )
-        if (stored) {
-            this.currentState = stored.currentState
-            this.ctx = stored.ctx
-            this.outbox = stored.outbox || []
-            this.sequenceCounter = stored.sequenceCounter || 0
-        }
-        this.isHydrated = true
-    }
-
-    /**
-     * Atomically commits FSM state, context, and outbox buffer to storage.
-     */
-    private async persist(): Promise<void> {
-        const record: ShotCoordinatorStateRecord = {
-            currentState: this.currentState,
-            ctx: this.ctx,
-            outbox: this.outbox,
-            sequenceCounter: this.sequenceCounter,
-        }
-        await this.state.storage.put('fsm_record', record)
-    }
-
-    /**
-     * Universal Choke Point: Disarms watchdog alarm unconditionally upon exiting RUNNING.
-     */
-    private async leaveRunning(_reason: string): Promise<void> {
-        await this.timerScheduler.disarmWatchdog()
-    }
-
-    /**
-     * Arms 30-second rolling watchdog when entering RUNNING.
-     */
-    private async enterRunning(): Promise<void> {
-        await this.timerScheduler.armWatchdog(30_000, this.ctx.currentEpoch)
-    }
-
-    /**
-     * Drains pending outbox items to D1 and prunes them from storage upon success.
-     */
-    async drainPendingOutbox(db: any): Promise<{ drainedCount: number }> {
-        await this.ensureHydrated()
-        if (!db || this.outbox.length === 0) {
-            return { drainedCount: 0 }
-        }
-
-        const batch = this.outbox.slice(0, 50)
-
-        try {
-            const result = await drainOutboxBatch(db, batch)
-
-            // Prune drained items atomically from storage
-            const drainedIds = new Set(batch.map((r) => r.id))
-            this.outbox = this.outbox.filter((r) => !drainedIds.has(r.id))
-            await this.persist()
-
-            return { drainedCount: result.drainedCount }
-        } catch (err: any) {
-            // Retain items on error, increment attempts
-            for (const item of batch) {
-                item.attempts = (item.attempts || 0) + 1
+    constructor(private ctx: any) {
+        this.ctx.blockConcurrencyWhile?.(async () => {
+            const queueData = await this.ctx.storage.get('pending_queue')
+            if (Array.isArray(queueData)) {
+                this.fairQueue = new FairQueue(queueData)
             }
-            await this.persist()
-            throw err
-        }
-    }
 
-    /**
-     * Applies FSM transitions, stages outbox entries atomically, and triggers non-blocking drain.
-     */
-    async applyTransition(
-        event: FSMEvent,
-        actor: AuthenticatedActor,
-        payload?: any,
-    ): Promise<TransitionResult> {
-        await this.ensureHydrated()
-        const previousState = this.currentState
+            const activeJobData = await this.ctx.storage.get('active_job')
+            if (activeJobData && typeof activeJobData === 'object') {
+                this.activeJob = activeJobData
+            }
 
-        // 1. Evaluate pure FSM transition matrix
-        const result = evaluateTransition(
-            this.currentState,
-            event,
-            actor,
-            this.ctx,
-            payload,
-        )
+            const leaseData = await this.ctx.storage.get('active_lease')
+            if (leaseData && typeof leaseData === 'object') {
+                this.activeLease = leaseData
+            }
 
-        if (result.isNoop) {
-            return result
-        }
+            const storedEpoch = await this.ctx.storage.get('current_epoch')
+            if (typeof storedEpoch === 'number') {
+                this.currentEpoch = storedEpoch
+            }
 
-        // 2. Choke Point: Universal alarm disarming if exiting RUNNING
-        if (previousState === 'RUNNING' && result.nextState !== 'RUNNING') {
-            await this.leaveRunning(`TRANSITION_${event}`)
-        }
+            const storedLastArtist =
+                await this.ctx.storage.get('last_artist_id')
+            if (typeof storedLastArtist === 'string') {
+                this.lastArtistId = storedLastArtist
+            }
 
-        // 3. Update state and context patch
-        this.currentState = result.nextState
-        if (result.contextPatch) {
-            this.ctx = { ...this.ctx, ...result.contextPatch }
-        }
+            const storedDlq = await this.ctx.storage.get('dlq_records')
+            if (storedDlq && typeof storedDlq === 'object') {
+                this.dlqRecords = new Map(Object.entries(storedDlq))
+            }
 
-        // 4. Choke Point: Arm watchdog if entering RUNNING
-        if (this.currentState === 'RUNNING' && previousState !== 'RUNNING') {
-            await this.enterRunning()
-        }
-
-        // 5. Stage Outbox Record atomically
-        this.sequenceCounter++
-        const now = Date.now()
-        const outboxRecord: OutboxRecord = {
-            id: `outbox-${this.ctx.taskId}-${this.sequenceCounter}`,
-            taskId: this.ctx.taskId,
-            attemptNumber: this.ctx.attemptCount,
-            sequenceNumber: this.sequenceCounter,
-            fromState: previousState,
-            toState: this.currentState,
-            event,
-            epoch: this.ctx.currentEpoch,
-            actor: actor.type,
-            reason: payload?.reason,
-            payloadJson: JSON.stringify(payload || {}),
-            timestampMs: now,
-            createdAtMs: now,
-            attempts: 0,
-        }
-        this.outbox.push(outboxRecord)
-
-        await this.persist()
-
-        // 6. Asynchronous Non-Blocking Outbox Drain (if D1 binding is present)
-        if (this.env?.DB && !this.env?.disableAutoDrain) {
-            this.state.waitUntil(
-                this.drainPendingOutbox(this.env.DB).catch((err: any) => {
-                    console.warn(
-                        `>> [AUTO-DRAIN WARN] Task ${this.ctx.taskId}: ${err.message}`,
-                    )
-                }),
+            const storedManifests = await this.ctx.storage.get(
+                'canonical_manifests',
             )
-        }
+            if (storedManifests && typeof storedManifests === 'object') {
+                this.canonicalManifests = new Map(
+                    Object.entries(storedManifests),
+                )
+            }
 
-        return result
+            console.log(
+                `>> [DO:BOOT] ShotCoordinatorDO rehydrated. Epoch: ${this.currentEpoch}, Queue Depth: ${this.fairQueue.size()} [OK]`,
+            )
+        })
     }
 
     /**
-     * Storage Alarm Hook: Triggered upon watchdog timeout.
+     * Hardware Watchdog Alarm Handler: Evaluates failure triage on lease expiration.
      */
     async alarm(): Promise<void> {
-        await this.ensureHydrated()
-        const isAlarmValid = await this.timerScheduler.isAlarmValidForEpoch(
-            this.ctx.currentEpoch,
+        console.warn(
+            `>> [WATCHDOG:TRIP] Hardware alarm fired for task '${this.activeJob?.taskId || 'NONE'}' [ALERT]`,
         )
 
-        if (this.currentState === 'RUNNING' && isAlarmValid) {
-            await this.applyTransition(
-                'WATCHDOG_EXPIRE',
-                { type: 'SYSTEM_INTERNAL' },
-                { reason: 'WATCHDOG_TIMEOUT_EXPIRED' },
-            )
-        } else {
-            await this.timerScheduler.disarmWatchdog()
+        if (!this.activeJob) {
+            await this.ctx.storage.deleteAlarm()
+            return
         }
+
+        const task = this.activeJob
+        task.attemptCount += 1
+
+        // Bump monotonic epoch to immediately fence out active and partitioned zombie workers
+        this.currentEpoch += 1
+
+        if (task.attemptCount < task.maxAttempts) {
+            // Triage Branch 1: Transient Infrastructure Fault -> Re-queue with new epoch
+            console.warn(
+                `>> [WATCHDOG:RETRY] Transient failure on '${task.taskId}'. Attempt ${task.attemptCount}/${task.maxAttempts}. Bumped to Epoch ${this.currentEpoch} [RETRY]`,
+            )
+            this.fairQueue.requeue(task)
+            this.activeJob = null
+            this.activeLease = null
+            await this.ctx.storage.deleteAlarm()
+        } else {
+            // Triage Branch 2: Deterministic Poison Task -> Escalate to DLQ
+            console.error(
+                `>> [DLQ:POISON] Task '${task.taskId}' exhausted ${task.maxAttempts} attempts. Moving to DLQ [HALT]`,
+            )
+            const dlqEntry: DlqRecord = {
+                taskId: task.taskId,
+                artistId: task.artistId,
+                attemptCount: task.attemptCount,
+                quarantinedAt: Date.now(),
+                errorTrajectoryVector: {
+                    domain: 'HARDWARE_WATCHDOG_TIMEOUT',
+                    targetEntity: task.workflowTemplate,
+                    ruleId: 'MAX_ATTEMPTS_EXHAUSTED',
+                    offendingTokens: `taskId=${task.taskId};attempts=${task.attemptCount}`,
+                },
+            }
+
+            this.dlqRecords.set(task.taskId, dlqEntry)
+            this.activeJob = null
+            this.activeLease = null
+            await this.ctx.storage.deleteAlarm()
+        }
+
+        await this.persistState()
     }
 
     /**
-     * Primary HTTP Router for Worker & Reconciler RPC.
+     * Edge Router Dispatch Interface.
      */
     async fetch(request: Request): Promise<Response> {
-        await this.ensureHydrated()
         const url = new URL(request.url)
-        const path = url.pathname
 
         try {
-            // 1. GET /fsm/context
-            if (request.method === 'GET' && path === '/fsm/context') {
-                const activeTimer = await this.timerScheduler.getActiveTimer()
-                return new Response(
-                    JSON.stringify({
-                        currentState: this.currentState,
-                        context: this.ctx,
-                        activeTimer,
-                        outboxPendingCount: this.outbox.length,
-                    }),
-                    {
-                        headers: { 'Content-Type': 'application/json' },
-                        status: 200,
-                    },
-                )
-            }
+            // 1. Task Enqueue Route (Artists & Conductor Ingress)
+            if (
+                request.method === 'POST' &&
+                url.pathname.endsWith('/enqueue')
+            ) {
+                const body = (await request.json().catch(() => ({}))) as any
+                const {
+                    taskId,
+                    artistId,
+                    idempotencyKey,
+                    workflowTemplate = 'default.json',
+                    prompts = {},
+                    seeds = [42],
+                    maxAttempts = 2,
+                    priority = 0,
+                    isHighRisk = false,
+                } = body
 
-            // 2. POST /fsm/outbox/drain (Reconciler & Manual Drain RPC)
-            if (request.method === 'POST' && path === '/fsm/outbox/drain') {
-                const db = this.env?.DB
-                if (!db) {
+                if (!taskId || !artistId || !idempotencyKey) {
                     return new Response(
-                        JSON.stringify({ error: 'DB_BINDING_NOT_CONFIGURED' }),
+                        JSON.stringify({ error: 'MISSING_REQUIRED_FIELDS' }),
                         {
+                            status: 400,
                             headers: { 'Content-Type': 'application/json' },
-                            status: 500,
                         },
                     )
                 }
 
-                const result = await this.drainPendingOutbox(db)
+                // Check active job for idempotency collision
+                if (
+                    this.activeJob &&
+                    (this.activeJob.idempotencyKey === idempotencyKey ||
+                        this.activeJob.taskId === taskId)
+                ) {
+                    return new Response(
+                        JSON.stringify({ error: 'TASK_ALREADY_ACTIVE' }),
+                        {
+                            status: 409,
+                            headers: { 'Content-Type': 'application/json' },
+                        },
+                    )
+                }
+
+                const job: ExecutionJob = {
+                    taskId,
+                    artistId,
+                    idempotencyKey,
+                    workflowTemplate,
+                    prompts,
+                    seeds,
+                    enqueuedAt: Date.now(),
+                    attemptCount: 0,
+                    maxAttempts,
+                    priority,
+                    isHighRisk,
+                }
+
+                const enqueued = this.fairQueue.enqueue(job)
+                if (!enqueued) {
+                    return new Response(
+                        JSON.stringify({ error: 'DUPLICATE_TASK_REJECTED' }),
+                        {
+                            status: 409,
+                            headers: { 'Content-Type': 'application/json' },
+                        },
+                    )
+                }
+
+                await this.persistState()
+
                 return new Response(
                     JSON.stringify({
                         ok: true,
-                        drainedCount: result.drainedCount,
-                        remainingCount: this.outbox.length,
+                        taskId: job.taskId,
+                        position: this.fairQueue.size(),
+                        depth: this.fairQueue.size(),
                     }),
                     {
-                        headers: { 'Content-Type': 'application/json' },
                         status: 200,
+                        headers: { 'Content-Type': 'application/json' },
                     },
                 )
             }
 
-            // 3. POST /fsm/initialize
-            if (request.method === 'POST' && path === '/fsm/initialize') {
-                const body: any = await request.json()
-                if (
-                    !body?.force &&
-                    this.ctx.taskId !== 'UNINITIALIZED' &&
-                    this.currentState !== 'PENDING'
-                ) {
+            // 2. Lease Claim Route (Rig 2 media-broker Pull Ingress)
+            if (
+                request.method === 'POST' &&
+                url.pathname.endsWith('/leases/claim')
+            ) {
+                const body = (await request.json().catch(() => ({}))) as any
+                const workerId = body.workerId || 'rig2_gpu_foundry'
+
+                // Hardware Mutex: Assert no job currently executing
+                if (this.activeJob !== null) {
                     return new Response(
                         JSON.stringify({
-                            error: `CANNOT_INITIALIZE_ACTIVE_TASK: Task '${this.ctx.taskId}' is currently in state '${this.currentState}'. Cannot re-initialize active task without authorization.`,
+                            ok: false,
+                            busy: true,
+                            message: 'GPU_OCCUPIED',
                         }),
                         {
+                            status: 200,
                             headers: { 'Content-Type': 'application/json' },
-                            status: 409,
                         },
                     )
                 }
-                this.ctx = {
-                    ...this.ctx,
-                    ...body,
-                    currentEpoch: 1,
-                    attemptCount: 1,
+
+                // Extract next fair job using tenant round-robin interleaving
+                const job = this.fairQueue.dequeueNextFair(this.lastArtistId)
+                if (!job) {
+                    return new Response(null, { status: 204 })
                 }
-                this.currentState = 'PENDING'
-                this.sequenceCounter = 0
-                this.outbox = []
-                await this.persist()
+
+                // Increment Monotonic Epoch (Epoch N -> N+1)
+                this.currentEpoch += 1
+                this.activeJob = job
+                this.lastArtistId = job.artistId
+
+                const leaseExpiresAt = Date.now() + 30_000
+                this.activeLease = {
+                    taskId: job.taskId,
+                    artistId: job.artistId,
+                    epoch: this.currentEpoch,
+                    dispatchedAt: Date.now(),
+                    leaseExpiresAt,
+                    workerId,
+                }
+
+                // Arm autonomous 30s hardware storage alarm
+                await this.ctx.storage.setAlarm(leaseExpiresAt)
+                await this.persistState()
+
+                console.log(
+                    `>> [LEASE:GRANTED] Granted task '${job.taskId}' to '${workerId}' under Epoch ${this.currentEpoch} [OK]`,
+                )
+
                 return new Response(
                     JSON.stringify({
                         ok: true,
-                        state: this.currentState,
-                        context: this.ctx,
+                        taskId: job.taskId,
+                        artistId: job.artistId,
+                        epoch: this.currentEpoch,
+                        workflowTemplate: job.workflowTemplate,
+                        prompts: job.prompts,
+                        seeds: job.seeds,
+                        leaseExpiresAt,
                     }),
                     {
-                        headers: { 'Content-Type': 'application/json' },
                         status: 200,
+                        headers: { 'Content-Type': 'application/json' },
                     },
                 )
             }
 
-            // 4. POST /fsm/claim
-            if (request.method === 'POST' && path === '/fsm/claim') {
+            // 3. Heartbeat Route
+            if (
+                request.method === 'POST' &&
+                url.pathname.endsWith('/leases/heartbeat')
+            ) {
+                const body = (await request.json().catch(() => ({}))) as any
+                const { taskId, epoch } = body
+
                 if (
-                    this.currentState !== 'PENDING' &&
-                    this.currentState !== 'RETRYING'
+                    !this.activeJob ||
+                    !this.activeLease ||
+                    this.activeJob.taskId !== taskId
                 ) {
                     return new Response(
-                        JSON.stringify({
-                            error: `CANNOT_CLAIM_TASK: State is '${this.currentState}', expected PENDING or RETRYING.`,
-                        }),
+                        JSON.stringify({ error: 'TASK_NOT_ACTIVE' }),
                         {
+                            status: 404,
                             headers: { 'Content-Type': 'application/json' },
-                            status: 409,
                         },
                     )
                 }
 
-                await this.applyTransition('LEASE_CLAIMED', {
-                    type: 'SYSTEM_INTERNAL',
+                // Epoch fencing check
+                if (epoch !== this.currentEpoch) {
+                    console.warn(
+                        `>> [FENCE:HEARTBEAT] Stale epoch heartbeat rejected (${epoch} != ${this.currentEpoch}) [FAIL]`,
+                    )
+                    return new Response(
+                        JSON.stringify({
+                            error: `HTTP 409 Conflict: Stale Epoch ${epoch}. Active is ${this.currentEpoch}`,
+                        }),
+                        {
+                            status: 409,
+                            headers: { 'Content-Type': 'application/json' },
+                        },
+                    )
+                }
+
+                // Extend lease window and reschedule watchdog alarm
+                const newExpiry = Date.now() + 30_000
+                this.activeLease.leaseExpiresAt = newExpiry
+                await this.ctx.storage.setAlarm(newExpiry)
+                await this.persistState()
+
+                return new Response(
+                    JSON.stringify({
+                        ok: true,
+                        epoch: this.currentEpoch,
+                        leaseExpiresAt: newExpiry,
+                    }),
+                    {
+                        status: 200,
+                        headers: { 'Content-Type': 'application/json' },
+                    },
+                )
+            }
+
+            // 4. Task Complete Route (Promotion Gate)
+            if (
+                request.method === 'POST' &&
+                url.pathname.endsWith('/tasks/complete')
+            ) {
+                const body = (await request.json().catch(() => ({}))) as any
+                const { taskId, epoch, stagingKey, metadata } = body
+
+                // Idempotency Check: Safely accept duplicate calls caused by network blips
+                if (this.canonicalManifests.has(taskId)) {
+                    const manifest = this.canonicalManifests.get(taskId)!
+                    if (
+                        manifest.stagingKey === stagingKey &&
+                        manifest.epoch === epoch
+                    ) {
+                        console.log(
+                            `>> [PROMOTION:IDEMPOTENT] Replay request for already-promoted artifact '${stagingKey}' [OK]`,
+                        )
+                        return new Response(
+                            JSON.stringify({
+                                ok: true,
+                                epoch: this.currentEpoch,
+                                alreadyPromoted: true,
+                                canonicalKey: manifest.canonicalKey,
+                            }),
+                            {
+                                status: 200,
+                                headers: { 'Content-Type': 'application/json' },
+                            },
+                        )
+                    }
+                }
+
+                // Monotonic Fencing Token Check (Split-Brain Zombie Defense)
+                if (epoch !== this.currentEpoch) {
+                    console.warn(
+                        `>> [ZOMBIE:REJECT] Stale write rejected for task '${taskId}' (Presented Epoch ${epoch} != ${this.currentEpoch}) [FAIL]`,
+                    )
+                    return new Response(
+                        JSON.stringify({
+                            error: `HTTP 409 Conflict: Stale Epoch ${epoch}. Active Epoch is ${this.currentEpoch}`,
+                            fenced: true,
+                        }),
+                        {
+                            status: 409,
+                            headers: { 'Content-Type': 'application/json' },
+                        },
+                    )
+                }
+
+                if (!this.activeJob || this.activeJob.taskId !== taskId) {
+                    return new Response(
+                        JSON.stringify({ error: 'TASK_NOT_FOUND' }),
+                        {
+                            status: 404,
+                            headers: { 'Content-Type': 'application/json' },
+                        },
+                    )
+                }
+
+                // Validate content-addressed staging key schema and task bounds
+                let parsed
+                try {
+                    parsed = validateStagingKey(
+                        stagingKey,
+                        taskId,
+                        this.currentEpoch,
+                    )
+                } catch (valErr: any) {
+                    return new Response(
+                        JSON.stringify({
+                            error: valErr.message || 'MALFORMED_STAGING_KEY',
+                        }),
+                        {
+                            status: 400,
+                            headers: { 'Content-Type': 'application/json' },
+                        },
+                    )
+                }
+
+                // Construct canonical manifest entry
+                const canonicalKey = buildCanonicalKey(
+                    taskId,
+                    parsed.sha256,
+                    parsed.extension,
+                )
+                this.canonicalManifests.set(taskId, {
+                    taskId,
+                    epoch: this.currentEpoch,
+                    stagingKey,
+                    canonicalKey,
+                    sha256: parsed.sha256,
+                    workerId: this.activeLease?.workerId || 'UNKNOWN',
+                    promotedAtMs: Date.now(),
+                    metadata: metadata || {},
                 })
-                return new Response(
-                    JSON.stringify({
-                        ok: true,
-                        state: this.currentState,
-                        epoch: this.ctx.currentEpoch,
-                        branchName: this.ctx.branchName,
-                    }),
-                    {
-                        headers: { 'Content-Type': 'application/json' },
-                        status: 200,
-                    },
+
+                // Unconditionally delete hardware watchdog alarm on task completion
+                await this.ctx.storage.deleteAlarm()
+
+                console.log(
+                    `>> [PROMOTION:OK] Successfully promoted '${stagingKey}' -> '${canonicalKey}' under Epoch ${this.currentEpoch} [OK]`,
                 )
-            }
-
-            // 5. POST /fsm/heartbeat
-            if (request.method === 'POST' && path === '/fsm/heartbeat') {
-                const body: any = await request.json()
-                const incomingEpoch = Number(body?.epoch)
-
-                if (incomingEpoch !== this.ctx.currentEpoch) {
-                    return new Response(
-                        JSON.stringify({
-                            error: `STALE_WORKER_EPOCH: Incoming epoch (${incomingEpoch}) does not match active epoch (${this.ctx.currentEpoch}).`,
-                        }),
-                        {
-                            headers: { 'Content-Type': 'application/json' },
-                            status: 409,
-                        },
-                    )
-                }
-
-                if (this.currentState === 'RUNNING') {
-                    await this.timerScheduler.armWatchdog(
-                        30_000,
-                        this.ctx.currentEpoch,
-                    )
-                }
+                this.activeJob = null
+                this.activeLease = null
+                await this.persistState()
 
                 return new Response(
                     JSON.stringify({
                         ok: true,
-                        state: this.currentState,
-                        epoch: this.ctx.currentEpoch,
+                        taskId,
+                        epoch: this.currentEpoch,
+                        promoted: true,
+                        canonicalKey,
                     }),
                     {
-                        headers: { 'Content-Type': 'application/json' },
                         status: 200,
+                        headers: { 'Content-Type': 'application/json' },
                     },
                 )
             }
 
-            // 6. POST /fsm/transition
-            if (request.method === 'POST' && path === '/fsm/transition') {
-                const body: any = await request.json()
-                const { event, actor, payload } = body
-
-                if (!event || !actor) {
-                    return new Response(
-                        JSON.stringify({ error: 'MISSING_EVENT_OR_ACTOR' }),
-                        {
-                            headers: { 'Content-Type': 'application/json' },
-                            status: 400,
-                        },
-                    )
-                }
-
-                const res = await this.applyTransition(event, actor, payload)
+            // 5. Diagnostics & State Inspection Route
+            if (request.method === 'GET' && url.pathname.endsWith('/state')) {
                 return new Response(
                     JSON.stringify({
-                        ok: true,
-                        state: this.currentState,
-                        transition: res,
+                        currentEpoch: this.currentEpoch,
+                        queueDepth: this.fairQueue.size(),
+                        activeJob: this.activeJob,
+                        activeLease: this.activeLease,
+                        lastArtistId: this.lastArtistId,
+                        dlqCount: this.dlqRecords.size,
+                        dlq: Object.fromEntries(this.dlqRecords),
                     }),
                     {
-                        headers: { 'Content-Type': 'application/json' },
                         status: 200,
+                        headers: { 'Content-Type': 'application/json' },
                     },
                 )
             }
 
-            // 7. POST /tasks/complete
-            if (request.method === 'POST' && path === '/tasks/complete') {
-                const body: any = await request.json()
-                const incomingEpoch = Number(body?.epoch)
-                const headSha = body?.headSha
-
-                if (incomingEpoch !== this.ctx.currentEpoch) {
-                    return new Response(
-                        JSON.stringify({
-                            error: `PROMOTION_FENCE_REJECTED: Cannot promote from superseded epoch ${incomingEpoch}. Active is ${this.ctx.currentEpoch}.`,
-                        }),
-                        {
-                            headers: { 'Content-Type': 'application/json' },
-                            status: 409,
-                        },
-                    )
-                }
-
-                if (!headSha) {
-                    return new Response(
-                        JSON.stringify({ error: 'MISSING_HEAD_SHA' }),
-                        {
-                            headers: { 'Content-Type': 'application/json' },
-                            status: 400,
-                        },
-                    )
-                }
-
-                await this.applyTransition(
-                    'SUBMIT_VERIFY',
-                    {
-                        type: 'REMOTE_WORKER',
-                        workerId: body?.workerId || 'worker-rpc',
-                        epoch: incomingEpoch,
-                    },
-                    { headSha },
-                )
-
-                return new Response(
-                    JSON.stringify({
-                        ok: true,
-                        state: this.currentState,
-                        promotedHeadSha: headSha,
-                        epoch: this.ctx.currentEpoch,
-                    }),
-                    {
-                        headers: { 'Content-Type': 'application/json' },
-                        status: 200,
-                    },
-                )
-            }
-
-            return new Response(JSON.stringify({ error: 'NOT_FOUND' }), {
-                status: 404,
-            })
+            return new Response('NOT_FOUND', { status: 404 })
         } catch (err: any) {
-            const isDomainError =
-                err.message.includes('ILLEGAL_FSM_TRANSITION') ||
-                err.message.includes('UNAUTHORIZED_OR_GUARD_FAILED') ||
-                err.message.includes('STALE_WORKER_EPOCH') ||
-                err.message.includes('AMBIGUOUS_TRANSITION_ERROR')
-
+            console.error(`>> [DO:ERROR] ${err.message || String(err)}`)
             return new Response(
-                JSON.stringify({
-                    error: err.message,
-                    currentState: this.currentState,
-                }),
+                JSON.stringify({ error: err.message || 'INTERNAL_ERROR' }),
                 {
+                    status: 500,
                     headers: { 'Content-Type': 'application/json' },
-                    status: isDomainError ? 409 : 500,
                 },
             )
         }
+    }
+
+    private async persistState(): Promise<void> {
+        await this.ctx.storage.put('pending_queue', this.fairQueue.toArray())
+        await this.ctx.storage.put('active_job', this.activeJob)
+        await this.ctx.storage.put('active_lease', this.activeLease)
+        await this.ctx.storage.put('current_epoch', this.currentEpoch)
+        await this.ctx.storage.put('last_artist_id', this.lastArtistId)
+        await this.ctx.storage.put(
+            'dlq_records',
+            Object.fromEntries(this.dlqRecords),
+        )
+        await this.ctx.storage.put(
+            'canonical_manifests',
+            Object.fromEntries(this.canonicalManifests),
+        )
     }
 }

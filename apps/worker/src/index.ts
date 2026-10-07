@@ -388,19 +388,34 @@ const getRepoBotStub = (env: Env) => {
 }
 
 // WebSocket Telemetry Ingress & Operator Bridge
-app.get('/ws/telemetry', async (c) => {
+app.all('/ws/telemetry', async (c) => {
     if (c.req.header('Upgrade') !== 'websocket') {
-        return c.text('Expected Upgrade: websocket', 426)
+        return c.text('Expected Upgrade: websocket', 426, {
+            Upgrade: 'websocket',
+        })
+    }
+
+    // Resolve the singleton Durable Object namespace
+    const id = c.env.REPO_BOT_DO.idFromName('global')
+    const stub = c.env.REPO_BOT_DO.get(id)
+
+    // Forward the raw Request directly into DO fetch to preserve the 101 WebSocket handshake
+    return stub.fetch(c.req.raw)
+})
+
+app.all('/ws', async (c) => {
+    if (c.req.header('Upgrade') !== 'websocket') {
+        return c.text('Expected Upgrade: websocket', 426, {
+            Upgrade: 'websocket',
+        })
     }
     const id = c.env.REPO_BOT_DO.idFromName('global')
     const stub = c.env.REPO_BOT_DO.get(id)
     return stub.fetch(c.req.raw)
 })
 
-app.get('/ws', async (c) => {
-    if (c.req.header('Upgrade') !== 'websocket') {
-        return c.text('Expected Upgrade: websocket', 426)
-    }
+// RPC Telemetry Broadcast Route
+app.post('/broadcast', async (c) => {
     const id = c.env.REPO_BOT_DO.idFromName('global')
     const stub = c.env.REPO_BOT_DO.get(id)
     return stub.fetch(c.req.raw)

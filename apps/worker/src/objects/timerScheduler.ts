@@ -1,59 +1,75 @@
-export interface ActiveTimerMetadata {
+export type TimerType = 'WATCHDOG' | 'ABSOLUTE_CAP'
+export type TimerId = 'watchdog' | 'absolute_cap'
+
+export interface ScheduledTimer {
+    id: TimerId
+    type: TimerType
+    fireAt: number
     epoch: number
-    type: 'WATCHDOG' | 'ABSOLUTE' | 'APPROVAL'
-    deadlineMs: number
-    armedAtMs: number
+    epochScoped: boolean
 }
 
-export class TimerScheduler {
-    private readonly TIMER_STORAGE_KEY = 'active_timer'
+export interface PollResult {
+    due: ScheduledTimer[]
+    remaining: ScheduledTimer[]
+}
 
-    constructor(private readonly storage: DurableObjectStorage) {}
+/**
+ * Schedules or replaces a timer by its deterministic ID and sorts ascending by fireAt.
+ */
+export function scheduleTimer(
+    timers: ScheduledTimer[],
+    newTimer: ScheduledTimer,
+): ScheduledTimer[] {
+    const filtered = timers.filter((t) => t.id !== newTimer.id)
+    filtered.push(newTimer)
+    return filtered.sort((a, b) => a.fireAt - b.fireAt)
+}
 
-    /**
-     * Arms a proactive storage alarm with epoch tagging.
-     */
-    async armWatchdog(
-        timeoutMs: number,
-        epoch: number,
-    ): Promise<ActiveTimerMetadata> {
-        const now = Date.now()
-        const deadlineMs = now + timeoutMs
-        const metadata: ActiveTimerMetadata = {
-            epoch,
-            type: 'WATCHDOG',
-            deadlineMs,
-            armedAtMs: now,
+/**
+ * Cancels a timer by its deterministic ID.
+ */
+export function cancelTimer(
+    timers: ScheduledTimer[],
+    id: TimerId,
+): ScheduledTimer[] {
+    return timers.filter((t) => t.id !== id)
+}
+
+/**
+ * Returns the earliest fire timestamp among active timers, or null if empty.
+ */
+export function getEarliestFireTime(timers: ScheduledTimer[]): number | null {
+    if (timers.length === 0) return null
+    return timers[0].fireAt
+}
+
+/**
+ * Partitions timers into due and remaining. Drops stale epoch-scoped timers.
+ */
+export function pollDueTimers(
+    timers: ScheduledTimer[],
+    now: number,
+    currentEpoch: number,
+): PollResult {
+    const due: ScheduledTimer[] = []
+    const remaining: ScheduledTimer[] = []
+
+    for (const timer of timers) {
+        // Drop stale epoch-scoped timers
+        if (timer.epochScoped && timer.epoch !== currentEpoch) {
+            console.log(
+                `>> [TIMER:DISCARD] Dropping stale ${timer.id} timer (Epoch ${timer.epoch} != ${currentEpoch}) [OK]`,
+            )
+            continue
         }
 
-        await this.storage.put(this.TIMER_STORAGE_KEY, metadata)
-        await this.storage.setAlarm(deadlineMs)
-        return metadata
+        if (timer.fireAt <= now) {
+            due.push(timer)
+        } else {
+            remaining.push(timer)
+        }
     }
 
-    /**
-     * Unconditionally disarms the watchdog alarm and removes metadata.
-     */
-    async disarmWatchdog(): Promise<void> {
-        await this.storage.delete(this.TIMER_STORAGE_KEY)
-        await this.storage.deleteAlarm()
-    }
-
-    /**
-     * Retrieves active timer metadata from persistent storage.
-     */
-    async getActiveTimer(): Promise<ActiveTimerMetadata | undefined> {
-        return await this.storage.get<ActiveTimerMetadata>(
-            this.TIMER_STORAGE_KEY,
-        )
-    }
-
-    /**
-     * Validates whether the active alarm belongs to the specified epoch.
-     */
-    async isAlarmValidForEpoch(currentEpoch: number): Promise<boolean> {
-        const timer = await this.getActiveTimer()
-        if (!timer) return false
-        return timer.epoch === currentEpoch
-    }
+    return { due, remaining: remaining.sort((a, b) => a.fireAt - b.fireAt) }
 }

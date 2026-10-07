@@ -20,41 +20,95 @@
 
 1. The Hourly Lockfile Pin Drift Auditor (0 * * * *)
 
-Phase 1: Zero-Clone Reference Ingestion & Rate-Limit Preservation
+{{ FOCUS : Phase 2: The Four-Tier Drift Inspection Gauntlet }}
+/jules-task
 
-Phase 2: The Four-Tier Drift Inspection Gauntlet
+{{ FOCUS : Phase 2: The Four-Tier Drift Inspection Gauntlet }}
+/tgrav-check
 
-Phase 3: Cryptographic Ledger & ChatOps Telemetry
+{{ FOCUS : Phase 3: Cryptographic Ledger & ChatOps Telemetry }}
+/jules-task
 
-Phase 4: Autonomous Jules Remediation
+{{ FOCUS : Phase 3: Cryptographic Ledger & ChatOps Telemetry }}
+/tgrav-check
+
+{{ FOCUS : Phase 4: Autonomous Jules Remediation }}
+/jules-task
+
+{{ FOCUS : Phase 4: Autonomous Jules Remediation }}
+/tgrav-check
 
 2. The Daily 03:00 UTC GC Sweeper (0 3 * * *)
 
-Phase 1: Zero-Clone Edge Reference Ingestion
+{{ FOCUS : Phase 1: Zero-Clone Edge Reference Ingestion }}
+/jules-task
 
-Phase 2: The Four-Tier Drift Inspection Gauntlet
+{{ FOCUS : Phase 1: Zero-Clone Edge Reference Ingestion }}
+/tgrav-check
 
-Phase 3: Cryptographic Ledger & Telemetry Escalation
+{{ FOCUS : Phase 2: The Four-Tier Drift Inspection Gauntlet }}
+/jules-task
 
-Phase 4: Autonomous Remediation (The Jules Patch Pipeline)
+{{ FOCUS : Phase 2: The Four-Tier Drift Inspection Gauntlet }}
+/tgrav-check
+
+{{ FOCUS : Phase 3: Cryptographic Ledger & Telemetry Escalation }}
+/jules-task
+
+{{ FOCUS : Phase 3: Cryptographic Ledger & Telemetry Escalation }}
+/tgrav-check
+
+{{ FOCUS : Phase 4: Autonomous Remediation (The Jules Patch Pipeline) }}
+/jules-task
+
+{{ FOCUS : Phase 4: Autonomous Remediation (The Jules Patch Pipeline) }}
+/tgrav-check
 
 3. The Daily 09:00 UTC Accountability Sweeper (0 9 * * *)
 
-Phase 1: D1 State Ledger & Fleet Ingestion
+{{ FOCUS : Phase 1: D1 State Ledger & Fleet Ingestion }}
+/jules-task
 
-Phase 2: Remote Interrogation & Staleness Math
+{{ FOCUS : Phase 1: D1 State Ledger & Fleet Ingestion }}
+/tgrav-check
 
-Phase 3: The Three-Tier Progressive Escalation Protocol
+{{ FOCUS : Phase 2: Remote Interrogation & Staleness Math }}
+/jules-task
 
-Phase 4: ChatOps Intervention & Telemetry
+{{ FOCUS : Phase 2: Remote Interrogation & Staleness Math }}
+/tgrav-check
+
+{{ FOCUS : Phase 3: The Three-Tier Progressive Escalation Protocol }}
+/jules-task
+
+{{ FOCUS : Phase 3: The Three-Tier Progressive Escalation Protocol }}
+/tgrav-check
+
+{{ FOCUS : Phase 4: ChatOps Intervention & Telemetry }}
+/jules-task
+
+{{ FOCUS : Phase 4: ChatOps Intervention & Telemetry }}
+/tgrav-check
+
+{{ FOCUS : Phase 1: Cold Ledger Drainage (The D1-to-Git Pipeline) }}
+/jules-task
+
+{{ FOCUS : Phase 1: Cold Ledger Drainage (The D1-to-Git Pipeline) }}
+/tgrav-check
 
 4. Midnight Cold Ledger Drainage & R2 Scrub (0 0 * * *)
 
-Phase 1: Cold Ledger Drainage (The D1-to-Git Pipeline)
+{{ FOCUS : Phase 2: The Rolling R2 Archive Scrub (Bit-Rot Defense) }}
+/jules-task
 
-Phase 2: The Rolling R2 Archive Scrub (Bit-Rot Defense)
+{{ FOCUS : Phase 2: The Rolling R2 Archive Scrub (Bit-Rot Defense) }}
+/tgrav-check
 
-Phase 3: Compaction & Telemetry Broadcast
+{{ FOCUS : Phase 3: Compaction & Telemetry Broadcast }}
+/jules-task
+
+{{ FOCUS : Phase 3: Compaction & Telemetry Broadcast }}
+/tgrav-check
 
 5. The Monthly RunPod GPU Canary (0 4 1 * *)
 
