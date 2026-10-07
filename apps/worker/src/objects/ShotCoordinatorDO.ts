@@ -20,14 +20,8 @@ import {
     parseSlashCommand,
     type ChatOpsCommand,
 } from '../telemetry/chatOpsParser.js'
-import {
-    formatOverrideApplied,
-    formatForceRetry,
-    formatTaskAborted,
-    formatStatusResponse,
-    formatFleetResponse,
-    ChatOpsNotifier,
-} from '../telemetry/chatOpsFormatter.js'
+import { formatStatusResponse, formatFleetResponse } from '../telemetry/chatOpsFormatter.js'
+import { ChatOpsNotifier } from '../telemetry/chatOpsNotifier.js'
 import { D1StateLedger } from '../db/d1Ledger.js'
 import { FleetRegistry } from '../fleet/fleetRegistry.js'
 import { GitCommitClient } from '../drainage/gitCommitClient.js'
@@ -842,9 +836,11 @@ export class ShotCoordinatorDO {
             }
 
             case 'OVERRIDE': {
-                if (!cmd.taskId) {
+                if (!cmd.taskId || !cmd.operatorId) {
                     return new Response(
-                        JSON.stringify({ error: 'MISSING_TASK_ID' }),
+                        JSON.stringify({
+                            error: 'MISSING_TASK_ID_OR_OPERATOR',
+                        }),
                         {
                             status: 400,
                         },
@@ -855,6 +851,7 @@ export class ShotCoordinatorDO {
                 await this.ctx.storage.deleteAlarm()
 
                 this.currentEpoch += 1
+                const previousState = this.fsmState
                 this.fsmState = 'PENDING'
 
                 const targetJob: ExecutionJob = this.activeJob || {
@@ -884,6 +881,9 @@ export class ShotCoordinatorDO {
                 this.activeJob = null
 
                 const diff = `Prompt updated to: "${targetJob.prompts.positive || 'SAME'}", Seed: ${targetJob.seeds?.[0] ?? 'SAME'}`
+                if (this.ledgerChain.length === 0) {
+                    this.ledgerChain = [await createGenesisBlock(cmd.taskId)]
+                }
                 this.ledgerChain = await appendLedgerEntry(
                     this.ledgerChain,
                     'CHATOPS_MANUAL_OVERRIDE',
@@ -892,6 +892,7 @@ export class ShotCoordinatorDO {
                         operatorId: cmd.operatorId,
                         newEpoch: this.currentEpoch,
                         diff,
+                        previousState,
                         reason: cmd.reason || 'Manual override',
                     },
                 )
@@ -902,25 +903,36 @@ export class ShotCoordinatorDO {
 
                 await this.persistState()
 
-                const formatted = formatOverrideApplied(
-                    cmd.taskId,
-                    cmd.operatorId,
-                    this.currentEpoch,
-                    diff,
-                    cmd.reason || 'None',
-                )
                 if (this.env?.CHATOPS_WEBHOOK_URL) {
-                    this.chatOpsNotifier
-                        .dispatchAlert(this.env.CHATOPS_WEBHOOK_URL, formatted)
-                        .catch(() => {})
+                    const formatted =
+                        this.chatOpsNotifier.formatInterventionReceipt(
+                            'OVERRIDE',
+                            cmd.taskId,
+                            cmd.operatorId,
+                            {
+                                EPOCH_ADVANCED: this.currentEpoch,
+                                REASON: cmd.reason || 'N/A',
+                                NEW_STATE: this.fsmState,
+                            },
+                        )
+
+                    this.ctx.waitUntil?.(
+                        this.chatOpsNotifier.dispatchAsyncAlert(
+                            this.env.CHATOPS_WEBHOOK_URL,
+                            formatted,
+                        ),
+                    )
                 }
+
+                console.log(
+                    `>> [NON_REPUDIATION:LOG] Action 'OVERRIDE' by '${cmd.operatorId}' committed to ledger [OK]`,
+                )
 
                 return new Response(
                     JSON.stringify({
                         ok: true,
-                        overridden: true,
+                        action: 'OVERRIDE',
                         epoch: this.currentEpoch,
-                        formatted,
                     }),
                     {
                         status: 200,
@@ -930,9 +942,11 @@ export class ShotCoordinatorDO {
             }
 
             case 'RETRY': {
-                if (!cmd.taskId) {
+                if (!cmd.taskId || !cmd.operatorId) {
                     return new Response(
-                        JSON.stringify({ error: 'MISSING_TASK_ID' }),
+                        JSON.stringify({
+                            error: 'MISSING_TASK_ID_OR_OPERATOR',
+                        }),
                         {
                             status: 400,
                         },
@@ -941,6 +955,7 @@ export class ShotCoordinatorDO {
 
                 await this.ctx.storage.deleteAlarm()
                 this.currentEpoch += 1
+                const previousState = this.fsmState
                 this.fsmState = 'PENDING'
 
                 const jobToRetry = this.activeJob || {
@@ -959,6 +974,9 @@ export class ShotCoordinatorDO {
                 this.fairQueue.requeuePriority(jobToRetry)
                 this.activeJob = null
 
+                if (this.ledgerChain.length === 0) {
+                    this.ledgerChain = [await createGenesisBlock(cmd.taskId)]
+                }
                 this.ledgerChain = await appendLedgerEntry(
                     this.ledgerChain,
                     'CHATOPS_FORCE_RETRY',
@@ -966,30 +984,43 @@ export class ShotCoordinatorDO {
                         taskId: cmd.taskId,
                         operatorId: cmd.operatorId,
                         newEpoch: this.currentEpoch,
+                        previousState,
                         reason: cmd.reason || 'Manual force retry',
                     },
                 )
 
                 await this.persistState()
 
-                const formatted = formatForceRetry(
-                    cmd.taskId,
-                    cmd.operatorId,
-                    this.currentEpoch,
-                    cmd.reason || 'Operator request',
-                )
                 if (this.env?.CHATOPS_WEBHOOK_URL) {
-                    this.chatOpsNotifier
-                        .dispatchAlert(this.env.CHATOPS_WEBHOOK_URL, formatted)
-                        .catch(() => {})
+                    const formatted =
+                        this.chatOpsNotifier.formatInterventionReceipt(
+                            'RETRY',
+                            cmd.taskId,
+                            cmd.operatorId,
+                            {
+                                EPOCH_ADVANCED: this.currentEpoch,
+                                REASON: cmd.reason || 'N/A',
+                                NEW_STATE: this.fsmState,
+                            },
+                        )
+
+                    this.ctx.waitUntil?.(
+                        this.chatOpsNotifier.dispatchAsyncAlert(
+                            this.env.CHATOPS_WEBHOOK_URL,
+                            formatted,
+                        ),
+                    )
                 }
+
+                console.log(
+                    `>> [NON_REPUDIATION:LOG] Action 'RETRY' by '${cmd.operatorId}' committed to ledger [OK]`,
+                )
 
                 return new Response(
                     JSON.stringify({
                         ok: true,
-                        retried: true,
+                        action: 'RETRY',
                         epoch: this.currentEpoch,
-                        formatted,
                     }),
                     {
                         status: 200,
@@ -999,9 +1030,11 @@ export class ShotCoordinatorDO {
             }
 
             case 'ABORT': {
-                if (!cmd.taskId) {
+                if (!cmd.taskId || !cmd.operatorId) {
                     return new Response(
-                        JSON.stringify({ error: 'MISSING_TASK_ID' }),
+                        JSON.stringify({
+                            error: 'MISSING_TASK_ID_OR_OPERATOR',
+                        }),
                         {
                             status: 400,
                         },
@@ -1011,6 +1044,9 @@ export class ShotCoordinatorDO {
                 // 1. Hardware alarm disarm
                 await WatchdogController.disarmWatchdog(this.ctx, cmd.taskId)
 
+                this.currentEpoch += 1
+                const previousState = this.fsmState
+
                 // 2. Terminal State Transition
                 this.fsmState = 'ABORTED'
 
@@ -1019,12 +1055,17 @@ export class ShotCoordinatorDO {
                 this.activeJob = null
 
                 // 4. Asynchronous Ledger Commitment
+                if (this.ledgerChain.length === 0) {
+                    this.ledgerChain = [await createGenesisBlock(cmd.taskId)]
+                }
                 this.ledgerChain = await appendLedgerEntry(
                     this.ledgerChain,
                     'CHATOPS_TASK_ABORTED',
                     {
                         taskId: cmd.taskId,
                         operatorId: cmd.operatorId,
+                        previousState,
+                        newEpoch: this.currentEpoch,
                         reason: cmd.reason || 'Task aborted',
                     },
                 )
@@ -1035,19 +1076,37 @@ export class ShotCoordinatorDO {
 
                 await this.persistState()
 
-                const formatted = formatTaskAborted(
-                    cmd.taskId,
-                    cmd.operatorId,
-                    cmd.reason || 'Operator cancel',
-                )
                 if (this.env?.CHATOPS_WEBHOOK_URL) {
-                    this.chatOpsNotifier
-                        .dispatchAlert(this.env.CHATOPS_WEBHOOK_URL, formatted)
-                        .catch(() => {})
+                    const formatted =
+                        this.chatOpsNotifier.formatInterventionReceipt(
+                            'ABORT',
+                            cmd.taskId,
+                            cmd.operatorId,
+                            {
+                                EPOCH_ADVANCED: this.currentEpoch,
+                                REASON: cmd.reason || 'N/A',
+                                NEW_STATE: this.fsmState,
+                            },
+                        )
+
+                    this.ctx.waitUntil?.(
+                        this.chatOpsNotifier.dispatchAsyncAlert(
+                            this.env.CHATOPS_WEBHOOK_URL,
+                            formatted,
+                        ),
+                    )
                 }
 
+                console.log(
+                    `>> [NON_REPUDIATION:LOG] Action 'ABORT' by '${cmd.operatorId}' committed to ledger [OK]`,
+                )
+
                 return new Response(
-                    JSON.stringify({ ok: true, aborted: true, formatted }),
+                    JSON.stringify({
+                        ok: true,
+                        action: 'ABORT',
+                        epoch: this.currentEpoch,
+                    }),
                     {
                         status: 200,
                         headers: { 'Content-Type': 'application/json' },
