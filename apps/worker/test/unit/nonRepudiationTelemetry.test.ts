@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest'
 import {
     createGenesisBlock,
     appendLedgerEntry,
+    computeBlockHash,
     type LedgerEntry,
 } from '../../src/ledger/cryptoLedger.js'
 import { ChatOpsNotifier } from '../../src/telemetry/chatOpsNotifier.js'
@@ -33,105 +34,203 @@ class MockDurableObjectContext {
 }
 
 describe('Non-Repudiation, Ledger Commitment, & Asynchronous Telemetry Battery (Phase 5)', () => {
-    it('TASK-5.1: createGenesisBlock initializes an unbroken cryptographic chain', async () => {
-        const genesis = await createGenesisBlock('task-001', { meta: 'init' })
+    it('INVARIANT 1: Deterministic Genesis & Link Continuity verifies continuous hash links and 64-char hex format', async () => {
+        let chain: LedgerEntry[] = [
+            await createGenesisBlock('task-genesis-001'),
+        ]
+        expect(chain[0].index).toBe(0)
+        expect(chain[0].eventType).toBe('GENESIS')
+        expect(chain[0].previousHash).toBe('0'.repeat(64))
+        expect(chain[0].blockHash).toMatch(/^[a-f0-9]{64}$/)
 
-        expect(genesis.index).toBe(0)
-        expect(genesis.eventType).toBe('GENESIS')
-        expect(genesis.previousHash).toBe(
-            '0000000000000000000000000000000000000000000000000000000000000000',
-        )
-        expect(genesis.blockHash).toMatch(/^[a-f0-9]{64}$/)
-    })
-
-    it('TASK-5.1: appendLedgerEntry maintains strict non-repudiation and unbroken hashing', async () => {
-        let chain: LedgerEntry[] = [await createGenesisBlock('task-002')]
-
+        // Append 3 sequential entries
+        chain = await appendLedgerEntry(chain, 'TASK_ENQUEUED', {
+            artistId: 'artist_1',
+        })
+        chain = await appendLedgerEntry(chain, 'LEASE_CLAIMED', {
+            workerId: 'gpu_node_1',
+        })
         chain = await appendLedgerEntry(chain, 'CHATOPS_MANUAL_OVERRIDE', {
             operatorId: 'operator_alpha',
-            reason: 'Fixing color grading',
+            reason: 'Color temperature calibration',
         })
 
-        expect(chain).toHaveLength(2)
-        const secondBlock = chain[1]
+        expect(chain).toHaveLength(4)
 
-        expect(secondBlock.index).toBe(1)
-        expect(secondBlock.eventType).toBe('CHATOPS_MANUAL_OVERRIDE')
-        expect(secondBlock.payload.operatorId).toBe('operator_alpha')
-        expect(secondBlock.previousHash).toBe(chain[0].blockHash) // Link verification
-        expect(secondBlock.blockHash).toMatch(/^[a-f0-9]{64}$/)
+        for (let i = 1; i < chain.length; i++) {
+            expect(chain[i].previousHash).toBe(chain[i - 1].blockHash)
+            expect(chain[i].blockHash).toMatch(/^[a-f0-9]{64}$/)
+            expect(chain[i].index).toBe(i)
+        }
     })
 
-    it('TASK-5.2: ChatOpsNotifier formats pure 7-bit ASCII payloads without emojis', () => {
-        const notifier = new ChatOpsNotifier()
-        const output = notifier.formatInterventionReceipt(
-            'ABORT',
-            'task-003',
-            'operator_beta',
-            { REASON: 'Director requested cut' },
-        )
+    it('INVARIANT 2: JSON Malleability Defense (Canonicalization) proves key-sorted payload invariance', async () => {
+        const entryA = {
+            index: 1,
+            timestampMs: 1700000000000,
+            eventType: 'CANONICAL_TEST',
+            payload: { a: 1, b: 2, c: 'value', nested: { z: 9, y: 8 } },
+            previousHash: '0'.repeat(64),
+        }
 
-        // Reject unicode blocks covering emojis and extended symbols
-        expect(output).not.toMatch(/[\uD800-\uDFFF]/)
-        expect(output).toContain(
-            '>> [CHATOPS:ABORT] OPERATOR INTERVENTION LOGGED',
-        )
-        expect(output).toContain('operator_beta')
+        const entryB = {
+            index: 1,
+            timestampMs: 1700000000000,
+            eventType: 'CANONICAL_TEST',
+            payload: { nested: { z: 9, y: 8 }, c: 'value', b: 2, a: 1 },
+            previousHash: '0'.repeat(64),
+        }
+
+        const hashA = await computeBlockHash(entryA)
+        const hashB = await computeBlockHash(entryB)
+
+        expect(hashA).toBe(hashB)
+        expect(hashA).toMatch(/^[a-f0-9]{64}$/)
     })
 
-    it('TASK-5.2: ChatOpsNotifier dispatches asynchronously without throwing isolate-crashing errors', async () => {
-        const originalFetch = globalThis.fetch
-        // Mock fetch to reject and simulate complete network failure
-        globalThis.fetch = vi
-            .fn()
-            .mockRejectedValue(new Error('NETWORK_TIMEOUT_FATAL'))
-
-        const notifier = new ChatOpsNotifier()
-
-        // This should safely resolve despite the internal fetch throwing
-        await expect(
-            notifier.dispatchAsyncAlert('https://bad.url', 'test'),
-        ).resolves.not.toThrow()
-
-        globalThis.fetch = originalFetch
-    })
-
-    it('TASK-5.3: ShotCoordinatorDO routes interventions via waitUntil for decoupled egress', async () => {
+    it('INVARIANT 3: Strict Operator Attribution Fencing rejects empty operatorId with HTTP 400 without ledger mutations', async () => {
         const mockCtx = new MockDurableObjectContext()
-        const coordinator = new ShotCoordinatorDO(mockCtx as any, {
-            CHATOPS_SECRET: 'test_secret_123',
-            CHATOPS_WEBHOOK_URL: 'https://telemetry.internal/webhook',
-        })
+        const coordinator = new ShotCoordinatorDO(mockCtx as any, {})
 
-
-coordinator['chatOpsGateway'] = { interceptAndAuthenticate: async (req: any) => ({ authenticated: true, rawBody: await req.text() }) } as any
+        coordinator['chatOpsGateway'] = {
+            interceptAndAuthenticate: async (req: any) => ({
+                authenticated: true,
+                rawBody: await req.text(),
+            }),
+        } as any
 
         const req = new Request('https://do.internal/chatops/command', {
             method: 'POST',
             body: JSON.stringify({
                 action: 'OVERRIDE',
-                taskId: 'shot-005',
-                operatorId: 'operator_gamma',
-                reason: 'Adjusting prompt fidelity',
+                taskId: 'shot-fail-anon',
+                operatorId: '',
+                reason: 'Attempted anonymous intervention',
             }),
         })
 
         const res = await coordinator.fetch(req)
+        expect(res.status).toBe(400)
+        const data = (await res.json()) as any
+        expect(data.error).toBe('MISSING_TASK_ID_OR_OPERATOR')
 
-        // Response should be returned immediately
-        expect(res.status).toBe(200)
-        const data = await res.json() as any
-        expect(data.ok).toBe(true)
+        const chain = (await mockCtx.storage.get('ledger_chain')) || []
+        expect(chain).toHaveLength(0)
+    })
 
-        // Verify ctx.waitUntil was utilized for the egress
-        expect(mockCtx.waitUntilTasks.length).toBe(1)
+    it('INVARIANT 4: Network Outage Isolation (The Asynchronous Swallow) traps all network exceptions internally', async () => {
+        const originalFetch = globalThis.fetch
+        globalThis.fetch = vi
+            .fn()
+            .mockRejectedValue(new Error('NETWORK_TIMEOUT_504_GATEWAY_DOWN'))
 
-        // Verify the operator action was recorded to the ledger
-        const chain = (await mockCtx.storage.get(
-            'ledger_chain',
-        )) as LedgerEntry[]
-        expect(chain).toHaveLength(2) // Genesis + Override
-        expect(chain[1].payload.operatorId).toBe('operator_gamma')
-        expect(chain[1].eventType).toBe('CHATOPS_MANUAL_OVERRIDE')
+        try {
+            const notifier = new ChatOpsNotifier()
+            await expect(
+                notifier.dispatchAsyncAlert(
+                    'https://outage.webhook.endpoint',
+                    'alert_payload',
+                ),
+            ).resolves.not.toThrow()
+        } finally {
+            globalThis.fetch = originalFetch
+        }
+    })
+
+    it('INVARIANT 5: WaitUntil Single-Turn Egress Decoupling returns HTTP 200 before background webhook fetch completes', async () => {
+        const mockCtx = new MockDurableObjectContext()
+        const coordinator = new ShotCoordinatorDO(mockCtx as any, {
+            CHATOPS_SECRET: 'test_secret_123',
+            CHATOPS_WEBHOOK_URL: 'https://telemetry.mock/webhook',
+        })
+
+        coordinator['chatOpsGateway'] = {
+            interceptAndAuthenticate: async (req: any) => ({
+                authenticated: true,
+                rawBody: await req.text(),
+            }),
+        } as any
+
+        let webhookCompleted = false
+        const originalFetch = globalThis.fetch
+        globalThis.fetch = vi.fn().mockImplementation(async (url: string) => {
+            if (url.includes('webhook')) {
+                await new Promise((resolve) => setTimeout(resolve, 50))
+                webhookCompleted = true
+                return new Response(JSON.stringify({ ok: true }), {
+                    status: 200,
+                })
+            }
+            return new Response(JSON.stringify({ ok: true }), { status: 200 })
+        })
+
+        try {
+            const req = new Request('https://do.internal/chatops/command', {
+                method: 'POST',
+                body: JSON.stringify({
+                    action: 'OVERRIDE',
+                    taskId: 'shot-decoupled-01',
+                    operatorId: 'operator_speed',
+                    reason: 'Latency sensitive intervention',
+                }),
+            })
+
+            const res = await coordinator.fetch(req)
+
+            // The DO MUST return HTTP 200 before the background webhook fetch completes
+            expect(res.status).toBe(200)
+            const data = (await res.json()) as any
+            expect(data.ok).toBe(true)
+            expect(webhookCompleted).toBe(false)
+
+            // Verify waitUntil task was registered
+            expect(mockCtx.waitUntilTasks.length).toBe(1)
+
+            // Await background tasks and confirm completion
+            await Promise.all(mockCtx.waitUntilTasks)
+            expect(webhookCompleted).toBe(true)
+
+            // Verify ledger recorded the action
+            const chain = (await mockCtx.storage.get(
+                'ledger_chain',
+            )) as LedgerEntry[]
+            expect(chain).toBeDefined()
+            expect(chain[chain.length - 1].payload.operatorId).toBe(
+                'operator_speed',
+            )
+        } finally {
+            globalThis.fetch = originalFetch
+        }
+    })
+
+    it('INVARIANT 6: Deterministic ASCII Telemetry Compliance formats pure 7-bit ASCII without unicode or emojis', () => {
+        const notifier = new ChatOpsNotifier()
+        const actions = ['ABORT', 'OVERRIDE', 'RETRY']
+
+        for (const action of actions) {
+            const receipt = notifier.formatInterventionReceipt(
+                action,
+                'task-ascii-001',
+                'operator_ascii',
+                {
+                    REASON: 'Test reason string',
+                    EPOCH: 3,
+                    STATE: 'PENDING',
+                },
+            )
+
+            // Assert output starts and ends with code fence
+            expect(receipt.startsWith('```text')).toBe(true)
+            expect(receipt.endsWith('```')).toBe(true)
+
+            // Assert zero multi-byte characters (pure 7-bit ASCII <= 127)
+            for (let i = 0; i < receipt.length; i++) {
+                expect(receipt.charCodeAt(i)).toBeLessThanOrEqual(127)
+            }
+
+            expect(receipt).toContain(`>> [CHATOPS:${action}]`)
+            expect(receipt).toContain('task-ascii-001')
+            expect(receipt).toContain('operator_ascii')
+        }
     })
 })
