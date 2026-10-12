@@ -17,7 +17,7 @@ export interface CanonicalManifestEntry {
 }
 
 const STAGING_KEY_REGEX =
-    /^staging\/renders\/([a-zA-Z0-9_\-]+)\/epoch_(\d+)_([a-fA-F0-9]{32,64})\.([a-zA-Z0-9]+)$/
+    /^staging\/renders\/([a-zA-Z0-9_\-]+)\/epoch_(\d+)_([a-fA-F0-9]+)\.([a-zA-Z0-9]+)$/
 
 /**
  * Parses an epoch-scoped, content-addressed staging key.

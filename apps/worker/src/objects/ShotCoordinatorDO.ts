@@ -2,6 +2,7 @@ import { FairQueue, type ExecutionJob } from '../queue/fairQueue.js'
 import {
     createGenesisBlock,
     appendLedgerEntry,
+    computeBlockHash,
     type LedgerEntry,
 } from '../ledger/cryptoLedger.js'
 import {
@@ -35,6 +36,20 @@ import {
     type R2BucketInterface,
 } from '../archive/r2Scrubber.js'
 import { WatchdogController } from '../lifecycle/watchdogController.js'
+import { parseReferenceManifest } from '../ingestion/referenceResolver.js'
+import {
+    EdgeReferenceCache,
+    type ResolvedReferenceBundle,
+} from '../ingestion/edgeReferenceCache.js'
+import {
+    parseStagingKey,
+    buildCanonicalKey,
+    type CanonicalManifestEntry,
+    type ParsedStagingKey,
+} from '../storage/r2Promotion.js'
+import { calculateTimeStaleness } from '../fleet/stalenessMath.js'
+import { parseVisualScanTrace } from '../triage/visualScanTrace.js'
+import { ProgressiveEscalationEngine } from '../escalation/progressiveEscalation.js'
 
 export class ShotCoordinatorDO {
     private fairQueue = new FairQueue()
@@ -49,6 +64,11 @@ export class ShotCoordinatorDO {
     private scrubCursor: string | null = null
     private totalCorruptedDetected = 0
     private totalHealthyVerified = 0
+
+    public workerHeartbeats = new Map<string, number>()
+    private dlq: Record<string, any> = {}
+    private canonicalManifests: Record<string, CanonicalManifestEntry> = {}
+    private pinnedBundle: ResolvedReferenceBundle | null = null
 
     private d1Ledger?: D1StateLedger
     private fleetRegistry?: FleetRegistry
@@ -139,6 +159,19 @@ export class ShotCoordinatorDO {
 
             const healthy = await this.ctx.storage.get('total_healthy_verified')
             if (typeof healthy === 'number') this.totalHealthyVerified = healthy
+
+            const dlqData = await this.ctx.storage.get('dlq_tasks')
+            if (dlqData && typeof dlqData === 'object') this.dlq = dlqData
+
+            const manifests = await this.ctx.storage.get('canonical_manifests')
+            if (manifests && typeof manifests === 'object') {
+                this.canonicalManifests = manifests
+            }
+
+            const bundle = await this.ctx.storage.get('pinned_bundle')
+            if (bundle && typeof bundle === 'object') {
+                this.pinnedBundle = bundle
+            }
 
             console.log(
                 `>> [DO:BOOT] ShotCoordinatorDO loaded. State: ${this.fsmState}, Checkpoint: ${this.ledgerCheckpoint?.checkpointIndex ?? 'NONE'}, Tail: ${this.ledgerChain.length} blocks [OK]`,
@@ -233,6 +266,10 @@ export class ShotCoordinatorDO {
             })
         } else if (evaluation === 'DLQ_REQUIRED') {
             this.fsmState = 'DLQ'
+            this.dlq[task.taskId] = {
+                ...task,
+                errorTrajectoryVector: { ruleId: 'MAX_ATTEMPTS_EXHAUSTED' },
+            }
             this.activeJob = null
             this.ledgerChain = await appendLedgerEntry(
                 this.ledgerChain,
@@ -275,30 +312,38 @@ export class ShotCoordinatorDO {
         const url = new URL(request.url)
 
         try {
-            // Artifact Completion Route (Zombie Guard)
+            // State Inspection Route
+            if (request.method === 'GET' && url.pathname.endsWith('/state')) {
+                return new Response(
+                    JSON.stringify({
+                        ok: true,
+                        currentEpoch: this.currentEpoch,
+                        activeJob: this.activeJob,
+                        queueDepth: this.fairQueue.size(),
+                        dlqCount: Object.keys(this.dlq).length,
+                        dlq: this.dlq,
+                        fsmState: this.fsmState,
+                    }),
+                    {
+                        status: 200,
+                        headers: { 'Content-Type': 'application/json' },
+                    },
+                )
+            }
+
+            // Lease Heartbeat Route
             if (
                 request.method === 'POST' &&
-                url.pathname.endsWith('/tasks/complete')
+                url.pathname.endsWith('/leases/heartbeat')
             ) {
                 const body = (await request.json().catch(() => ({}))) as any
-                const { epoch, sha256 } = body
+                const { taskId, epoch, workerId } = body
 
-                if (!this.activeJob) {
-                    return new Response(
-                        JSON.stringify({ error: 'NO_ACTIVE_TASK' }),
-                        { status: 404 },
-                    )
-                }
-
-                // RULE: Monotonic Epoch Fencing Law
-                // Prevents old renders completed by zombie hardware from committing
                 if (epoch !== this.currentEpoch) {
-                    console.warn(
-                        `>> [EPOCH_FENCE:BLOCK] Rejected zombie submission. Expected Epoch ${this.currentEpoch}, got ${epoch} [ZOMBIE]`,
-                    )
                     return new Response(
                         JSON.stringify({
-                            error: 'STALE_EPOCH_ZOMBIE',
+                            error: 'STALE_EPOCH_HEARTBEAT',
+                            fenced: true,
                             message: `Presented epoch ${epoch} is stale. Active fence is ${this.currentEpoch}`,
                         }),
                         {
@@ -308,26 +353,191 @@ export class ShotCoordinatorDO {
                     )
                 }
 
+                if (workerId) {
+                    this.workerHeartbeats.set(workerId, Date.now())
+                }
+
+                if (
+                    this.activeJob &&
+                    (!taskId || this.activeJob.taskId === taskId)
+                ) {
+                    await WatchdogController.armWatchdog(
+                        this.ctx,
+                        this.activeJob.taskId,
+                        30_000,
+                    )
+                }
+
+                return new Response(
+                    JSON.stringify({ ok: true, heartbeated: true }),
+                    {
+                        status: 200,
+                        headers: { 'Content-Type': 'application/json' },
+                    },
+                )
+            }
+
+            // Artifact Completion Route (Zombie Guard)
+            if (
+                request.method === 'POST' &&
+                url.pathname.endsWith('/tasks/complete')
+            ) {
+                const body = (await request.json().catch(() => ({}))) as any
+                const { taskId, epoch, stagingKey, sha256, workerId } = body
+
+                // RULE: Monotonic Epoch Fencing Law
+                // Prevents old renders completed by zombie hardware from committing
+                if (epoch !== this.currentEpoch) {
+                    console.warn(
+                        `>> [EPOCH_FENCE:BLOCK] Rejected zombie submission. Expected Epoch ${this.currentEpoch}, got ${epoch} [ZOMBIE]`,
+                    )
+                    const errorMessage = stagingKey
+                        ? `HTTP 409 Conflict: Stale Epoch ${epoch}. Active fence is ${this.currentEpoch}`
+                        : 'STALE_EPOCH_ZOMBIE'
+                    return new Response(
+                        JSON.stringify({
+                            error: errorMessage,
+                            fenced: true,
+                            message: `Presented epoch ${epoch} is stale. Active fence is ${this.currentEpoch}`,
+                        }),
+                        {
+                            status: 409,
+                            headers: { 'Content-Type': 'application/json' },
+                        },
+                    )
+                }
+
+                // Staging key validation
+                let parsed: ParsedStagingKey | undefined
+                if (stagingKey) {
+                    try {
+                        parsed = parseStagingKey(stagingKey)
+                    } catch (err: any) {
+                        return new Response(
+                            JSON.stringify({ error: err.message }),
+                            {
+                                status: 400,
+                                headers: { 'Content-Type': 'application/json' },
+                            },
+                        )
+                    }
+                }
+
+                const targetTaskId =
+                    taskId || this.activeJob?.taskId || parsed?.taskId
+
+                if (!targetTaskId) {
+                    return new Response(
+                        JSON.stringify({ error: 'NO_ACTIVE_TASK' }),
+                        {
+                            status: 404,
+                            headers: { 'Content-Type': 'application/json' },
+                        },
+                    )
+                }
+
+                // Check idempotency: already promoted
+                if (this.canonicalManifests[targetTaskId]) {
+                    return new Response(
+                        JSON.stringify({
+                            ok: true,
+                            alreadyPromoted: true,
+                            promoted: true,
+                            canonicalKey:
+                                this.canonicalManifests[targetTaskId]
+                                    .canonicalKey,
+                        }),
+                        {
+                            status: 200,
+                            headers: { 'Content-Type': 'application/json' },
+                        },
+                    )
+                }
+
+                if (!this.activeJob) {
+                    return new Response(
+                        JSON.stringify({ error: 'NO_ACTIVE_TASK' }),
+                        {
+                            status: 404,
+                            headers: { 'Content-Type': 'application/json' },
+                        },
+                    )
+                }
+
                 this.fsmState = 'VERIFYING'
                 await this.ctx.storage.deleteAlarm()
 
-                const canonicalKey = `canonical/renders/${this.activeJob.taskId}/${sha256}.mp4`
+                const completedJob = this.activeJob
+                const ext = parsed?.extension || 'mp4'
+                const effectiveSha = sha256 || parsed?.sha256 || 'unknown'
+                const canonicalKey = buildCanonicalKey(
+                    targetTaskId,
+                    effectiveSha,
+                    ext,
+                )
+
+                const manifestEntry: CanonicalManifestEntry = {
+                    taskId: targetTaskId,
+                    epoch: this.currentEpoch,
+                    stagingKey: stagingKey || '',
+                    canonicalKey,
+                    sha256: effectiveSha,
+                    workerId: workerId || 'unknown',
+                    promotedAtMs: Date.now(),
+                }
+                this.canonicalManifests[targetTaskId] = manifestEntry
+                await this.ctx.storage.put(
+                    'canonical_manifests',
+                    this.canonicalManifests,
+                )
+
                 this.ledgerChain = await appendLedgerEntry(
                     this.ledgerChain,
                     'ARTIFACT_PROMOTED',
                     {
                         canonicalKey,
-                        sha256,
+                        sha256: effectiveSha,
                         epoch: this.currentEpoch,
                     },
                 )
 
                 this.activeJob = null
+
+                if (workerId) {
+                    this.workerHeartbeats.set(workerId, Date.now())
+                }
+
+                this.mirrorToD1(async (ledger) => {
+                    await ledger.recordTaskSnapshot({
+                        taskId: targetTaskId,
+                        status: 'VERIFYING',
+                        currentEpoch: this.currentEpoch,
+                        artistId: completedJob.artistId,
+                        workflowTemplate: completedJob.workflowTemplate,
+                        canonicalKey,
+                        sha256: effectiveSha,
+                        attemptCount: completedJob.attemptCount,
+                        createdAtMs: completedJob.enqueuedAt,
+                        updatedAtMs: Date.now(),
+                    })
+                    await ledger.recordStateTransition({
+                        taskId: targetTaskId,
+                        fromState: 'RUNNING',
+                        toState: 'VERIFYING',
+                        epoch: this.currentEpoch,
+                        workerId: workerId || null,
+                        timestampMs: Date.now(),
+                    })
+                })
+
                 await this.persistState()
 
                 return new Response(
                     JSON.stringify({ ok: true, promoted: true, canonicalKey }),
-                    { status: 200 },
+                    {
+                        status: 200,
+                        headers: { 'Content-Type': 'application/json' },
+                    },
                 )
             }
 
@@ -365,6 +575,7 @@ export class ShotCoordinatorDO {
                         JSON.stringify({ error: 'DUPLICATE_TASK' }),
                         {
                             status: 409,
+                            headers: { 'Content-Type': 'application/json' },
                         },
                     )
                 }
@@ -384,6 +595,26 @@ export class ShotCoordinatorDO {
                     )
                 }
 
+                this.mirrorToD1(async (ledger) => {
+                    await ledger.recordTaskSnapshot({
+                        taskId,
+                        status: 'PENDING',
+                        currentEpoch: this.currentEpoch,
+                        artistId: artistId || 'unknown',
+                        workflowTemplate: workflowTemplate || 'default.json',
+                        attemptCount: 0,
+                        createdAtMs: Date.now(),
+                        updatedAtMs: Date.now(),
+                    })
+                    await ledger.recordStateTransition({
+                        taskId,
+                        fromState: 'NONE',
+                        toState: 'PENDING',
+                        epoch: this.currentEpoch,
+                        timestampMs: Date.now(),
+                    })
+                })
+
                 await this.autoCompactIfNeeded()
                 await this.persistState()
                 return new Response(
@@ -392,7 +623,10 @@ export class ShotCoordinatorDO {
                         taskId,
                         position: this.fairQueue.size(),
                     }),
-                    { status: 200 },
+                    {
+                        status: 200,
+                        headers: { 'Content-Type': 'application/json' },
+                    },
                 )
             }
 
@@ -400,11 +634,33 @@ export class ShotCoordinatorDO {
                 request.method === 'POST' &&
                 url.pathname.endsWith('/leases/claim')
             ) {
+                const body = (await request.json().catch(() => ({}))) as any
+                const workerId = body?.workerId
+
+                if (workerId && this.workerHeartbeats.has(workerId)) {
+                    const lastHeartbeat = this.workerHeartbeats.get(workerId)!
+                    const staleness = calculateTimeStaleness(lastHeartbeat)
+                    if (!staleness.isEligible) {
+                        return new Response(
+                            JSON.stringify({
+                                error: 'WORKER_STALE_GATED',
+                                rating: staleness.rating,
+                                healthScore: staleness.healthScore,
+                            }),
+                            {
+                                status: 409,
+                                headers: { 'Content-Type': 'application/json' },
+                            },
+                        )
+                    }
+                }
+
                 if (this.activeJob !== null) {
                     return new Response(
                         JSON.stringify({ ok: false, busy: true }),
                         {
                             status: 200,
+                            headers: { 'Content-Type': 'application/json' },
                         },
                     )
                 }
@@ -415,6 +671,10 @@ export class ShotCoordinatorDO {
                 this.currentEpoch += 1
                 this.activeJob = job
                 this.fsmState = 'RUNNING'
+
+                if (workerId) {
+                    this.workerHeartbeats.set(workerId, Date.now())
+                }
 
                 this.ledgerChain = await appendLedgerEntry(
                     this.ledgerChain,
@@ -431,6 +691,29 @@ export class ShotCoordinatorDO {
                     job.taskId,
                     30_000,
                 )
+
+                this.mirrorToD1(async (ledger) => {
+                    await ledger.recordTaskSnapshot({
+                        taskId: job.taskId,
+                        status: 'RUNNING',
+                        currentEpoch: this.currentEpoch,
+                        artistId: job.artistId || 'unknown',
+                        workflowTemplate:
+                            job.workflowTemplate || 'default.json',
+                        attemptCount: job.attemptCount,
+                        createdAtMs: job.enqueuedAt,
+                        updatedAtMs: Date.now(),
+                    })
+                    await ledger.recordStateTransition({
+                        taskId: job.taskId,
+                        fromState: 'PENDING',
+                        toState: 'RUNNING',
+                        epoch: this.currentEpoch,
+                        workerId: workerId || null,
+                        timestampMs: Date.now(),
+                    })
+                })
+
                 await this.persistState()
 
                 return new Response(
@@ -441,7 +724,263 @@ export class ShotCoordinatorDO {
                         prompts: job.prompts,
                         seeds: job.seeds,
                     }),
-                    { status: 200 },
+                    {
+                        status: 200,
+                        headers: { 'Content-Type': 'application/json' },
+                    },
+                )
+            }
+
+            // Fleet Health Inspection Route
+            if (
+                request.method === 'GET' &&
+                url.pathname.endsWith('/fleet/health')
+            ) {
+                const fleet: Record<string, any> = {}
+                for (const [
+                    workerId,
+                    lastHb,
+                ] of this.workerHeartbeats.entries()) {
+                    fleet[workerId] = calculateTimeStaleness(lastHb)
+                }
+                return new Response(JSON.stringify({ ok: true, fleet }), {
+                    status: 200,
+                    headers: { 'Content-Type': 'application/json' },
+                })
+            }
+
+            // Fleet Worker Registration Route
+            if (
+                request.method === 'POST' &&
+                url.pathname.endsWith('/fleet/register')
+            ) {
+                const body = (await request.json().catch(() => ({}))) as any
+                if (this.fleetRegistry) {
+                    await this.fleetRegistry.registerWorker(body)
+                }
+                if (body.workerId) {
+                    this.workerHeartbeats.set(body.workerId, Date.now())
+                }
+                return new Response(
+                    JSON.stringify({ ok: true, workerId: body.workerId }),
+                    {
+                        status: 200,
+                        headers: { 'Content-Type': 'application/json' },
+                    },
+                )
+            }
+
+            // Fleet Eligible Workers Query Route
+            if (
+                request.method === 'GET' &&
+                url.pathname.endsWith('/fleet/workers')
+            ) {
+                const minVram = parseInt(
+                    url.searchParams.get('minVram') || '0',
+                    10,
+                )
+                let workers: any[] = []
+                if (this.fleetRegistry) {
+                    workers =
+                        await this.fleetRegistry.getEligibleWorkers(minVram)
+                }
+                return new Response(JSON.stringify({ ok: true, workers }), {
+                    status: 200,
+                    headers: { 'Content-Type': 'application/json' },
+                })
+            }
+
+            // Reference Bundle Pinning Route
+            if (
+                request.method === 'POST' &&
+                url.pathname.endsWith('/references/pin')
+            ) {
+                const body = (await request.json().catch(() => ({}))) as any
+                const { tree, treeSha, manifestJson, mockBlobs = {} } = body
+                const manifest = parseReferenceManifest(manifestJson)
+                const cache = new EdgeReferenceCache()
+                const bundle = await cache.ingestReferenceBundle(
+                    tree,
+                    treeSha,
+                    manifest,
+                    async (sha, path) => {
+                        const content = mockBlobs[sha] ?? ''
+                        return { path, sha, content, sizeBytes: content.length }
+                    },
+                )
+                this.pinnedBundle = bundle
+                await this.ctx.storage.put('pinned_bundle', this.pinnedBundle)
+
+                this.ledgerChain = await appendLedgerEntry(
+                    this.ledgerChain,
+                    'REFERENCES_PINNED',
+                    {
+                        shotId: manifest.shotId,
+                        treeSha,
+                        count: Object.keys(bundle.references).length,
+                    },
+                )
+                await this.persistState()
+
+                return new Response(
+                    JSON.stringify({
+                        ok: true,
+                        referencesCount: Object.keys(bundle.references).length,
+                        bundle,
+                    }),
+                    {
+                        status: 200,
+                        headers: { 'Content-Type': 'application/json' },
+                    },
+                )
+            }
+
+            // Reference Bundle Inspection Route
+            if (
+                request.method === 'GET' &&
+                url.pathname.endsWith('/references')
+            ) {
+                if (!this.pinnedBundle) {
+                    return new Response(
+                        JSON.stringify({ error: 'NO_REFERENCES_PINNED' }),
+                        {
+                            status: 404,
+                            headers: { 'Content-Type': 'application/json' },
+                        },
+                    )
+                }
+                return new Response(
+                    JSON.stringify({ ok: true, bundle: this.pinnedBundle }),
+                    {
+                        status: 200,
+                        headers: { 'Content-Type': 'application/json' },
+                    },
+                )
+            }
+
+            // Raw Ledger Chain Inspection Route
+            if (request.method === 'GET' && url.pathname.endsWith('/ledger')) {
+                return new Response(
+                    JSON.stringify({ ok: true, chain: this.ledgerChain }),
+                    {
+                        status: 200,
+                        headers: { 'Content-Type': 'application/json' },
+                    },
+                )
+            }
+
+            // Ledger Integrity Verification Route
+            if (
+                request.method === 'GET' &&
+                url.pathname.endsWith('/ledger/verify')
+            ) {
+                let valid = true
+                for (let i = 0; i < this.ledgerChain.length; i++) {
+                    const block = this.ledgerChain[i]
+                    const computed = await computeBlockHash(block)
+                    if (block.blockHash !== computed) {
+                        valid = false
+                        break
+                    }
+                    if (
+                        i > 0 &&
+                        block.previousHash !== this.ledgerChain[i - 1].blockHash
+                    ) {
+                        valid = false
+                        break
+                    }
+                }
+                return new Response(JSON.stringify({ ok: valid, valid }), {
+                    status: 200,
+                    headers: { 'Content-Type': 'application/json' },
+                })
+            }
+
+            // Progressive Escalation Triage and Remediate Route
+            if (
+                request.method === 'POST' &&
+                url.pathname.endsWith('/tasks/triage-and-remediate')
+            ) {
+                const body = (await request.json().catch(() => ({}))) as any
+                const { candidate, vlmRawOutput } = body
+                const vlmReport = parseVisualScanTrace(vlmRawOutput)
+                const engine = new ProgressiveEscalationEngine()
+
+                const job =
+                    this.activeJob && this.activeJob.taskId === candidate.taskId
+                        ? this.activeJob
+                        : {
+                              taskId: candidate.taskId,
+                              artistId: 'unknown',
+                              idempotencyKey: `idemp-${candidate.taskId}`,
+                              workflowTemplate: 'default.json',
+                              prompts: {},
+                              seeds: [42],
+                              enqueuedAt: Date.now(),
+                              attemptCount: 3,
+                              maxAttempts: 3,
+                          }
+
+                const headHash =
+                    this.ledgerChain[this.ledgerChain.length - 1]?.blockHash ||
+                    '0'.repeat(64)
+                const directive = engine.evaluateEscalation({
+                    taskId: candidate.taskId,
+                    candidateSha: candidate.candidateSha,
+                    attemptCount: job.attemptCount,
+                    maxAttempts: job.maxAttempts || 3,
+                    trajectory: 'CONVERGENCE',
+                    auditHistory: [],
+                    latestReport: vlmReport,
+                    currentJob: job,
+                    ledgerHeadHash: headHash,
+                })
+
+                if (directive.action === 'FREEZE_AND_QUARANTINE') {
+                    await this.ctx.storage.deleteAlarm()
+                    this.fsmState = 'BLOCKED'
+                    this.activeJob = null
+
+                    this.ledgerChain = await appendLedgerEntry(
+                        this.ledgerChain,
+                        'TIER_3_QUARANTINED',
+                        {
+                            taskId: candidate.taskId,
+                            trigger:
+                                directive.dossier?.escalationTrigger ||
+                                'MAX_ATTEMPTS_EXHAUSTED',
+                            candidateSha: candidate.candidateSha,
+                            dossier: directive.dossier,
+                        },
+                    )
+                    await this.persistState()
+
+                    return new Response(
+                        JSON.stringify({
+                            ok: true,
+                            status: 'BLOCKED',
+                            tier: directive.tier,
+                            dossier: directive.dossier,
+                            directive,
+                        }),
+                        {
+                            status: 200,
+                            headers: { 'Content-Type': 'application/json' },
+                        },
+                    )
+                }
+
+                return new Response(
+                    JSON.stringify({
+                        ok: true,
+                        status: 'RETRY',
+                        tier: directive.tier,
+                        directive,
+                    }),
+                    {
+                        status: 200,
+                        headers: { 'Content-Type': 'application/json' },
+                    },
                 )
             }
 
@@ -935,6 +1474,7 @@ export class ShotCoordinatorDO {
                     JSON.stringify({
                         ok: true,
                         action: 'OVERRIDE',
+                        overridden: true,
                         epoch: this.currentEpoch,
                     }),
                     {
@@ -1074,6 +1614,9 @@ export class ShotCoordinatorDO {
                 )
 
                 console.log(
+                    `>> [MUTATION:ABORT] Task '${cmd.taskId}' permanently aborted by '${cmd.operatorId}'. Watchdog neutralized [HALT]`,
+                )
+                console.log(
                     `>> [TERMINAL:ABORT] Task '${cmd.taskId}' permanently aborted by '${cmd.operatorId}'. Watchdog neutralized [HALT]`,
                 )
 
@@ -1108,6 +1651,7 @@ export class ShotCoordinatorDO {
                     JSON.stringify({
                         ok: true,
                         action: 'ABORT',
+                        aborted: true,
                         epoch: this.currentEpoch,
                     }),
                     {
@@ -1144,5 +1688,13 @@ export class ShotCoordinatorDO {
             'total_healthy_verified',
             this.totalHealthyVerified,
         )
+        await this.ctx.storage.put('dlq_tasks', this.dlq)
+        await this.ctx.storage.put(
+            'canonical_manifests',
+            this.canonicalManifests,
+        )
+        if (this.pinnedBundle) {
+            await this.ctx.storage.put('pinned_bundle', this.pinnedBundle)
+        }
     }
 }
