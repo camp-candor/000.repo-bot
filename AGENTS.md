@@ -50,7 +50,7 @@
 │       ├── run.ts           # [SOLE ALLOWED EXCEPTION] Bootstraps Blessed Curses UI & mounts domain packages
 │       └── ...              # [ALL OTHER FILES IMMUTABLE] Static UI engine, grid layout, base curses primitives
 └── packages/
-    ├── 000.agent/           # Core Agent Domain & Target Switchboard (@camp_candor/000.agent)
+    ├── 100.agent/           # Core Agent Domain & Target Switchboard (@camp_candor/100.agent)
     │   ├── BEE.ts           # Agent unit registration & central wiring
     │   ├── 00.agent.unit/   # Agent core actions, process spawning, state store
     │   └── 98.menu.unit/    # Agent Menu Screen, Sub-routes, Local/Live Switchboard
@@ -69,7 +69,7 @@
 | Workspace              | Package Name               | Modifiable?    | Primary Role & Tech Stack                                                                                  |
 | ---------------------- | -------------------------- | -------------- | ---------------------------------------------------------------------------------------------------------- |
 | `apps/worker`          | `@camp_candor/agent`       | **YES**        | Cloudflare Worker Edge Control Plane (Hono, Durable Objects, D1 SQLite)                                    |
-| `packages/000.agent`   | `@camp_candor/000.agent`   | **YES**        | Local Worker Lifecycle, Target Switchboard, Agent Telemetry                                                |
+| `packages/100.agent`   | `@camp_candor/100.agent`   | **YES**        | Local Worker Lifecycle, Target Switchboard, Agent Telemetry                                                |
 | `packages/132.github`  | `@camp_candor/132.github`  | **YES**        | Fleet Git Controller, CAS Merges, Cold Storage & Audit Sub-Menu                                            |
 | `packages/821.repobot` | `@camp_candor/821.repobot` | **YES**        | In-flight Task FSM, Distributed Locks, Saga Recovery                                                       |
 | `packages/924.slack`   | `@camp_candor/924.slack`   | **YES**        | Human-in-the-loop Slack Review Bridge, Block Kit UI                                                        |
@@ -136,7 +136,7 @@ runner, the repository uses a **Global Dynamic Target Switchboard**.
 
 ### 4.2 The `agentBaseUrl` Global Contract
 
-`packages/000.agent/98.menu.unit` acts as the single source of truth for the
+`packages/100.agent/98.menu.unit` acts as the single source of truth for the
 local worker process lifecycle:
 
 - **When targeting LOCAL:** `(global as any).agentBaseUrl` is set to
@@ -180,7 +180,7 @@ export const getBaseUrl = (): string => {
 
 ### 4.4 Local Worker Lifecycle (Process Management)
 
-When switching to `[LOCAL]`, `packages/000.agent` uses `node:child_process` to
+When switching to `[LOCAL]`, `packages/100.agent` uses `node:child_process` to
 spawn Wrangler:
 
 ```typescript

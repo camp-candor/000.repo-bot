@@ -16,10 +16,10 @@
         "skipLibCheck": true,
         "baseUrl": ".",
         "paths": {
-            "@camp_candor/000.agent": ["./packages/000.agent/BEE.ts"]
+            "@camp_candor/100.agent": ["./packages/100.agent/BEE.ts"]
         }
     },
     "files": ["vitest.config.ts"],
     "exclude": ["node_modules", "dist"],
-    "references": [{ "path": "./packages/000.agent" }]
+    "references": [{ "path": "./packages/100.agent" }]
 }

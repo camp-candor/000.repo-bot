@@ -20,7 +20,10 @@ import {
     parseSlashCommand,
     type ChatOpsCommand,
 } from '../telemetry/chatOpsParser.js'
-import { formatStatusResponse, formatFleetResponse } from '../telemetry/chatOpsFormatter.js'
+import {
+    formatStatusResponse,
+    formatFleetResponse,
+} from '../telemetry/chatOpsFormatter.js'
 import { ChatOpsNotifier } from '../telemetry/chatOpsNotifier.js'
 import { D1StateLedger } from '../db/d1Ledger.js'
 import { FleetRegistry } from '../fleet/fleetRegistry.js'

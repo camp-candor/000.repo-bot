@@ -27,7 +27,7 @@
         "test": "npm run test:worker && npm run test:sower",
         "test:worker": "npm run test --workspace=@camp_candor/agent",
         "test:sower": "npm run test --workspace=@camp_candor/995.library",
-        "test:agent": "npm run test --workspace=@camp_candor/000.agent",
+        "test:agent": "npm run test --workspace=@camp_candor/100.agent",
         "test:repobot": "npm run test --workspace=@camp_candor/821.repobot",
         "test:cloudflare": "npm run test --workspace=@camp_candor/133.cloudflare",
         "test:jules": "npm run test --workspace=@camp_candor/135.jules",

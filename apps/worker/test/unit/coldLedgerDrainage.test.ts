@@ -148,13 +148,11 @@ describe('Cold Ledger Drainage (The D1-to-Git Pipeline) Battery (Phase 1)', () =
 
     it('TASK-1.1: GitCommitClient communicates via blobless GitHub REST endpoints', async () => {
         const originalFetch = globalThis.fetch
-        globalThis.fetch = vi
-            .fn()
-            .mockResolvedValue(
-                new Response(JSON.stringify({ sha: 'blob_mock_sha' }), {
-                    status: 201,
-                }),
-            ) as any
+        globalThis.fetch = vi.fn().mockResolvedValue(
+            new Response(JSON.stringify({ sha: 'blob_mock_sha' }), {
+                status: 201,
+            }),
+        ) as any
 
         const client = new GitCommitClient({ token: 'test_token' })
         const sha = await client.createBlob(
