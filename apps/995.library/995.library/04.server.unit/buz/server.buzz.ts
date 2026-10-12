@@ -3,7 +3,6 @@ import type ServerBit from '../fce/server.bit'
 import type State from '../../99.core/state'
 
 export const initServer = (cpy: ServerModel, bal: ServerBit, ste: State) => {
-    debugger
     return cpy
 }
 
@@ -119,7 +118,7 @@ export const updateServer = async (
                 FS.writeFileSync(newLocation, fileData)
             })
 
-            bal.slv({ srcBit: { idx: 'update-server' } })
+            bal.slv({ svrBit: { idx: 'update-server' } })
             return
         }
 

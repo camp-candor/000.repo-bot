@@ -1,18 +1,26 @@
-let bit
-
 import * as ActCns from '../console.action'
-
 import * as ActCol from '../../97.collect.unit/collect.action'
+import type { ConsoleModel } from '../console.model'
+import type ConsoleBit from '../fce/console.bit'
+import type State from '../../99.core/state'
+import type TermBit from '../fce/term.bit'
+import type { TerminalModel } from '../../80.terminal.unit/terminal.model'
+import * as COLOR from '../../val/console-color'
 
-export const initConsole = (cpy: ConsoleModel, bal: ConsoleBit, ste: State) => {
-    debugger
+let renderScheduled = false
+
+export const initConsole = (
+    cpy: ConsoleModel,
+    bal: ConsoleBit,
+    _ste: State,
+) => {
+    if (bal?.slv != null) bal.slv({ cnsBit: { idx: 'init-console' } })
     return cpy
 }
 
 function wrapConsoleLine(text: string, maxWidth: number): string[] {
     if (!text) return ['']
 
-    // Clamp repeating separator banners (e.g. >> ---- or ====) to maxWidth
     if (/^(?:>>\s*)?[-=_*~]{10,}$/.test(text)) {
         return [text.slice(0, maxWidth)]
     }
@@ -21,7 +29,6 @@ function wrapConsoleLine(text: string, maxWidth: number): string[] {
         return [text]
     }
 
-    // Detect indentation/prefix (e.g. ">> ", "• ", "- ", "* ")
     const prefixMatch = text.match(/^(\s*(?:>>|\*|-|•)\s*)/)
     const basePrefix = prefixMatch ? prefixMatch[1] : ''
     const contPrefix = basePrefix.trim() === '>>' ? '>>   ' : '   '
@@ -39,10 +46,8 @@ function wrapConsoleLine(text: string, maxWidth: number): string[] {
             break
         }
 
-        // Try to break at a space boundary
         let breakIdx = remaining.lastIndexOf(' ', effectiveMax)
         if (breakIdx <= 0 || breakIdx < effectiveMax * 0.4) {
-            // No convenient whitespace boundary; hard break at effectiveMax
             breakIdx = effectiveMax
         }
 
@@ -65,18 +70,31 @@ function wrapConsoleContent(content: string, maxWidth: number): string[] {
     return result
 }
 
+const scheduleScreenRender = (terminal: TerminalModel | undefined) => {
+    if (renderScheduled || !terminal?.screen) return
+    renderScheduled = true
+    setImmediate(() => {
+        renderScheduled = false
+        if (terminal.screen) {
+            terminal.screen.render()
+        }
+    })
+}
+
 export const updateConsole = async (
     cpy: ConsoleModel,
     bal: ConsoleBit,
     ste: State,
 ) => {
-    bit = await ste.hunt(ActCns.READ_CONSOLE, { idx: bal.idx })
-    const dat: TermBit = bit.cnsBit.dat
+    const bit = await ste.hunt(ActCns.READ_CONSOLE, {
+        idx: bal?.idx || 'cns00',
+    })
+    const dat: TermBit | undefined = bit?.cnsBit?.dat
 
-    if (bal.src == null) bal.src = ''
+    const textPayload = bal?.src || ''
 
     if (dat && dat.bit) {
-        const terminal: TerminalModel = ste.value.terminal
+        const terminal: TerminalModel | undefined = ste?.value?.terminal
 
         let maxWidth = 48
         if (typeof dat.bit.width === 'number' && dat.bit.width > 4) {
@@ -95,18 +113,15 @@ export const updateConsole = async (
             )
         }
 
-        const lines = wrapConsoleContent(bal.src, maxWidth)
+        const lines = wrapConsoleContent(textPayload, maxWidth)
         for (const line of lines) {
             dat.bit.log(line)
         }
 
-        if (terminal && terminal.screen) {
-            terminal.screen.render()
-        }
+        scheduleScreenRender(terminal)
     }
 
-    if (bal.slv != null) bal.slv({ cnsBit: { idx: 'update-console' } })
-
+    if (bal?.slv != null) bal.slv({ cnsBit: { idx: 'update-console' } })
     return cpy
 }
 
@@ -115,41 +130,38 @@ export const createConsole = (
     bal: ConsoleBit,
     ste: State,
 ) => {
-    const termMod: TerminalModel = ste.value.terminal
+    const terminal: TerminalModel | undefined = ste?.value?.terminal
+    const contrib = terminal?.contrib
+    const screen = terminal?.screen
 
-    const contrib = ste.value.terminal.contrib
-
-    const dat: TermBit = { idx: 'hmm', bit: null, clr: null, net: null }
-
-    if (dat.clr == null) dat.clr = COLOR.GREEN
-
-    for (const key in bal.dat) {
-        dat[key] = bal.dat[key]
+    const dat: TermBit = {
+        idx: bal?.idx || 'cns00',
+        bit: null,
+        clr: bal?.dat?.clr || COLOR.GREEN,
+        net: bal?.dat?.net || null,
     }
 
-    dat.bit = contrib.log({
-        fg: dat.clr,
-        selectedFg: dat.clr,
-        label: 'Console Log',
-        left: dat.net.left,
-        top: dat.net.top,
-        width: dat.net.width,
-        height: dat.net.height,
-        bufferLength: 1000,
-        scrollable: true,
-        alwaysScroll: true,
-        keys: true,
-        mouse: true,
-    })
+    if (contrib && screen) {
+        dat.bit = contrib.log({
+            fg: dat.clr,
+            selectedFg: dat.clr,
+            label: 'Console Log',
+            left: dat.net?.left ?? '33.33%',
+            top: dat.net?.top ?? 0,
+            width: dat.net?.width ?? '66.66%',
+            height: dat.net?.height ?? '100%',
+            bufferLength: 1000,
+            scrollable: true,
+            alwaysScroll: true,
+            keys: true,
+            mouse: true,
+        })
 
-    const terminal: TerminalModel = ste.value.terminal
-    const screen = terminal.screen
-    screen.append(dat.bit)
+        screen.append(dat.bit)
+        screen.render()
+    }
 
-    screen.render()
-
-    if (bal.slv != null) bal.slv({ cnsBit: { idx: 'create-console', dat } })
-
+    if (bal?.slv != null) bal.slv({ cnsBit: { idx: 'create-console', dat } })
     return cpy
 }
 
@@ -158,56 +170,54 @@ export const readConsole = async (
     bal: ConsoleBit,
     ste: State,
 ) => {
-    const slv = bal.slv
-    if (bal.idx == null) bal.idx = 'can00'
-    bit = await ste.hunt(ActCol.READ_COLLECT, {
-        idx: bal.idx,
+    const slv = bal?.slv
+    const targetIdx = bal?.idx || 'can00'
+    const bit = await ste.hunt(ActCol.READ_COLLECT, {
+        idx: targetIdx,
         bit: ActCns.CREATE_CONSOLE,
     })
-    if (slv != null)
-        slv({ cnsBit: { idx: 'read-console', dat: bit.clcBit.dat } })
-
+    const resDat = bit?.clcBit?.dat || bit?.colBit?.dat
+    if (slv != null) {
+        slv({ cnsBit: { idx: 'read-console', dat: resDat } })
+    }
     return cpy
 }
+
 export const writeConsole = async (
     cpy: ConsoleModel,
     bal: ConsoleBit,
     ste: State,
 ) => {
-    bit = await ste.hunt(ActCol.WRITE_COLLECT, {
-        idx: bal.idx,
-        src: bal.src,
-        dat: bal.dat,
+    const targetIdx = bal?.idx || 'cns00'
+    const bit = await ste.hunt(ActCol.WRITE_COLLECT, {
+        idx: targetIdx,
+        src: bal?.src,
+        dat: bal?.dat,
         bit: ActCns.CREATE_CONSOLE,
     })
-    ste.hunt(ActCns.UPDATE_CONSOLE, { idx: bal.idx, src: bal.src })
+    const resDat = bit?.clcBit?.dat || bit?.colBit?.dat
+    await ste.hunt(ActCns.UPDATE_CONSOLE, { idx: targetIdx, src: bal?.src })
 
-    if (bal.slv != null)
-        bal.slv({ cnsBit: { idx: 'write-console', dat: bit.clcBit.dat } })
+    if (bal?.slv != null) {
+        bal.slv({ cnsBit: { idx: 'write-console', dat: resDat } })
+    }
     return cpy
 }
+
 export const removeConsole = (
     cpy: ConsoleModel,
     bal: ConsoleBit,
-    ste: State,
+    _ste: State,
 ) => {
-    debugger
+    if (bal?.slv != null) bal.slv({ cnsBit: { idx: 'remove-console' } })
     return cpy
 }
+
 export const deleteConsole = (
     cpy: ConsoleModel,
     bal: ConsoleBit,
-    ste: State,
+    _ste: State,
 ) => {
-    debugger
+    if (bal?.slv != null) bal.slv({ cnsBit: { idx: 'delete-console' } })
     return cpy
 }
-
-import type { ConsoleModel } from '../console.model'
-import type ConsoleBit from '../fce/console.bit'
-import type State from '../../99.core/state'
-
-import type TermBit from '../fce/term.bit'
-import type { TerminalModel } from '../../80.terminal.unit/terminal.model'
-
-import * as COLOR from '../../val/console-color'

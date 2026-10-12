@@ -1,7 +1,9 @@
-export default interface UnitBit {
+export default interface UnitBit<TDat = unknown, TLst = string> {
     idx: string
     src?: string
+    lst?: TLst[]
     val?: number
-    dat?: any
-    slv?: Function
+    dat?: TDat
+    skipped?: boolean
+    slv?: (result: { untBit: Partial<UnitBit<TDat, TLst>> }) => void
 }

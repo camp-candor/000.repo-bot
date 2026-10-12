@@ -1,44 +1,40 @@
-export const initGrid = (cpy: GridModel, bal: GridBit, ste: State) => {
-    debugger
+import type { GridModel } from '../grid.model'
+import type GridBit from '../fce/grid.bit'
+import type State from '../../99.core/state'
+import type { TerminalModel } from '../../80.terminal.unit/terminal.model'
+import type NetBit from '../fce/net.bit'
+
+export const initGrid = (cpy: GridModel, bal: GridBit, _ste: State) => {
+    if (bal?.slv != null) bal.slv({ grdBit: { idx: 'init-grid' } })
     return cpy
 }
 
 export const updateGrid = (cpy: GridModel, bal: GridBit, ste: State) => {
-    const termMod: TerminalModel = ste.value.terminal
+    const termMod: TerminalModel | undefined = ste?.value?.terminal
 
     const margin = 0
-    const cols = termMod.cols
-    const rows = termMod.rows
+    const cols = termMod?.cols && termMod.cols > 0 ? termMod.cols : 12
+    const rows = termMod?.rows && termMod.rows > 0 ? termMod.rows : 12
 
-    const colNow = bal.x
-    const rowNow = bal.y
+    const colNow = typeof bal?.x === 'number' ? bal.x : 0
+    const rowNow = typeof bal?.y === 'number' ? bal.y : 0
 
-    const colSpan = bal.xSpan
-    const rowSpan = bal.ySpan
+    const colSpan = typeof bal?.xSpan === 'number' ? bal.xSpan : 12
+    const rowSpan = typeof bal?.ySpan === 'number' ? bal.ySpan : 12
 
     const spacing = 0
 
     const cellWidth = (100 - margin * 2) / cols
     const cellHeight = (100 - margin * 2) / rows
 
-    let top: any = rowNow * cellHeight + margin
-    let left: any = colNow * cellWidth + margin
-
-    top = top + '%'
-    left = left + '%'
-
-    const width = cellWidth * colSpan - spacing + '%'
-    const height = cellHeight * rowSpan - spacing + '%'
+    const top = `${rowNow * cellHeight + margin}%`
+    const left = `${colNow * cellWidth + margin}%`
+    const width = `${cellWidth * colSpan - spacing}%`
+    const height = `${cellHeight * rowSpan - spacing}%`
 
     const bit: NetBit = { left, top, width, height }
 
-    if (bal.slv != null) bal.slv({ grdBit: { idx: 'update-grid', dat: bit } })
+    if (bal?.slv != null) bal.slv({ grdBit: { idx: 'update-grid', dat: bit } })
 
     return cpy
 }
-
-import type { GridModel } from '../grid.model'
-import type GridBit from '../fce/grid.bit'
-import type State from '../../99.core/state'
-import type { TerminalModel } from '../../80.terminal.unit/terminal.model'
-import type NetBit from '../fce/net.bit'

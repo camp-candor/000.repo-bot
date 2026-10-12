@@ -11,13 +11,13 @@ export function reducer(
 ) {
     switch (act.type) {
         case Act.UPDATE_INPUT:
-            return Buzz.updateInput(clone(model), act.bale, state)
+            return Buzz.updateInput(clone(model, true), act.bale, state)
 
         case Act.INIT_INPUT:
-            return Buzz.initInput(clone(model), act.bale, state)
+            return Buzz.initInput(clone(model, true), act.bale, state)
 
         case Act.OPEN_INPUT:
-            return Buzz.openInput(clone(model), act.bale, state)
+            return Buzz.openInput(clone(model, true), act.bale, state)
 
         default:
             return model

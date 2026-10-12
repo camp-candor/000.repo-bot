@@ -1,36 +1,52 @@
 import type { InputModel } from '../input.model'
 import type InputBit from '../fce/input.bit'
 import type State from '../../99.core/state'
-
 import type NetBit from '../../81.grid.unit/fce/net.bit'
-import * as Align from '../../val/align'
 import * as Color from '../../val/console-color'
 
-export const initInput = (cpy: InputModel, bal: InputBit, ste: State) => {
-    debugger
+export const initInput = (cpy: InputModel, bal: InputBit, _ste: State) => {
+    if (bal?.slv != null) bal.slv({ putBit: { idx: 'init-input' } })
     return cpy
 }
 
-export const updateInput = (cpy: InputModel, bal: InputBit, ste: State) => {
+export const updateInput = (cpy: InputModel, bal: InputBit, _ste: State) => {
+    if (bal?.slv != null) bal.slv({ putBit: { idx: 'update-input' } })
     return cpy
 }
 
 export const openInput = (cpy: InputModel, bal: InputBit, ste: State) => {
-    const blessed = ste.value.terminal.blessed
-    const screen = ste.value.terminal.screen
+    const terminal = ste?.value?.terminal
+    const blessed = terminal?.blessed
+    const screen = terminal?.screen
 
-    const dat = { idx: 'input-bit', clr0: Color.GREEN, clr1: Color.CYAN }
-    for (const key in bal.dat) {
-        dat[key] = bal.dat[key]
+    if (!screen || !blessed) {
+        if (bal?.slv != null) {
+            bal.slv({
+                putBit: { idx: 'open-input-headless', src: bal?.src || '' },
+            })
+        }
+        return cpy
     }
 
-    const net: NetBit = bal.net
+    const dat = {
+        idx: 'input-bit',
+        clr0: Color.GREEN,
+        clr1: Color.CYAN,
+        ...(bal?.dat || {}),
+    }
 
-    if (bal.txt == null) bal.txt = 'input below'
+    const net: NetBit = bal?.net || {
+        left: 0,
+        top: 0,
+        width: '100%',
+        height: 3,
+    }
+
+    const labelText = bal?.txt || 'input below'
 
     const title = blessed.textbox({
         parent: screen,
-        name: 'input',
+        name: 'input-title',
         keys: true,
         left: net.left,
         top: 1,
@@ -38,15 +54,12 @@ export const openInput = (cpy: InputModel, bal: InputBit, ste: State) => {
         height: 2,
         content: 'rename',
         border: { type: 'line' },
-        label: bal.txt,
-        style: {
-            // bg: dat.clr1,
-        },
+        label: labelText,
     })
 
     const input = blessed.textbox({
         parent: screen,
-        name: 'input',
+        name: 'input-body',
         input: true,
         keys: true,
         left: net.left,
@@ -54,23 +67,26 @@ export const openInput = (cpy: InputModel, bal: InputBit, ste: State) => {
         width: net.width,
         height: net.height,
         inputOnFocus: true,
-
         style: {
             bg: dat.clr1,
-            focus: {
-                bg: 'red',
-            },
-            hover: {
-                bg: 'red',
-            },
+            focus: { bg: 'red' },
+            hover: { bg: 'red' },
         },
     })
 
     input.focus()
 
-    input.on('submit', (src) => {
-        if (bal.slv != null) bal.slv({ putBit: { idx: 'open-input', src } })
+    input.on('submit', (src: string) => {
+        try {
+            title.destroy()
+            input.destroy()
+            screen.render()
+        } catch {
+            // Teardown defensive catch
+        }
+        if (bal?.slv != null) bal.slv({ putBit: { idx: 'open-input', src } })
     })
 
+    screen.render()
     return cpy
 }

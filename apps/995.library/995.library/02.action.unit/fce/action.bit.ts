@@ -3,5 +3,5 @@ export default interface ActionBit {
     src?: string
     val?: number
     dat?: any
-    slv?: Function
+    slv?: (result: { actBit: Partial<ActionBit> }) => void
 }

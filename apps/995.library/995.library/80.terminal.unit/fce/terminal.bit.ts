@@ -1,8 +1,8 @@
-export default interface TerminalBit {
+export default interface TerminalBit<TDat = unknown, TLst = unknown> {
     idx: string
     src?: string
-    lst?: any[]
+    lst?: TLst[]
     val?: number
-    dat?: any
-    slv?: Function
+    dat?: TDat
+    slv?: (result: { trmBit: Partial<TerminalBit<TDat, TLst>> }) => void
 }

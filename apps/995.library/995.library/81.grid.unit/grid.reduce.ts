@@ -11,10 +11,10 @@ export function reducer(
 ) {
     switch (act.type) {
         case Act.UPDATE_GRID:
-            return Buzz.updateGrid(clone(model), act.bale, state)
+            return Buzz.updateGrid(clone(model, true), act.bale, state)
 
         case Act.INIT_GRID:
-            return Buzz.initGrid(clone(model), act.bale, state)
+            return Buzz.initGrid(clone(model, true), act.bale, state)
 
         default:
             return model

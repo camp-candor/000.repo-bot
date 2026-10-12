@@ -11,10 +11,10 @@ export function reducer(
 ) {
     switch (act.type) {
         case Act.UPDATE_PIVOT:
-            return Buzz.updatePivot(clone(model), act.bale, state)
+            return Buzz.updatePivot(clone(model, true), act.bale, state)
 
         case Act.INIT_PIVOT:
-            return Buzz.initPivot(clone(model), act.bale, state)
+            return Buzz.initPivot(clone(model, true), act.bale, state)
 
         default:
             return model

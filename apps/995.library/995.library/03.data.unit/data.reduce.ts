@@ -11,13 +11,16 @@ export function reducer(
 ) {
     switch (act.type) {
         case Act.UPDATE_DATA:
-            return Buzz.updateData(clone(model), act.bale, state)
+            return Buzz.updateData(clone(model, true), act.bale, state)
 
         case Act.INIT_DATA:
-            return Buzz.initData(clone(model), act.bale, state)
+            return Buzz.initData(clone(model, true), act.bale, state)
 
         case Act.FRAME_DATA:
-            return Buzz.frameData(clone(model), act.bale, state)
+            return Buzz.frameData(clone(model, true), act.bale, state)
+
+        case Act.FLAT_DATA:
+            return Buzz.flatData(clone(model, true), act.bale, state)
 
         default:
             return model

@@ -11,10 +11,10 @@ export function reducer(
 ) {
     switch (act.type) {
         case Act.UPDATE_ACTION:
-            return Buzz.updateAction(clone(model), act.bale, state)
+            return Buzz.updateAction(clone(model, true), act.bale, state)
 
         case Act.INIT_ACTION:
-            return Buzz.initAction(clone(model), act.bale, state)
+            return Buzz.initAction(clone(model, true), act.bale, state)
 
         default:
             return model

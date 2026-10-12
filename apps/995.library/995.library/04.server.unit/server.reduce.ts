@@ -11,10 +11,10 @@ export function reducer(
 ) {
     switch (act.type) {
         case Act.UPDATE_SERVER:
-            return Buzz.updateServer(clone(model), act.bale, state)
+            return Buzz.updateServer(clone(model, true), act.bale, state)
 
         case Act.INIT_SERVER:
-            return Buzz.initServer(clone(model), act.bale, state)
+            return Buzz.initServer(clone(model, true), act.bale, state)
 
         default:
             return model

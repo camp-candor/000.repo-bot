@@ -11,10 +11,10 @@ export function reducer(
 ) {
     switch (act.type) {
         case Act.UPDATE_ALLIGATOR:
-            return Buzz.updateAlligator(clone(model), act.bale, state)
+            return Buzz.updateAlligator(clone(model, true), act.bale, state)
 
         case Act.INIT_ALLIGATOR:
-            return Buzz.initAlligator(clone(model), act.bale, state)
+            return Buzz.initAlligator(clone(model, true), act.bale, state)
 
         default:
             return model

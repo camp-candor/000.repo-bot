@@ -11,19 +11,19 @@ export function reducer(
 ) {
     switch (act.type) {
         case Act.UPDATE_CHOICE:
-            return Buzz.updateChoice(clone(model), act.bale, state)
+            return Buzz.updateChoice(clone(model, true), act.bale, state)
 
         case Act.INIT_CHOICE:
-            return Buzz.initChoice(clone(model), act.bale, state)
+            return Buzz.initChoice(clone(model, true), act.bale, state)
 
         case Act.OPEN_CHOICE:
-            return Buzz.openChoice(clone(model), act.bale, state)
+            return Buzz.openChoice(clone(model, true), act.bale, state)
 
         case Act.KEY_CHOICE:
-            return Buzz.keyChoice(clone(model), act.bale, state)
+            return Buzz.keyChoice(clone(model, true), act.bale, state)
 
         case Act.TOWER_CHOICE:
-            return Buzz.towerChoice(clone(model), act.bale, state)
+            return Buzz.towerChoice(clone(model, true), act.bale, state)
 
         default:
             return model

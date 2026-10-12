@@ -75,7 +75,7 @@ export const visionServer = async (
     const workerUrl = 'https://zero00-server.onrender.com/api/intellect/vision'
 
     try {
-        // 🟢 The 'await' here pauses execution until the Worker responds
+        // >> The 'await' here pauses execution until the Worker responds
         const response = await fetch(workerUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -84,7 +84,7 @@ export const visionServer = async (
 
         if (!response.ok) throw new Error(`Status: ${response.status}`)
 
-        // 🟢 We must also 'await' the parsing of the text/json
+        // >> We must also 'await' the parsing of the text/json
         const result = await response.json()
         var want = JSON.parse(result)
 
@@ -110,7 +110,7 @@ export const intellectServer = async (
     const workerUrl = 'https://zero00-server.onrender.com/api/intellect/update'
 
     try {
-        // 🟢 The 'await' here pauses execution until the Worker responds
+        // >> The 'await' here pauses execution until the Worker responds
         const response = await fetch(workerUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -119,7 +119,7 @@ export const intellectServer = async (
 
         if (!response.ok) throw new Error(`Status: ${response.status}`)
 
-        // 🟢 We must also 'await' the parsing of the text/json
+        // >> We must also 'await' the parsing of the text/json
         const result = await response.json()
         var prom = JSON.parse(result)
 
@@ -199,7 +199,7 @@ export const dredgeMangledVerdict = (rawString) => {
     if (!rawString) return null
 
     try {
-        // 🐊 The Regex Harvester
+        // >> The Regex Harvester
         // 1. Looks for the exact key "prompt": " (allowing for weird spacing)
         // 2. Captures EVERYTHING ([\s\S]*?) after the quote
         // 3. Stops capturing if it hits the closing JSON structure (" }), a final quote ("$), or the absolute end of the string ($)
@@ -218,10 +218,10 @@ export const dredgeMangledVerdict = (rawString) => {
             return extractedPrompt
         }
 
-        console.warn('🐊 The Fungal Eye found no prompt in the sludge.')
+        console.warn('>> The Fungal Eye found no prompt in the sludge.')
         return null
     } catch (err) {
-        console.error('❌ Fatal error dredging the mire:', err.message)
+        console.error('>> [FAIL] Fatal error dredging the mire:', err.message)
         debugger
         return null
     }

@@ -8,7 +8,6 @@ import * as ActTrm from '../../80.terminal.unit/terminal.action'
 import * as ActChc from '../../85.choice.unit/choice.action'
 
 import * as ActGrd from '../../81.grid.unit/grid.action'
-//import * as ActCvs from "../../82.canvas.unit/canvas.action";
 import * as ActCns from '../../83.console.unit/console.action'
 
 import * as ActSow from '../../act/sower.action'
@@ -26,10 +25,7 @@ import * as Color from '../../val/console-color'
 import * as SHAPE from '../../val/shape'
 import * as FOCUS from '../../val/focus'
 
-let bit, lst, dex, idx, dat, src, val
-
-let SOWER, CONCEPT, CLICKUP, AGENT
-
+let bit: any, lst: any, dex: any, idx: any, dat: any, src: any
 let opened = false
 
 export const initMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
@@ -51,11 +47,9 @@ export const initMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
         const rootUpPath = path.resolve(process.cwd(), '../../package.json')
 
         if (fs.existsSync(libSubPath)) {
-            // process.cwd() is repository root
             if (fs.existsSync(cwdPkgPath)) pkg = require(cwdPkgPath)
             libPkg = require(libSubPath)
         } else {
-            // process.cwd() is apps/995.library (or sub-workspace)
             if (fs.existsSync(cwdPkgPath)) libPkg = require(cwdPkgPath)
             if (fs.existsSync(rootUpPath)) pkg = require(rootUpPath)
         }
@@ -101,9 +95,7 @@ export const initMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
 
 export const openMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
     const FS = require('fs-extra')
-
     const path = require('path')
-    const exec = require('child_process').exec
 
     const libSubPath = path.resolve(
         process.cwd(),
@@ -124,14 +116,12 @@ export const openMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
         idx: 'cns00',
         src: 'LIBRARY V' + version,
     })
-
     bit = await ste.hunt(ActCns.UPDATE_CONSOLE, {
         idx: 'cns00',
         src: '-----------',
     })
 
     updateMenu(cpy, bal, ste)
-
     return cpy
 }
 
@@ -140,12 +130,11 @@ export const INIT_MENU = '[Menu action] Init Menu'
 
 export const updateMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
     lst = ['LIBRARY MENU']
-    const descriptions = {
+    const descriptions: Record<string, string> = {
         'LIBRARY MENU': 'Open the library menu\nto explore library features.',
     }
 
     const lstRoutes = Array.from(cpy.menuRoutes.keys())
-
     lst = [...lst, ...lstRoutes]
 
     bit = await ste.hunt(ActGrd.UPDATE_GRID, { x: 0, y: 4, xSpan: 4, ySpan: 8 })
@@ -158,10 +147,10 @@ export const updateMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
                     descriptions[choice] ||
                     cpy.menuRouteDescriptions?.get(choice) ||
                     'No description available.'
-                text.split('\n').forEach((src) =>
+                text.split('\n').forEach((srcText: string) =>
                     ste.hunt(ActCns.UPDATE_CONSOLE, {
                         idx: 'cns00',
-                        src,
+                        src: srcText,
                     }),
                 )
             },
@@ -171,32 +160,40 @@ export const updateMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
         net: bit.grdBit.dat,
     })
 
-    src = bit.chcBit.src
+    src = bit?.chcBit?.src
 
     switch (src) {
-        case 'LIBRARY MENU':
+        case 'LIBRARY MENU': {
+            // Defensive teardown prior to mounting library sub-menu
+            await ste.hunt(ActTrm.CLEAR_TERMINAL, {})
             bit = await ste.hunt(ActMnu.LIBRARY_MENU, {})
             bit = await ste.hunt(ActMnu.PRINT_MENU, bit)
             bit = await ste.hunt(ActMnu.UPDATE_MENU)
             break
+        }
 
-        default:
+        default: {
             if (cpy.menuRoutes.has(src)) {
+                // Defensive teardown before yielding to downstream UI pivot
+                await ste.hunt(ActTrm.CLEAR_TERMINAL, {})
                 const handler = cpy.menuRoutes.get(src)
-
-                await handler(cpy, bal, ste)
+                if (handler) {
+                    await handler(cpy, bal, ste)
+                }
             } else {
-                // Default fallback
+                // Clean teardown on unknown exit or terminal termination
+                await ste.hunt(ActTrm.CLEAR_TERMINAL, {})
                 bit = await ste.hunt(ActTrm.CLOSE_TERMINAL, {})
+                await ste.hunt(ActTrm.CLEAR_TERMINAL, {})
             }
-
-            //bit = await ste.hunt(ActTrm.CLOSE_TERMINAL, {});
             break
+        }
     }
 
-    setTimeout(() => {
+    const timer = setTimeout(() => {
         updateMenu(cpy, bal, ste)
     }, 333)
+    if (timer && typeof timer.unref === 'function') timer.unref()
 
     return cpy
 }
@@ -206,37 +203,39 @@ export const testMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
 }
 
 export const closeMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
-    await ste.hunt(ActTrm.CLOSE_TERMINAL, {})
-
+    if (ste?.hunt) {
+        await ste.hunt(ActTrm.CLEAR_TERMINAL, {})
+        await ste.hunt(ActTrm.CLOSE_TERMINAL, {})
+    }
     return cpy
 }
 
-export const createMenu = (cpy: MenuModel, bal: MenuBit, ste: State) => {
-    debugger
+export const createMenu = (cpy: MenuModel, bal: MenuBit, _ste: State) => {
+    if (bal?.slv != null) bal.slv({ mnuBit: { idx: 'create-menu' } })
     return cpy
 }
 
 export const printMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
     dat = bal
-    if (dat == null) return bal.slv({ mnuBit: { idx: 'print-menu', dat } })
+    if (dat == null)
+        return bal?.slv
+            ? bal.slv({ mnuBit: { idx: 'print-menu', dat } })
+            : undefined
 
     const itm = JSON.stringify(dat)
-
     lst = itm.split(',')
-    lst.forEach((a) =>
+    lst.forEach((a: string) =>
         ste.hunt(ActCns.UPDATE_CONSOLE, { idx: 'cns00', src: a }),
     )
     ste.hunt(ActCns.UPDATE_CONSOLE, { idx: 'cns00', src: '------------' })
 
-    bal.slv({ mnuBit: { idx: 'print-menu', dat: itm } })
+    if (bal?.slv != null) bal.slv({ mnuBit: { idx: 'print-menu', dat: itm } })
 }
 
-export const routeMenu = (cpy: MenuModel, bal: MenuBit, ste: State) => {
-    cpy.menuRoutes.set(bal.idx, bal.fnc)
+export const routeMenu = (cpy: MenuModel, bal: MenuBit, _ste: State) => {
+    cpy.menuRoutes.set(bal.idx, bal.fnc as Function)
     if (bal.src) cpy.menuRouteDescriptions.set(bal.idx, bal.src)
 
-    bal.slv({ mnuBit: { idx: 'route-menu', val: 1 } })
+    if (bal?.slv != null) bal.slv({ mnuBit: { idx: 'route-menu', val: 1 } })
     return cpy
 }
-
-const patch = (ste, type, bale) => ste.dispatch({ type, bale })

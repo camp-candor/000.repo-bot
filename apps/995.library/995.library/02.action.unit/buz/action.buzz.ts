@@ -9,7 +9,6 @@ import * as ActLib from '../../00.library.unit/library.action'
 let lst, bit
 
 export const initAction = (cpy: ActionModel, bal: ActionBit, ste: State) => {
-    debugger
     return cpy
 }
 

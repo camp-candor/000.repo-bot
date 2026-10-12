@@ -2,32 +2,61 @@ import type { ChoiceModel } from '../choice.model'
 import type ChoiceBit from '../fce/choice.bit'
 import type State from '../../99.core/state'
 import type NetBit from '../../81.grid.unit/fce/net.bit'
-import * as Align from '../../val/align'
 import * as Color from '../../val/console-color'
 
-export const initChoice = (cpy: ChoiceModel, bal: ChoiceBit, ste: State) => {
-    debugger
+export const initChoice = (cpy: ChoiceModel, bal: ChoiceBit, _ste: State) => {
+    if (bal?.slv != null) {
+        bal.slv({ chcBit: { idx: 'init-choice' } })
+    }
     return cpy
 }
 
-export const updateChoice = (cpy: ChoiceModel, bal: ChoiceBit, ste: State) => {
+export const updateChoice = (cpy: ChoiceModel, bal: ChoiceBit, _ste: State) => {
+    if (bal?.slv != null) {
+        bal.slv({ chcBit: { idx: 'update-choice' } })
+    }
     return cpy
 }
 
 export const openChoice = (cpy: ChoiceModel, bal: ChoiceBit, ste: State) => {
-    const blessed = ste.value.terminal.blessed
-    const screen = ste.value.terminal.screen
+    const terminal = ste?.value?.terminal
+    const blessed = terminal?.blessed
+    const screen = terminal?.screen
 
-    const dat: any = { idx: 'choice-bit', clr0: Color.GREEN, clr1: Color.CYAN }
-    for (const key in bal.dat) {
+    // Defensive headless fallback for automated runners and CI environments
+    if (!screen || !blessed) {
+        if (bal?.slv != null) {
+            bal.slv({
+                chcBit: {
+                    idx: 'open-choice-headless',
+                    src: bal?.lst && bal.lst.length > 0 ? bal.lst[0] : '',
+                    val: 0,
+                },
+            })
+        }
+        return cpy
+    }
+
+    const dat: any = {
+        idx: 'choice-bit',
+        clr0: Color.BLACK,
+        clr1: Color.YELLOW,
+    }
+    for (const key in bal?.dat) {
         dat[key] = bal.dat[key]
     }
 
-    const net: NetBit = bal.net
+    const net: NetBit = bal?.net || {
+        left: 0,
+        top: 0,
+        width: '100%',
+        height: '100%',
+    }
 
     const form = blessed.form({
         parent: screen,
-        keys: true,
+        keys: false,
+        mouse: true,
         left: net.left,
         top: net.top,
         width: net.width,
@@ -36,11 +65,14 @@ export const openChoice = (cpy: ChoiceModel, bal: ChoiceBit, ste: State) => {
         content: '',
     })
 
-    if (bal.lst == null) bal.lst = []
+    const buttons: any[] = []
+    const itemList: string[] = bal?.lst || []
 
-    const output = []
+    itemList.forEach((itemText: string, index: number) => {
+        const isRedTheme = dat.clr1 === Color.RED || dat.clr1 === 'red'
+        const focusBg = isRedTheme ? Color.YELLOW : 'red'
+        const focusFg = isRedTheme ? 'black' : 'white'
 
-    bal.lst.forEach((a, b) => {
         const btn = blessed.button({
             parent: form,
             mouse: true,
@@ -51,77 +83,124 @@ export const openChoice = (cpy: ChoiceModel, bal: ChoiceBit, ste: State) => {
                 right: 1,
             },
             left: 0,
-            top: b,
+            top: index,
             height: 1,
             width: '100%',
-            name: a,
-            content: a,
+            name: itemText,
+            content: itemText,
             style: {
                 bg: dat.clr1,
                 focus: {
-                    bg: 'red',
+                    bg: focusBg,
+                    fg: focusFg,
                 },
                 hover: {
-                    bg: 'red',
+                    bg: focusBg,
+                    fg: focusFg,
                 },
             },
         })
 
-        btn.on('press', function () {
+        btn.on('press', () => {
             form.submit()
         })
 
-        btn.on('focus', function () {
+        btn.on('focus', () => {
+            form._selected = btn
             if (dat.cb) {
-                dat.cb(a)
+                dat.cb(itemText)
             }
         })
 
-        output.push(btn)
+        buttons.push(btn)
     })
 
-    screen.key('left', () => form.focusPrevious())
-    screen.key('right', () => form.focusNext())
+    // Vertical keyboard navigation mappings (Up/Down + Vim k/j)
+    const handleUp = () => {
+        form.focusPrevious()
+        screen.render()
+    }
+    const handleDown = () => {
+        form.focusNext()
+        screen.render()
+    }
+    const handleSubmit = () => {
+        form.submit()
+    }
 
-    if (output.length > 0) output[0].focus()
+    screen.key(['up', 'k'], handleUp)
+    screen.key(['down', 'j'], handleDown)
+    screen.key(['enter', 'return'], handleSubmit)
 
-    screen.render()
+    let cleanedUp = false
+    const cleanup = () => {
+        if (cleanedUp) return
+        cleanedUp = true
 
-    form.on('submit', async function (data) {
-        //form.setContent('Submitted.');
+        // 1. Explicitly unbind all registered directional navigation keys
+        screen.unkey(['up', 'k'], handleUp)
+        screen.unkey(['down', 'j'], handleDown)
+        screen.unkey(['enter', 'return'], handleSubmit)
 
+        // 2. Detach and destroy widget subtree to liberate terminal memory
+        form.destroy()
+
+        // 3. Request coordinate repaint
+        screen.render()
+    }
+
+    form.on('submit', () => {
         let selected = form._selected
-
-        if (selected == null) {
-            //use the first one
-            output
-
-            selected = output[0]
-            selected.content
-
-            //var bit = await ste.hunt( ActChc.OPEN_CHOICE, bal)
-            //if (bal.slv != null) bal.slv({ chcBit: { idx: "open-choice", dat:bit } });
-            //return
+        if (!selected && buttons.length > 0) {
+            selected = buttons[0]
         }
 
-        const src = selected.content
-        const val = selected.index - 1
+        const src = selected ? selected.content : ''
+        const val = selected ? selected.index - 1 : 0
 
-        screen.render()
-        if (bal.slv != null)
+        cleanup()
+
+        if (bal?.slv != null) {
             bal.slv({ chcBit: { idx: 'open-choice', src, val } })
+        }
     })
 
+    form.on('cancel', () => {
+        cleanup()
+
+        if (bal?.slv != null) {
+            bal.slv({ chcBit: { idx: 'open-choice-cancel', src: '', val: -1 } })
+        }
+    })
+
+    if (buttons.length > 0 && typeof buttons[0].focus === 'function') {
+        buttons[0].focus()
+    }
+
+    screen.render()
     return cpy
 }
 
 export const keyChoice = (cpy: ChoiceModel, bal: ChoiceBit, ste: State) => {
-    const blessed = ste.value.terminal.blessed
-    const screen = ste.value.terminal.screen
+    const terminal = ste?.value?.terminal
+    const blessed = terminal?.blessed
+    const screen = terminal?.screen
 
-    const net: NetBit = bal.net
+    if (!screen || !blessed) {
+        if (bal?.slv != null) {
+            bal.slv({ chcBit: { idx: 'key-choice-headless' } })
+        }
+        return cpy
+    }
 
-    const menubar = blessed.listbar({
+    const net: NetBit = bal?.net || {
+        left: 0,
+        top: 0,
+        width: '100%',
+        height: '100%',
+    }
+
+    blessed.listbar({
         parent: screen,
         keys: true,
         left: net.left,
@@ -130,37 +209,7 @@ export const keyChoice = (cpy: ChoiceModel, bal: ChoiceBit, ste: State) => {
         height: net.height,
         style: { item: { fg: 'yellow' }, selected: { fg: 'yellow' } },
         commands: {
-            'Login': {
-                keys: ['l', 'L'],
-                callback: () => {
-                    debugger
-                },
-            },
-            'Toggle Autotrading': {
-                keys: ['a', 'A'],
-                callback: () => {
-                    debugger
-                },
-            },
-            'Make a Trade': {
-                keys: ['t', 'T'],
-                callback: () => {
-                    debugger
-                },
-            },
-            'Help': {
-                keys: ['h', 'H'],
-                callback: () => {
-                    debugger
-                },
-            },
-            'Logout': {
-                keys: ['o', 'O'],
-                callback: () => {
-                    debugger
-                },
-            },
-            'Exit': {
+            Exit: {
                 keys: ['C-c', 'escape'],
                 callback: () => process.exit(0),
             },
@@ -168,12 +217,15 @@ export const keyChoice = (cpy: ChoiceModel, bal: ChoiceBit, ste: State) => {
     })
 
     screen.render()
-
-    if (bal.slv != null) bal.slv({ scnBit: { idx: 'key-choice' } })
-
+    if (bal?.slv != null) {
+        bal.slv({ chcBit: { idx: 'key-choice' } })
+    }
     return cpy
 }
 
-export const towerChoice = (cpy: ChoiceModel, bal: ChoiceBit, ste: State) => {
+export const towerChoice = (cpy: ChoiceModel, bal: ChoiceBit, _ste: State) => {
+    if (bal?.slv != null) {
+        bal.slv({ chcBit: { idx: 'tower-choice' } })
+    }
     return cpy
 }

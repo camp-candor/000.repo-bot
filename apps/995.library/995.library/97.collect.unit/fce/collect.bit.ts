@@ -5,5 +5,5 @@ export default interface CollectBit {
     dex?: number
     dat?: any
     bit?: any
-    slv?: Function
+    slv?: (result: { colBit: Partial<CollectBit> }) => void
 }

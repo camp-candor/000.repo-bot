@@ -3,5 +3,5 @@ export default interface ServerBit {
     src?: string
     val?: number
     dat?: any
-    slv?: Function
+    slv?: (result: { svrBit: Partial<ServerBit> }) => void
 }

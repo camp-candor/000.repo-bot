@@ -5,3 +5,5 @@ export { closeMenu } from './buz/menu.buzz'
 export { printMenu } from './buz/menu.buzz'
 export { libraryMenu } from './buz/menu.library'
 export { routeMenu } from './buz/menu.buzz'
+
+export { fleetMenu, sagaTornStateMenu } from './buz/menu.fleet'

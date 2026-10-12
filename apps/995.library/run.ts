@@ -4,6 +4,7 @@ import { program } from 'commander'
 import { exec as execCb } from 'child_process'
 import { promisify } from 'util'
 import path from 'path'
+import fs from 'fs'
 import { createRequire } from 'module'
 
 const require = createRequire(import.meta.url)
@@ -11,56 +12,118 @@ const exec = promisify(execCb)
 
 // 1. Setup CLI
 program.option('--first').option('-t, --separator <char>')
-
 program.parse(process.argv)
 const options = program.opts()
 
-// 2. Logic to run AFTER build
+export interface PackageTerminalMetadata {
+    name: string
+    globalKey: string
+    menuTitle: string
+    menuDesc: string
+    targetDir: string
+}
+
+/**
+ * Sweeps packages/ for valid TypeScript packages and extracts Schema-Driven metadata.
+ */
+export const getExistingPackages = (): PackageTerminalMetadata[] => {
+    const packagesDir = path.resolve(import.meta.dirname, '../../packages')
+    if (!fs.existsSync(packagesDir)) return []
+
+    const entries = fs.readdirSync(packagesDir, { withFileTypes: true })
+    const results: PackageTerminalMetadata[] = []
+
+    for (const entry of entries) {
+        if (!entry.isDirectory() || entry.name === 'dist') continue
+        const targetDir = path.join(packagesDir, entry.name)
+        const tsconfigPath = path.join(targetDir, 'tsconfig.json')
+        if (!fs.existsSync(tsconfigPath)) continue
+
+        const pkgJsonPath = path.join(targetDir, 'package.json')
+        let terminalMeta: any = null
+
+        if (fs.existsSync(pkgJsonPath)) {
+            try {
+                const pkgJson = JSON.parse(fs.readFileSync(pkgJsonPath, 'utf8'))
+                if (pkgJson.terminal) {
+                    terminalMeta = pkgJson.terminal
+                }
+            } catch {
+                // Ignore parse errors on intermediate files
+            }
+        }
+
+        if (terminalMeta && terminalMeta.globalKey && terminalMeta.menuTitle) {
+            results.push({
+                name: entry.name,
+                globalKey: terminalMeta.globalKey,
+                menuTitle: terminalMeta.menuTitle,
+                menuDesc:
+                    terminalMeta.menuDesc ||
+                    `Open ${entry.name} management console.`,
+                targetDir,
+            })
+        } else {
+            // Heuristic Fallback
+            const domain = entry.name.includes('.')
+                ? entry.name.split('.').slice(1).join('.')
+                : entry.name
+            const upper = domain.toUpperCase()
+            results.push({
+                name: entry.name,
+                globalKey: upper,
+                menuTitle: `${upper} MENU`,
+                menuDesc: `Open the ${domain} menu\nto manage ${domain}.`,
+                targetDir,
+            })
+        }
+    }
+
+    return results
+}
+
+const getRootIdentity = () => {
+    let curr = process.cwd()
+    while (curr && curr !== path.dirname(curr)) {
+        const pkgPath = path.join(curr, 'package.json')
+        if (fs.existsSync(pkgPath)) {
+            try {
+                const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'))
+                if (pkg.workspaces || fs.existsSync(path.join(curr, '.git'))) {
+                    const rawName =
+                        pkg.name || path.basename(curr) || '995.library'
+                    const name = String(rawName)
+                        .replace(/^@[^/]+\//, '')
+                        .trim()
+                    const rawVersion = pkg.version
+                        ? String(pkg.version).replace(/^v/, '')
+                        : '0.1.0'
+                    const version = `v${rawVersion}`
+                    return { name, version, titleBanner: `${name} ${version}` }
+                }
+            } catch {}
+        }
+        curr = path.dirname(curr)
+    }
+    return {
+        name: '995.library',
+        version: 'v0.1.0',
+        titleBanner: '995.library v0.1.0',
+    }
+}
+
+// 2. Post-Build Initialization Logic
 const init = async () => {
-    console.log('>> Initialization started...')
+    console.log('>> [INIT] Bootstrapping Terminal Orchestrator...')
 
     global.window = global as any
+    ;(global as any).PIVOTS = (global as any).PIVOTS || {}
 
     const idx = options.separator
     if (idx) console.log(`   Targeting: ${idx}`)
 
     const libPath = path.resolve(import.meta.dirname, './dist/995.library')
-    const agtPath = path.resolve(
-        import.meta.dirname,
-        '../../packages/dist/000.agent',
-    )
-    const rbtPath = path.resolve(
-        import.meta.dirname,
-        '../../packages/dist/821.repobot',
-    )
-    const cfPath = path.resolve(
-        import.meta.dirname,
-        '../../packages/dist/133.cloudflare',
-    )
-    const jlsPath = path.resolve(
-        import.meta.dirname,
-        '../../packages/dist/135.jules',
-    )
-    const fctPath = path.resolve(
-        import.meta.dirname,
-        '../../packages/dist/103.factory',
-    )
-    const htkPath = path.resolve(
-        import.meta.dirname,
-        '../../packages/dist/104.hotkey',
-    )
-    const gmnPath = path.resolve(
-        import.meta.dirname,
-        '../../packages/dist/105.gemini',
-    )
-    const ghPath = path.resolve(
-        import.meta.dirname,
-        '../../packages/dist/132.github',
-    )
-    const slkPath = path.resolve(
-        import.meta.dirname,
-        '../../packages/dist/924.slack',
-    )
+    const existingPackages = getExistingPackages()
 
     try {
         const LIBRARY = require(path.join(libPath, 'hunt'))
@@ -77,83 +140,112 @@ const init = async () => {
             idx: idx,
         })
 
-        try {
-            const AGENT = require(path.join(agtPath, 'hunt'))
-            global.AGENT = AGENT.default || AGENT
-
-            const MENU_ACTION_LIBRARY = require(
-                path.join(libPath, '98.menu.unit/menu.action'),
+        const identity = getRootIdentity()
+        const CONSOLE_ACTION_LIBRARY = require(
+            path.join(libPath, '83.console.unit/console.action'),
+        )
+        const cnsBit = await LIBRARY.hunt(CONSOLE_ACTION_LIBRARY.READ_CONSOLE, {
+            idx: 'cns00',
+        })
+        const logWidget = cnsBit?.cnsBit?.dat?.bit
+        if (logWidget && Array.isArray(logWidget.logLines)) {
+            const libPkgPath = path.resolve(
+                import.meta.dirname,
+                './package.json',
             )
-            const MENU_ACTION_AGENT = require(
-                path.join(agtPath, '98.menu.unit/menu.action'),
-            )
+            const libPkg = fs.existsSync(libPkgPath)
+                ? JSON.parse(fs.readFileSync(libPkgPath, 'utf8'))
+                : { version: '1.0.12' }
+            logWidget.logLines = [
+                '-----------',
+                `${identity.name} ${identity.version}`,
+                `LIBRARY V${libPkg.version}`,
+                '-----------',
+            ]
+            logWidget.setItems(logWidget.logLines)
+            if (logWidget.screen) logWidget.screen.render()
+        }
 
-            await new Promise((resolve) => setTimeout(resolve, 10))
+        const MENU_ACTION_LIBRARY = require(
+            path.join(libPath, '98.menu.unit/menu.action'),
+        )
 
-            await LIBRARY.hunt(MENU_ACTION_LIBRARY.PRINT_MENU, {
-                src: '[OK] Init complete',
-            })
+        await new Promise((resolve) => setTimeout(resolve, 10))
 
-            // Register AGENT MENU into the Blessed Menu registry
-            await LIBRARY.hunt(MENU_ACTION_LIBRARY.ROUTE_MENU, {
-                idx: 'AGENT MENU',
-                src: 'Open the Agent menu\nto manage agents.',
-                fnc: async () => {
-                    await new Promise<void>((resolve) => {
-                        global.AGENT.hunt(MENU_ACTION_AGENT.INIT_MENU, {
-                            slv: resolve,
-                        })
-                    })
-                    await LIBRARY.hunt(MENU_ACTION_LIBRARY.OPEN_MENU, {
-                        src: '',
-                    })
-                },
-            })
+        await LIBRARY.hunt(CONSOLE_ACTION_LIBRARY.UPDATE_CONSOLE, {
+            idx: 'cns00',
+            src: '>> [OK] Master Bus Initialized',
+        })
 
-            // Register REPOBOT MENU into the Blessed Menu registry
-            try {
-                const REPOBOT = require(path.join(rbtPath, 'hunt'))
-                global.REPOBOT = REPOBOT.default || REPOBOT
-
-                const MENU_ACTION_REPOBOT = require(
-                    path.join(rbtPath, '98.menu.unit/menu.action'),
+        // 3. Dynamic Package Injection & Bus Wiring
+        const packagesDist = path.resolve(
+            import.meta.dirname,
+            '../../packages/dist',
+        )
+        if (fs.existsSync(packagesDist)) {
+            const distPkgJson = path.join(packagesDist, 'package.json')
+            if (!fs.existsSync(distPkgJson)) {
+                fs.writeFileSync(
+                    distPkgJson,
+                    JSON.stringify({ type: 'commonjs' }, null, 2),
                 )
-
-                await LIBRARY.hunt(MENU_ACTION_LIBRARY.ROUTE_MENU, {
-                    idx: 'REPOBOT MENU',
-                    src: 'Open the Repobot menu\nto manage repobots.',
-                    fnc: async () => {
-                        await new Promise<void>((resolve) => {
-                            global.REPOBOT.hunt(MENU_ACTION_REPOBOT.INIT_MENU, {
-                                slv: resolve,
-                            })
-                        })
-                        await LIBRARY.hunt(MENU_ACTION_LIBRARY.OPEN_MENU, {
-                            src: '',
-                        })
-                    },
-                })
-            } catch (err) {
-                console.error(`exec error loading repobot: ${err}`)
-                throw err
             }
+        }
 
-            // Register CLOUDFLARE MENU into the Blessed Menu registry
+        for (const pkg of existingPackages) {
             try {
-                const CLOUDFLARE = require(path.join(cfPath, 'hunt'))
-                global.CLOUDFLARE = CLOUDFLARE.default || CLOUDFLARE
-
-                const MENU_ACTION_CLOUDFLARE = require(
-                    path.join(cfPath, '98.menu.unit/menu.action'),
+                let pkgDistPath = path.resolve(
+                    import.meta.dirname,
+                    `../../packages/dist/${pkg.name}`,
                 )
+                if (!fs.existsSync(pkgDistPath)) {
+                    const localDist = path.resolve(
+                        import.meta.dirname,
+                        `../../packages/${pkg.name}/dist`,
+                    )
+                    if (fs.existsSync(localDist)) {
+                        pkgDistPath = localDist
+                    } else {
+                        pkgDistPath = pkg.targetDir
+                    }
+                }
 
+                const huntModulePath = path.join(pkgDistPath, 'hunt')
+                const MODULE = require(huntModulePath)
+                const instance = MODULE.default || MODULE
+
+                // Inject into global namespace & central pivot registry
+                ;(global as any)[pkg.globalKey] = instance
+                ;(global as any).PIVOTS[pkg.name] = instance
+                ;(global as any).PIVOTS[pkg.globalKey] = instance
+
+                const menuActionPath = path.join(
+                    pkgDistPath,
+                    '98.menu.unit/menu.action',
+                )
+                if (
+                    !fs.existsSync(menuActionPath + '.js') &&
+                    !fs.existsSync(menuActionPath + '.ts') &&
+                    !fs.existsSync(menuActionPath)
+                ) {
+                    // Headless pivot without visual menu unit
+                    await LIBRARY.hunt(CONSOLE_ACTION_LIBRARY.UPDATE_CONSOLE, {
+                        idx: 'cns00',
+                        src: `>> [INFO] Mounted headless pivot: [${pkg.name}] as global.${pkg.globalKey}`,
+                    })
+                    continue
+                }
+
+                const MENU_ACTION = require(menuActionPath)
+
+                // Mount sub-menu into root Blessed navigation
                 await LIBRARY.hunt(MENU_ACTION_LIBRARY.ROUTE_MENU, {
-                    idx: 'CLOUDFLARE MENU',
-                    src: 'Open the Cloudflare menu\nto manage cloudflare.',
+                    idx: pkg.menuTitle,
+                    src: pkg.menuDesc,
                     fnc: async () => {
                         await new Promise<void>((resolve) => {
-                            global.CLOUDFLARE.hunt(
-                                MENU_ACTION_CLOUDFLARE.INIT_MENU,
+                            ;(global as any)[pkg.globalKey].hunt(
+                                MENU_ACTION.INIT_MENU,
                                 {
                                     slv: resolve,
                                 },
@@ -164,205 +256,46 @@ const init = async () => {
                         })
                     },
                 })
-            } catch (err) {
-                console.error(`exec error loading cloudflare: ${err}`)
-                throw err
-            }
 
-            // Register JULES MENU into the Blessed Menu registry
-            try {
-                const JULES = require(path.join(jlsPath, 'hunt'))
-                global.JULES = JULES.default || JULES
-
-                const MENU_ACTION_JULES = require(
-                    path.join(jlsPath, '98.menu.unit/menu.action'),
-                )
-
-                await LIBRARY.hunt(MENU_ACTION_LIBRARY.ROUTE_MENU, {
-                    idx: 'JULES MENU',
-                    src: 'Open the Jules menu\nto manage jules.',
-                    fnc: async () => {
-                        await new Promise<void>((resolve) => {
-                            global.JULES.hunt(MENU_ACTION_JULES.INIT_MENU, {
-                                slv: resolve,
-                            })
-                        })
-                        await LIBRARY.hunt(MENU_ACTION_LIBRARY.OPEN_MENU, {
-                            src: '',
-                        })
-                    },
+                await LIBRARY.hunt(CONSOLE_ACTION_LIBRARY.UPDATE_CONSOLE, {
+                    idx: 'cns00',
+                    src: `>> [OK] Mounted UI Pivot: [${pkg.name}] -> ${pkg.menuTitle}`,
                 })
-            } catch (err) {
-                console.error(`exec error loading jules: ${err}`)
-                throw err
-            }
-
-            // Register FACTORY MENU into the Blessed Menu registry
-            try {
-                const FACTORY = require(path.join(fctPath, 'hunt'))
-                global.FACTORY = FACTORY.default || FACTORY
-
-                const MENU_ACTION_FACTORY = require(
-                    path.join(fctPath, '98.menu.unit/menu.action'),
-                )
-
-                await LIBRARY.hunt(MENU_ACTION_LIBRARY.ROUTE_MENU, {
-                    idx: 'FACTORY MENU',
-                    src: 'Open the Factory menu\nto manage factory.',
-                    fnc: async () => {
-                        await new Promise<void>((resolve) => {
-                            global.FACTORY.hunt(MENU_ACTION_FACTORY.INIT_MENU, {
-                                slv: resolve,
-                            })
-                        })
-                        await LIBRARY.hunt(MENU_ACTION_LIBRARY.OPEN_MENU, {
-                            src: '',
-                        })
-                    },
+            } catch (err: any) {
+                await LIBRARY.hunt(CONSOLE_ACTION_LIBRARY.UPDATE_CONSOLE, {
+                    idx: 'cns00',
+                    src: `:: [WARN] Skipping pivot [${pkg.name}]: ${err.message}`,
                 })
-            } catch (err) {
-                console.error(`exec error loading factory: ${err}`)
-                throw err
             }
-
-            // Register HOTKEY MENU into the Blessed Menu registry
-            try {
-                const HOTKEY = require(path.join(htkPath, 'hunt'))
-                global.HOTKEY = HOTKEY.default || HOTKEY
-
-                const MENU_ACTION_HOTKEY = require(
-                    path.join(htkPath, '98.menu.unit/menu.action'),
-                )
-
-                await LIBRARY.hunt(MENU_ACTION_LIBRARY.ROUTE_MENU, {
-                    idx: 'HOTKEY MENU',
-                    src: 'Open the Hotkey menu\nto manage hotkey.',
-                    fnc: async () => {
-                        await new Promise<void>((resolve) => {
-                            global.HOTKEY.hunt(MENU_ACTION_HOTKEY.INIT_MENU, {
-                                slv: resolve,
-                            })
-                        })
-                        await LIBRARY.hunt(MENU_ACTION_LIBRARY.OPEN_MENU, {
-                            src: '',
-                        })
-                    },
-                })
-            } catch (err) {
-                console.error(`exec error loading hotkey: ${err}`)
-                throw err
-            }
-
-            // Register GEMINI MENU into the Blessed Menu registry
-            try {
-                const GEMINI = require(path.join(gmnPath, 'hunt'))
-                global.GEMINI = GEMINI.default || GEMINI
-
-                const MENU_ACTION_GEMINI = require(
-                    path.join(gmnPath, '98.menu.unit/menu.action'),
-                )
-
-                await LIBRARY.hunt(MENU_ACTION_LIBRARY.ROUTE_MENU, {
-                    idx: 'GEMINI MENU',
-                    src: 'Open the Gemini menu\nto manage gemini.',
-                    fnc: async () => {
-                        await new Promise<void>((resolve) => {
-                            global.GEMINI.hunt(MENU_ACTION_GEMINI.INIT_MENU, {
-                                slv: resolve,
-                            })
-                        })
-                        await LIBRARY.hunt(MENU_ACTION_LIBRARY.OPEN_MENU, {
-                            src: '',
-                        })
-                    },
-                })
-            } catch (err) {
-                console.error(`exec error loading gemini: ${err}`)
-                throw err
-            }
-
-            // Register GITHUB MENU into the Blessed Menu registry
-            try {
-                const GITHUB = require(path.join(ghPath, 'hunt'))
-                global.GITHUB = GITHUB.default || GITHUB
-
-                const MENU_ACTION_GITHUB = require(
-                    path.join(ghPath, '98.menu.unit/menu.action'),
-                )
-
-                await LIBRARY.hunt(MENU_ACTION_LIBRARY.ROUTE_MENU, {
-                    idx: 'GITHUB MENU',
-                    src: 'Open the Github menu\nto manage github.',
-                    fnc: async () => {
-                        await new Promise<void>((resolve) => {
-                            global.GITHUB.hunt(MENU_ACTION_GITHUB.INIT_MENU, {
-                                slv: resolve,
-                            })
-                        })
-                        await LIBRARY.hunt(MENU_ACTION_LIBRARY.OPEN_MENU, {
-                            src: '',
-                        })
-                    },
-                })
-            } catch (err) {
-                console.error(`exec error loading github: ${err}`)
-                throw err
-            }
-
-            // Register SLACK MENU into the Blessed Menu registry
-            try {
-                const SLACK = require(path.join(slkPath, 'hunt'))
-                global.SLACK = SLACK.default || SLACK
-
-                const MENU_ACTION_SLACK = require(
-                    path.join(slkPath, '98.menu.unit/menu.action'),
-                )
-
-                await LIBRARY.hunt(MENU_ACTION_LIBRARY.ROUTE_MENU, {
-                    idx: 'SLACK MENU',
-                    src: 'Open the Slack menu\nto manage slack.',
-                    fnc: async () => {
-                        await new Promise<void>((resolve) => {
-                            global.SLACK.hunt(MENU_ACTION_SLACK.INIT_MENU, {
-                                slv: resolve,
-                            })
-                        })
-                        await LIBRARY.hunt(MENU_ACTION_LIBRARY.OPEN_MENU, {
-                            src: '',
-                        })
-                    },
-                })
-            } catch (err) {
-                console.error(`exec error loading slack: ${err}`)
-                throw err
-            }
-
-            await LIBRARY.hunt(MENU_ACTION_LIBRARY.OPEN_MENU, { src: '' })
-        } catch (err) {
-            console.error(`exec error loading agent: ${err}`)
-            throw err
         }
-    } catch (err) {
-        console.error('[FAIL] Runtime Error:', err)
+
+        await LIBRARY.hunt(MENU_ACTION_LIBRARY.OPEN_MENU, { src: '' })
+    } catch (err: any) {
+        console.error(':: [FAIL] Terminal Runtime Panic:', err)
         process.exit(1)
     }
 }
 
-// 3. Main Execution Flow: Build library, agent, repobot, cloudflare, jules, factory, hotkey, gemini, github, and slack packages
+// 4. Main Build & Startup Pipeline
 const main = async () => {
     try {
-        console.log('>> Building TypeScript...')
-        var { stdout, stderr } = await exec(
-            'tsc -b 995.library ../../packages/000.agent ../../packages/821.repobot ../../packages/133.cloudflare ../../packages/135.jules ../../packages/103.factory ../../packages/104.hotkey ../../packages/105.gemini ../../packages/132.github ../../packages/924.slack',
-            { cwd: import.meta.dirname },
-        )
+        console.log('>> [BUILD] Compiling Monorepo TypeScript References...')
+        const existingPackages = getExistingPackages()
+        const buildTargets = [
+            '995.library',
+            ...existingPackages.map((p) => `../../packages/${p.name}`),
+        ].join(' ')
+
+        var { stdout, stderr } = await exec(`tsc -b ${buildTargets}`, {
+            cwd: import.meta.dirname,
+        })
 
         if (stdout) console.log(stdout)
         if (stderr) console.error(stderr)
 
         await init()
     } catch (err: any) {
-        console.error('[FAIL] Build Failed:')
+        console.error(':: [FAIL] Build Failed:')
         console.error(err.stdout || err.message)
         process.exit(1)
     }
