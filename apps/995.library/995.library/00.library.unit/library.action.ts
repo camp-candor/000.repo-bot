@@ -67,6 +67,53 @@ export class AuditLibrary implements Action<LibraryBit> {
     constructor(public bale: LibraryBit) {}
 }
 
+export const STAGE_LOCKFILE_CONFLICT =
+    '[Library action] Stage Lockfile Conflict'
+export class StageLockfileConflict implements Action<LibraryBit> {
+    readonly type = STAGE_LOCKFILE_CONFLICT
+    constructor(public bale: LibraryBit) {}
+}
+
+export const PURGE_LOCKFILE_SCRATCHPAD =
+    '[Library action] Purge Lockfile Scratchpad'
+export class PurgeLockfileScratchpad implements Action<LibraryBit> {
+    readonly type = PURGE_LOCKFILE_SCRATCHPAD
+    constructor(public bale: LibraryBit) {}
+}
+
+export const VALIDATE_LOCKFILE_SCRATCHPAD =
+    '[Lockfile action] Validate Lockfile Scratchpad'
+export class ValidateLockfileScratchpad implements Action<LibraryBit> {
+    readonly type = VALIDATE_LOCKFILE_SCRATCHPAD
+    constructor(public bale: LibraryBit) {}
+}
+
+export const RESOLVE_LOCKFILE_HUMAN_GATE =
+    '[Lockfile action] Resolve Lockfile Human Gate'
+export class ResolveLockfileHumanGate implements Action<LibraryBit> {
+    readonly type = RESOLVE_LOCKFILE_HUMAN_GATE
+    constructor(public bale: LibraryBit) {}
+}
+
+export const PROMOTE_LOCKFILE_SCRATCHPAD =
+    '[Lockfile action] Promote Lockfile Scratchpad'
+export class PromoteLockfileScratchpad implements Action<LibraryBit> {
+    readonly type = PROMOTE_LOCKFILE_SCRATCHPAD
+    constructor(public bale: LibraryBit) {}
+}
+
+export const MINT_LOCKFILE_LEDGER = '[Lockfile action] Mint Lockfile Ledger'
+export class MintLockfileLedger implements Action<LibraryBit> {
+    readonly type = MINT_LOCKFILE_LEDGER
+    constructor(public bale: LibraryBit) {}
+}
+
+export const BUMP_FLEET_VERSION = '[Release action] Bump Fleet Version'
+export class BumpFleetVersion implements Action<LibraryBit> {
+    readonly type = BUMP_FLEET_VERSION
+    constructor(public bale: LibraryBit) {}
+}
+
 export type Actions =
     | CheckGitWorkingTree
     | ProgressLibrarySaga
@@ -79,3 +126,10 @@ export type Actions =
     | LaunchLibrary
     | FlatLibrary
     | AuditLibrary
+    | StageLockfileConflict
+    | PurgeLockfileScratchpad
+    | ValidateLockfileScratchpad
+    | ResolveLockfileHumanGate
+    | PromoteLockfileScratchpad
+    | MintLockfileLedger
+    | BumpFleetVersion

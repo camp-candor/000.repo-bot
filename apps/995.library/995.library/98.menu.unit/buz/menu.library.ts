@@ -69,6 +69,7 @@ export const libraryMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
         ActLib.UPDATE_LIBRARY.split(']')[1],
         ActLib.LIST_LIBRARY.split(']')[1],
         ActLib.AUDIT_LIBRARY.split(']')[1],
+        ActLib.BUMP_FLEET_VERSION.split(']')[1],
         ActLib.LAUNCH_LIBRARY.split(']')[1],
         'ROOT MENU',
     ]
@@ -103,6 +104,8 @@ export const libraryMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
         [ActLib.AUDIT_LIBRARY.split(']')[1]]:
             '-Compare fleet repositories against\nthe Central Coordination Manifest.',
         [ActLib.LAUNCH_LIBRARY.split(']')[1]]: '-Launch library urls.',
+        [ActLib.BUMP_FLEET_VERSION.split(']')[1]]:
+            '-Freeze fleet versions\nand create release manifest.',
         'ROOT MENU': '-Return to the root menu.',
     }
 
@@ -891,6 +894,18 @@ export const libraryMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
             }
 
             await new Promise((resolve) => setTimeout(resolve, 3000))
+            break
+        }
+
+        case ActLib.BUMP_FLEET_VERSION.split(']')[1]: {
+            await ste.hunt(ActTrm.CLEAR_TERMINAL, {})
+            bit = await ste.hunt(ActCns.UPDATE_CONSOLE, {
+                idx: 'cns00',
+                src: '>> [RELEASE] Initiating Fleet Version Bump & Snapshot...',
+            })
+            bit = await ste.hunt(ActLib.BUMP_FLEET_VERSION, {})
+            await new Promise((resolve) => setTimeout(resolve, 333))
+            bit = await ste.hunt(ActMnu.PRINT_MENU, bit)
             break
         }
 

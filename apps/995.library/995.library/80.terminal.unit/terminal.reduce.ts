@@ -22,6 +22,12 @@ export function reducer(
         case Act.EDIT_TERMINAL:
             return Buzz.editTerminal(clone(model, true), act.bale, state)
 
+        case Act.SUSPEND_TERMINAL:
+            return Buzz.suspendTerminal(clone(model, true), act.bale, state)
+
+        case Act.RESUME_TERMINAL:
+            return Buzz.resumeTerminal(clone(model, true), act.bale, state)
+
         case Act.PRINT_TERMINAL:
             return Buzz.printTerminal(clone(model, true), act.bale, state)
 

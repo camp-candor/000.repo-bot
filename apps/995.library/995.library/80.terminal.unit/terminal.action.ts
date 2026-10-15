@@ -25,6 +25,18 @@ export class EditTerminal implements Action<TerminalBit> {
     constructor(public bale: TerminalBit) {}
 }
 
+export const SUSPEND_TERMINAL = '[Suspend action] Suspend Terminal'
+export class SuspendTerminal implements Action<TerminalBit> {
+    readonly type = SUSPEND_TERMINAL
+    constructor(public bale: TerminalBit) {}
+}
+
+export const RESUME_TERMINAL = '[Resume action] Resume Terminal'
+export class ResumeTerminal implements Action<TerminalBit> {
+    readonly type = RESUME_TERMINAL
+    constructor(public bale: TerminalBit) {}
+}
+
 export const PRINT_TERMINAL = '[Print action] Print Terminal'
 export class PrintTerminal implements Action<TerminalBit> {
     readonly type = PRINT_TERMINAL
@@ -72,6 +84,8 @@ export type Actions =
     | UpdateTerminal
     | RunTerminal
     | EditTerminal
+    | SuspendTerminal
+    | ResumeTerminal
     | PrintTerminal
     | CloseTerminal
     | OptionTerminal

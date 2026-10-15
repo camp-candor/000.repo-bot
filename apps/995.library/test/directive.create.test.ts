@@ -45,8 +45,8 @@ test.serial(
             '# Jules template',
         )
         await fs.writeFile(
-            path.join(day000Dir, '000.xxxxx.gravity.md'),
-            '# Gravity template',
+            path.join(day000Dir, '000.xxxxx.ag-test.md'),
+            '# AG-Test template',
         )
 
         await fs.writeJson(path.join(scratchRoot, 'package.json'), {
@@ -133,8 +133,8 @@ test.serial(
             '# Jules task template',
         )
         await fs.writeFile(
-            path.join(day000Dir, '000.xxxxx.gravity.md'),
-            '# Gravity verification template',
+            path.join(day000Dir, '000.xxxxx.ag-test.md'),
+            '# AG-Test verification template',
         )
 
         // Seed existing files in day-003 up to 000
@@ -200,7 +200,7 @@ test.serial(
         )
         t.true(
             await fs.pathExists(
-                path.join(day003Dir, '003.phase-one.gravity.md'),
+                path.join(day003Dir, '003.phase-one.ag-test.md'),
             ),
         )
         t.true(
@@ -208,7 +208,7 @@ test.serial(
         )
         t.true(
             await fs.pathExists(
-                path.join(day003Dir, '005.phase-two.gravity.md'),
+                path.join(day003Dir, '005.phase-two.ag-test.md'),
             ),
         )
 
@@ -234,7 +234,7 @@ test.serial(
         await fs.ensureDir(day003Dir)
 
         // Seed up to index 005
-        await fs.writeFile(path.join(day003Dir, '005.phase-two.gravity.md'), '')
+        await fs.writeFile(path.join(day003Dir, '005.phase-two.ag-test.md'), '')
 
         await fs.writeJson(path.join(scratchRoot, 'package.json'), {
             name: 'test-monorepo',
@@ -278,7 +278,7 @@ test.serial(
         )
         t.true(
             await fs.pathExists(
-                path.join(day003Dir, '008.phase-one.gravity.md'),
+                path.join(day003Dir, '008.phase-one.ag-test.md'),
             ),
         )
     },

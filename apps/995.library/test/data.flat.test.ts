@@ -99,6 +99,8 @@ test.serial(
         )
         await fs.ensureDir(scratchEmpty)
         await fs.ensureDir(path.join(scratchEmpty, 'data', 'flatten'))
+        await fs.ensureDir(path.join(scratchEmpty, 'apps'))
+        await fs.ensureDir(path.join(scratchEmpty, 'packages'))
 
         await fs.writeJson(path.join(scratchEmpty, 'package.json'), {
             name: 'test-monorepo',

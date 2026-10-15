@@ -100,11 +100,149 @@ export const runTerminal = async (
     return cpy
 }
 
-export const editTerminal = (
+export const suspendTerminal = (
     cpy: TerminalModel,
-    _bal: TerminalBit,
+    bal: TerminalBit,
     _ste: State,
 ) => {
+    if (cpy.screen != null) {
+        try {
+            if (typeof cpy.screen.leave === 'function') {
+                cpy.screen.leave()
+            }
+        } catch {
+            // Defensive teardown catch
+        }
+    }
+
+    if (bal?.slv != null) {
+        bal.slv({ trmBit: { idx: 'suspend-terminal' } })
+    }
+    return cpy
+}
+
+export const resumeTerminal = (
+    cpy: TerminalModel,
+    bal: TerminalBit,
+    _ste: State,
+) => {
+    if (cpy.screen != null) {
+        try {
+            if (typeof cpy.screen.enter === 'function') {
+                cpy.screen.enter()
+            }
+            if (typeof cpy.screen.realloc === 'function') {
+                cpy.screen.realloc()
+            }
+            if (typeof cpy.screen.render === 'function') {
+                cpy.screen.render()
+            }
+        } catch {
+            // Defensive restoration catch
+        }
+    }
+
+    if (bal?.slv != null) {
+        bal.slv({ trmBit: { idx: 'resume-terminal' } })
+    }
+    return cpy
+}
+
+export const editTerminal = (
+    cpy: TerminalModel,
+    bal: TerminalBit,
+    _ste: State,
+) => {
+    const { spawnSync } = require('child_process')
+
+    const targetFile = bal?.src || ''
+
+    // Resolve editor with automated test/headless fail-safe
+    const isTestOrNonInteractive =
+        process.env.NODE_ENV === 'test' ||
+        process.env.CI === 'true' ||
+        !process.stdin.isTTY
+
+    const editor =
+        (bal?.dat as any)?.editor ||
+        process.env.VISUAL ||
+        process.env.EDITOR ||
+        (isTestOrNonInteractive
+            ? 'node'
+            : process.platform === 'win32'
+              ? 'notepad'
+              : 'vi')
+
+    const defaultArgs =
+        editor === 'node' && !(bal?.dat as any)?.args
+            ? ['-e', 'process.exit(0)']
+            : [targetFile]
+
+    const args = (bal?.dat as any)?.args || defaultArgs
+    const screen = cpy.screen
+    let suspended = false
+
+    // Step 1: Suspend curses runtime
+    if (screen && typeof screen.leave === 'function') {
+        try {
+            screen.leave()
+            suspended = true
+        } catch {
+            // Non-blocking degradation
+        }
+    }
+
+    let spawnResult: any = null
+    let spawnError: Error | null = null
+
+    try {
+        if (!targetFile) {
+            throw new Error('No target file provided for editTerminal')
+        }
+
+        spawnResult = spawnSync(editor, args, {
+            stdio: 'inherit',
+            shell: true,
+        })
+    } catch (err: any) {
+        spawnError = err
+    } finally {
+        // Step 2: Restore curses runtime unconditionally
+        if (suspended && screen) {
+            try {
+                if (typeof screen.enter === 'function') screen.enter()
+                if (typeof screen.realloc === 'function') screen.realloc()
+                if (typeof screen.render === 'function') screen.render()
+            } catch {
+                // Ignore restoration errors
+            }
+        }
+    }
+
+    // Step 3: Fulfill bit resolver
+    if (bal?.slv != null) {
+        if (spawnError) {
+            bal.slv({
+                trmBit: {
+                    idx: 'edit-terminal-error',
+                    src: spawnError.message,
+                    val: -1,
+                },
+            })
+        } else {
+            const exitCode = spawnResult?.status ?? 0
+            bal.slv({
+                trmBit: {
+                    idx:
+                        exitCode === 0 ? 'edit-terminal' : 'edit-terminal-fail',
+                    src: targetFile,
+                    val: exitCode,
+                    dat: spawnResult,
+                },
+            })
+        }
+    }
+
     return cpy
 }
 

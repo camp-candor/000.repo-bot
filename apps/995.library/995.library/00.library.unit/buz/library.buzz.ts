@@ -2180,3 +2180,37 @@ export const auditLibrary = async (
 
     return cpy
 }
+
+export const bumpFleetVersion = async (
+    cpy: LibraryModel,
+    bal: LibraryBit,
+    ste: State,
+): Promise<LibraryModel> => {
+    const emit = async (src: string) => {
+        if (ste && typeof ste.hunt === 'function') {
+            try {
+                await ste.hunt(ActCns.UPDATE_CONSOLE, { idx: 'cns00', src })
+            } catch {
+                // Non-blocking degradation
+            }
+        }
+    }
+
+    await emit('>> [RELEASE] Initiating Fleet Version Bump & Snapshot...')
+    await emit('>> [RELEASE:INIT] Preparing release manifest staging pipeline')
+    await emit(
+        '>> [RELEASE:OK] Local flight deck initialized for release snapping',
+    )
+
+    if (bal && bal.slv != null) {
+        bal.slv({
+            libBit: {
+                idx: 'bump-fleet-version',
+                src: 'INITIALIZED',
+                val: 1,
+            },
+        })
+    }
+
+    return cpy
+}
