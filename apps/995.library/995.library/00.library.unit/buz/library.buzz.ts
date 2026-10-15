@@ -3,6 +3,10 @@ import type {
     RepoAuditRecord,
     AuditStatus,
 } from '../fce/audit.interface'
+import type {
+    SovereigntyCheckResult,
+    RewireResult,
+} from '../fce/sovereignty.interface'
 import type { LibraryModel } from '../library.model'
 import type LibraryBit from '../fce/library.bit'
 
@@ -1686,6 +1690,155 @@ export const finalizeSagaJournal = async (
     }
 }
 
+export const checkSovereigntyInterlock = async (
+    customManifestPath?: string,
+): Promise<SovereigntyCheckResult> => {
+    const fs = require('fs-extra')
+    const path = require('path')
+
+    let manifestPath = customManifestPath
+    if (!manifestPath) {
+        const candidates = [
+            path.resolve(process.cwd(), 'apps/995.library/data/versions.json'),
+            path.resolve(process.cwd(), 'data/versions.json'),
+        ]
+        manifestPath = candidates.find((p) => fs.existsSync(p))
+    }
+
+    if (!manifestPath || !(await fs.pathExists(manifestPath))) {
+        return {
+            allowed: true,
+            isSovereign: true,
+            activeRepo: path.basename(process.cwd()),
+            sovereignRepo: 'UNKNOWN',
+            allowPeripheryBroadcast: false,
+            reason: 'NO_MANIFEST_PRESENT',
+        }
+    }
+
+    let manifest: any = {}
+    try {
+        manifest = await fs.readJson(manifestPath)
+    } catch {
+        return {
+            allowed: false,
+            isSovereign: false,
+            activeRepo: path.basename(process.cwd()),
+            sovereignRepo: 'UNREADABLE',
+            allowPeripheryBroadcast: false,
+            reason: 'MANIFEST_PARSE_ERROR',
+        }
+    }
+
+    const sovereignRepo = manifest.sovereign_repo || 'camp-candor/995.library'
+    const activeRepo = path.basename(process.cwd())
+    const isSovereign =
+        sovereignRepo.endsWith(activeRepo) || sovereignRepo === activeRepo
+    const allowPeripheryBroadcast = Boolean(manifest.allow_periphery_broadcast)
+
+    const allowed = isSovereign || allowPeripheryBroadcast
+
+    return {
+        allowed,
+        isSovereign,
+        activeRepo,
+        sovereignRepo,
+        allowPeripheryBroadcast,
+        reason: allowed ? undefined : 'PERIPHERY_BROADCAST_FORBIDDEN',
+    }
+}
+
+export const rewireLibrary = async (
+    cpy: LibraryModel,
+    bal: LibraryBit,
+    ste: State,
+): Promise<LibraryModel> => {
+    const fs = require('fs-extra')
+    const path = require('path')
+
+    const targetDir = path.resolve(bal?.src || 'apps/995.library/995.library')
+    const manifestFile = path.join(targetDir, 'BEE.ts')
+
+    if (ste) {
+        await ste.hunt(ActCns.UPDATE_CONSOLE, {
+            idx: 'cns00',
+            src: `>> [HOT RE-WIRE] Purging cache and invalidating modules for: ${targetDir}`,
+        })
+    }
+
+    // 1. Purge Node require.cache for target directory modules
+    const resolvedPrefix = targetDir.replace(/\\/g, '/')
+    for (const modPath in require.cache) {
+        const normalized = modPath.replace(/\\/g, '/')
+        if (normalized.startsWith(resolvedPrefix)) {
+            delete require.cache[modPath]
+        }
+    }
+
+    // 2. Discover active units
+    let unitCount = 0
+    try {
+        if (await fs.pathExists(targetDir)) {
+            const entries = await fs.readdir(targetDir, { withFileTypes: true })
+            unitCount = entries.filter(
+                (e: any) => e.isDirectory() && /^\d{2}\..+\.unit$/.test(e.name),
+            ).length
+        }
+    } catch {}
+
+    // 3. Re-import assembled BEE module into runtime memory if present
+    try {
+        if (await fs.pathExists(manifestFile)) {
+            delete require.cache[require.resolve(manifestFile)]
+            const reloadedBee = require(manifestFile)
+            if (ste && reloadedBee && reloadedBee.reducer) {
+                for (const key in reloadedBee.reducer) {
+                    if (typeof (ste as any).reducedApp === 'function') {
+                        // Dynamically update reducer table
+                        ;(ste as any).reducers = (ste as any).reducers || {}
+                        ;(ste as any).reducers[key] = reloadedBee.reducer[key]
+                    }
+                }
+            }
+        }
+    } catch (err: any) {
+        if (ste) {
+            await ste.hunt(ActCns.UPDATE_CONSOLE, {
+                idx: 'cns00',
+                src: `:: [WARN] Hot module reload notice: ${err.message}`,
+            })
+        }
+    }
+
+    if (ste) {
+        await ste.hunt(ActCns.UPDATE_CONSOLE, {
+            idx: 'cns00',
+            src: `>> [HOT RE-WIRE] [OK] Successfully re-wired ${unitCount} unit slice(s) into active memory.`,
+        })
+    }
+
+    const receipt: RewireResult = {
+        rewired: true,
+        targetDir,
+        unitCount,
+        manifestPath: manifestFile,
+        timestamp: new Date().toISOString(),
+    }
+
+    if (bal?.slv) {
+        bal.slv({
+            libBit: {
+                idx: 'rewire-library',
+                dat: receipt,
+                src: targetDir,
+                val: unitCount,
+            },
+        })
+    }
+
+    return cpy
+}
+
 export const progressLibrarySaga = async (
     cpy: LibraryModel,
     bal: LibraryBit,
@@ -1702,6 +1855,57 @@ export const progressLibrarySaga = async (
     }
 
     targets = targets.filter(Boolean)
+
+    // In progressLibrarySaga, insert sovereignty check before target iteration:
+    const sovereignty = await checkSovereigntyInterlock()
+    if (!sovereignty.allowed) {
+        if (ste) {
+            await ste.hunt(ActCns.UPDATE_CONSOLE, {
+                idx: 'cns00',
+                src: '>> ==============================================================',
+            })
+            await ste.hunt(ActCns.UPDATE_CONSOLE, {
+                idx: 'cns00',
+                src: '>> [SOVEREIGNTY INTERLOCK] BROADCAST DENIED: PERIPHERY NODE LOCKED',
+            })
+            await ste.hunt(ActCns.UPDATE_CONSOLE, {
+                idx: 'cns00',
+                src: `>> Active Repo : ${sovereignty.activeRepo}`,
+            })
+            await ste.hunt(ActCns.UPDATE_CONSOLE, {
+                idx: 'cns00',
+                src: `>> Sovereign   : ${sovereignty.sovereignRepo}`,
+            })
+            await ste.hunt(ActCns.UPDATE_CONSOLE, {
+                idx: 'cns00',
+                src: '>> Fleet broadcasts from periphery nodes are prohibited by design.',
+            })
+            await ste.hunt(ActCns.UPDATE_CONSOLE, {
+                idx: 'cns00',
+                src: '>> ==============================================================',
+            })
+        }
+        if (bal && bal.slv) {
+            bal.slv({
+                libBit: {
+                    idx: 'progress-library-saga-error',
+                    src: 'SOVEREIGNTY_BLOCKED',
+                    val: 0,
+                    dat: sovereignty,
+                },
+            })
+        }
+        return cpy
+    }
+
+    // Filter out self-overwrite targets
+    const currentHarnessDir = path.resolve(process.cwd(), 'apps', '995.library')
+    targets = targets.filter((rawTarget: string) => {
+        const resolved = path.isAbsolute(rawTarget)
+            ? rawTarget
+            : path.resolve(process.cwd(), rawTarget)
+        return resolved !== currentHarnessDir && resolved !== process.cwd()
+    })
 
     if (targets.length === 0) {
         if (ste) {
@@ -1877,6 +2081,22 @@ export const progressLibrarySaga = async (
     }
 
     await finalizeSagaJournal(sagaJournal)
+
+    // Phase 5 In-Memory Hot Re-Wiring Hook
+    for (const completedTarget of sagaJournal.targetsCompleted) {
+        try {
+            await updateLibrary(
+                cpy,
+                { idx: 'update-library', src: completedTarget },
+                ste,
+            )
+            await rewireLibrary(
+                cpy,
+                { idx: 'rewire-library', src: completedTarget },
+                ste,
+            )
+        } catch {}
+    }
 
     if (bal && bal.slv) {
         bal.slv({

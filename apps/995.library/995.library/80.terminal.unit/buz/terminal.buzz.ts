@@ -59,7 +59,26 @@ export const openTerminal = async (
 ) => {
     const blessed = (cpy.blessed = require('blessed'))
     cpy.contrib = require('blessed-contrib')
-    const screen = (cpy.screen = blessed.screen())
+    if (process.stdin.isTTY && typeof process.stdin.setRawMode === 'function') {
+        try {
+            process.stdin.setRawMode(true)
+        } catch {
+            // Non-blocking degradation in test environments
+        }
+    }
+
+    const screen = (cpy.screen = blessed.screen({
+        smartCSR: true,
+        title: '995.LIBRARY // TERMINAL FLIGHT DECK',
+        cursor: {
+            artificial: true,
+            shape: 'line',
+            blink: true,
+            color: 'green',
+        },
+        fullUnicode: false,
+        warnings: false,
+    }))
 
     screen.render()
 
@@ -311,6 +330,22 @@ export const layoutTerminal = (
 
         case Grid.TOP_FULL_IDX:
             fillBit = Grid.TOP_FULL_BIT
+            break
+
+        case Grid.CONTROL_AXIS_IDX:
+            fillBit = Grid.CONTROL_AXIS_BIT
+            break
+
+        case Grid.TELEMETRY_AXIS_IDX:
+            fillBit = Grid.TELEMETRY_AXIS_BIT
+            break
+
+        case Grid.STATUS_HUD_IDX:
+            fillBit = Grid.STATUS_HUD_BIT
+            break
+
+        case Grid.CONSOLE_LOG_IDX:
+            fillBit = Grid.CONSOLE_LOG_BIT
             break
     }
 

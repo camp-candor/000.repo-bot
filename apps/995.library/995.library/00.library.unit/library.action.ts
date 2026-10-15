@@ -1,6 +1,12 @@
 import type { Action } from '../99.core/interface/action.interface'
 import type LibraryBit from './fce/library.bit'
 
+export const OPEN_HUMAN_SAVE_GATE = '[Gate action] Open Human Save Gate'
+export class OpenHumanSaveGate implements Action<LibraryBit> {
+    readonly type = OPEN_HUMAN_SAVE_GATE
+    constructor(public bale: LibraryBit) {}
+}
+
 export const INIT_LIBRARY = '[Library action] Init Library'
 export class InitLibrary implements Action<LibraryBit> {
     readonly type = INIT_LIBRARY
@@ -64,7 +70,7 @@ export class ProgressLibrarySaga implements Action<LibraryBit> {
 export const AUDIT_LIBRARY = '[Audit action] Audit Library'
 export class AuditLibrary implements Action<LibraryBit> {
     readonly type = AUDIT_LIBRARY
-    constructor(public bale: LibraryBit) {}
+    constructor(public bale?: LibraryBit) {}
 }
 
 export const STAGE_LOCKFILE_CONFLICT =
@@ -114,6 +120,18 @@ export class BumpFleetVersion implements Action<LibraryBit> {
     constructor(public bale: LibraryBit) {}
 }
 
+export const CHECK_SOVEREIGNTY = '[Sovereignty action] Check Sovereignty'
+export class CheckSovereignty implements Action<LibraryBit> {
+    readonly type = CHECK_SOVEREIGNTY
+    constructor(public bale: LibraryBit) {}
+}
+
+export const REWIRE_LIBRARY = '[Rewire action] Rewire Library'
+export class RewireLibrary implements Action<LibraryBit> {
+    readonly type = REWIRE_LIBRARY
+    constructor(public bale: LibraryBit) {}
+}
+
 export type Actions =
     | CheckGitWorkingTree
     | ProgressLibrarySaga
@@ -126,6 +144,7 @@ export type Actions =
     | LaunchLibrary
     | FlatLibrary
     | AuditLibrary
+    | OpenHumanSaveGate
     | StageLockfileConflict
     | PurgeLockfileScratchpad
     | ValidateLockfileScratchpad
@@ -133,3 +152,5 @@ export type Actions =
     | PromoteLockfileScratchpad
     | MintLockfileLedger
     | BumpFleetVersion
+    | CheckSovereignty
+    | RewireLibrary

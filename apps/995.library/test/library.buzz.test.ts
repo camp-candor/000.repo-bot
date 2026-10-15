@@ -7,6 +7,7 @@ import { reducer } from '../995.library/00.library.unit/library.reduce'
 import {
     ScanFleet,
     AuditLibrary,
+    AUDIT_LIBRARY,
 } from '../995.library/00.library.unit/library.action'
 import * as ActLib from '../995.library/00.library.unit/library.action'
 import {
@@ -292,3 +293,33 @@ test.serial(
         t.is(typeof result.libBit.val, 'number')
     },
 )
+
+test('AUDIT_LIBRARY -- action class preserves type constant and implements Action<LibraryBit>', (t) => {
+    const slv = sinon.fake()
+    const bal = { src: 'data/versions.json', slv } as any
+    const action = new AuditLibrary(bal)
+
+    t.is(action.type, AUDIT_LIBRARY)
+    t.is(action.type, '[Audit action] Audit Library')
+    t.is(action.bale?.src, 'data/versions.json')
+})
+
+test('auditLibrary -- routes through reducer using clone(model, true) without in-place mutation', async (t) => {
+    const slv = sinon.fake()
+    const bal = { src: 'data/versions.json', slv } as any
+    const action = new AuditLibrary(bal)
+    const initialModel = new LibraryModel()
+
+    const reducedModel = await reducer(initialModel, action, null as any)
+
+    t.truthy(reducedModel, 'Reducer must return state model')
+    t.not(
+        reducedModel,
+        initialModel,
+        'Reducer must return cloned model instance',
+    )
+    t.true(slv.calledOnce, 'bal.slv must be invoked by auditLibrary buzzer')
+
+    const response = slv.firstCall.args[0]
+    t.is(response.libBit.idx, 'audit-library')
+})

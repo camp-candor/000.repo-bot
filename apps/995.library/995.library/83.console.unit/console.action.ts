@@ -43,6 +43,12 @@ export class CreateConsole implements Action<ConsoleBit> {
     constructor(public bale: ConsoleBit) {}
 }
 
+export const FILTER_CONSOLE = '[Filter action] Filter Console'
+export class FilterConsole implements Action<ConsoleBit> {
+    readonly type = FILTER_CONSOLE
+    constructor(public bale: ConsoleBit) {}
+}
+
 export type Actions =
     | InitConsole
     | UpdateConsole
@@ -51,3 +57,4 @@ export type Actions =
     | RemoveConsole
     | DeleteConsole
     | CreateConsole
+    | FilterConsole

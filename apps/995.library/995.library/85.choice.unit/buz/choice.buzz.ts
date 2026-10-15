@@ -127,20 +127,23 @@ export const openChoice = (cpy: ChoiceModel, bal: ChoiceBit, ste: State) => {
     const handleSubmit = () => {
         form.submit()
     }
+    const handleCancel = () => form.cancel()
 
     screen.key(['up', 'k'], handleUp)
     screen.key(['down', 'j'], handleDown)
     screen.key(['enter', 'return'], handleSubmit)
+    screen.key(['escape'], handleCancel)
 
     let cleanedUp = false
     const cleanup = () => {
         if (cleanedUp) return
         cleanedUp = true
 
-        // 1. Explicitly unbind all registered directional navigation keys
+        // 1. Explicitly unbind all registered directional and cancel navigation keys
         screen.unkey(['up', 'k'], handleUp)
         screen.unkey(['down', 'j'], handleDown)
         screen.unkey(['enter', 'return'], handleSubmit)
+        screen.unkey(['escape'], handleCancel)
 
         // 2. Detach and destroy widget subtree to liberate terminal memory
         form.destroy()

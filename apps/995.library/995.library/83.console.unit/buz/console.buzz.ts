@@ -5,6 +5,7 @@ import type ConsoleBit from '../fce/console.bit'
 import type State from '../../99.core/state'
 import type TermBit from '../fce/term.bit'
 import type { TerminalModel } from '../../80.terminal.unit/terminal.model'
+import type { RingBufferQuery } from '../fce/ring-buffer.interface'
 import * as COLOR from '../../val/console-color'
 
 let renderScheduled = false
@@ -86,12 +87,22 @@ export const updateConsole = async (
     bal: ConsoleBit,
     ste: State,
 ) => {
-    const bit = await ste.hunt(ActCns.READ_CONSOLE, {
+    const textPayload = bal?.src || ''
+    const meta = (bal?.dat as any) || {}
+
+    // Ingest into in-memory FIFO Ring Buffer
+    if (textPayload && cpy.ring) {
+        cpy.ring.push(textPayload, {
+            repo: meta.repo,
+            stage: meta.stage,
+            status: meta.status,
+        })
+    }
+
+    const bit = await ste?.hunt(ActCns.READ_CONSOLE, {
         idx: bal?.idx || 'cns00',
     })
     const dat: TermBit | undefined = bit?.cnsBit?.dat
-
-    const textPayload = bal?.src || ''
 
     if (dat && dat.bit) {
         const terminal: TerminalModel | undefined = ste?.value?.terminal
@@ -113,15 +124,88 @@ export const updateConsole = async (
             )
         }
 
-        const lines = wrapConsoleContent(textPayload, maxWidth)
-        for (const line of lines) {
-            dat.bit.log(line)
+        let shouldLog = true
+        if (cpy.activeFilter) {
+            if (cpy.activeFilter.repo && meta.repo !== cpy.activeFilter.repo)
+                shouldLog = false
+            else if (
+                cpy.activeFilter.stage &&
+                meta.stage !== cpy.activeFilter.stage
+            )
+                shouldLog = false
+            else if (
+                cpy.activeFilter.status &&
+                meta.status !== cpy.activeFilter.status
+            )
+                shouldLog = false
+            else if (cpy.activeFilter.query && textPayload) {
+                const clean = textPayload.replace(/[^\x20-\x7E]/g, '').trim()
+                if (
+                    !clean
+                        .toLowerCase()
+                        .includes(cpy.activeFilter.query.toLowerCase())
+                )
+                    shouldLog = false
+            }
+        }
+
+        if (shouldLog) {
+            const lines = wrapConsoleContent(textPayload, maxWidth)
+            for (const line of lines) {
+                dat.bit.log(line)
+            }
+            scheduleScreenRender(terminal)
+        }
+    }
+
+    if (bal?.slv != null) bal.slv({ cnsBit: { idx: 'update-console' } })
+    return cpy
+}
+
+export const filterConsole = async (
+    cpy: ConsoleModel,
+    bal: ConsoleBit,
+    ste: State,
+) => {
+    const filterQuery: RingBufferQuery = (bal?.dat as any) || {}
+    cpy.activeFilter = filterQuery
+
+    const matchedFrames = cpy.ring.filter(filterQuery)
+
+    const bit = await ste?.hunt(ActCns.READ_CONSOLE, {
+        idx: bal?.idx || 'cns00',
+    })
+    const dat: TermBit | undefined = bit?.cnsBit?.dat
+
+    if (dat && dat.bit) {
+        const terminal: TerminalModel | undefined = ste?.value?.terminal
+        const logWidget = dat.bit
+
+        // Clear and reload widget viewport in-memory
+        if (Array.isArray(logWidget.logLines)) {
+            logWidget.logLines = []
+        }
+        if (typeof logWidget.setItems === 'function') {
+            logWidget.setItems([])
+        }
+
+        for (const frame of matchedFrames) {
+            logWidget.log(frame.clean)
         }
 
         scheduleScreenRender(terminal)
     }
 
-    if (bal?.slv != null) bal.slv({ cnsBit: { idx: 'update-console' } })
+    if (bal?.slv != null) {
+        bal.slv({
+            cnsBit: {
+                idx: 'filter-console',
+                val: matchedFrames.length,
+                lst: matchedFrames.map((f) => f.clean),
+            },
+        })
+    }
+
     return cpy
 }
 
@@ -172,7 +256,7 @@ export const readConsole = async (
 ) => {
     const slv = bal?.slv
     const targetIdx = bal?.idx || 'can00'
-    const bit = await ste.hunt(ActCol.READ_COLLECT, {
+    const bit = await ste?.hunt(ActCol.READ_COLLECT, {
         idx: targetIdx,
         bit: ActCns.CREATE_CONSOLE,
     })
@@ -189,14 +273,18 @@ export const writeConsole = async (
     ste: State,
 ) => {
     const targetIdx = bal?.idx || 'cns00'
-    const bit = await ste.hunt(ActCol.WRITE_COLLECT, {
+    const bit = await ste?.hunt(ActCol.WRITE_COLLECT, {
         idx: targetIdx,
         src: bal?.src,
         dat: bal?.dat,
         bit: ActCns.CREATE_CONSOLE,
     })
     const resDat = bit?.clcBit?.dat || bit?.colBit?.dat
-    await ste.hunt(ActCns.UPDATE_CONSOLE, { idx: targetIdx, src: bal?.src })
+    await ste?.hunt(ActCns.UPDATE_CONSOLE, {
+        idx: targetIdx,
+        src: bal?.src,
+        dat: bal?.dat,
+    })
 
     if (bal?.slv != null) {
         bal.slv({ cnsBit: { idx: 'write-console', dat: resDat } })

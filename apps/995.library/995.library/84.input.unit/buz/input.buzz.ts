@@ -22,7 +22,11 @@ export const openInput = (cpy: InputModel, bal: InputBit, ste: State) => {
     if (!screen || !blessed) {
         if (bal?.slv != null) {
             bal.slv({
-                putBit: { idx: 'open-input-headless', src: bal?.src || '' },
+                putBit: {
+                    idx: 'open-input-headless',
+                    src: bal?.src || '',
+                    val: 0,
+                },
             })
         }
         return cpy
@@ -74,19 +78,52 @@ export const openInput = (cpy: InputModel, bal: InputBit, ste: State) => {
         },
     })
 
-    input.focus()
+    let cleanedUp = false
+    const cleanup = () => {
+        if (cleanedUp) return
+        cleanedUp = true
 
-    input.on('submit', (src: string) => {
         try {
+            input.unkey(['escape'], handleCancel)
             title.destroy()
             input.destroy()
             screen.render()
         } catch {
             // Teardown defensive catch
         }
-        if (bal?.slv != null) bal.slv({ putBit: { idx: 'open-input', src } })
+    }
+
+    const handleCancel = () => {
+        cleanup()
+        if (bal?.slv != null) {
+            bal.slv({
+                putBit: {
+                    idx: 'open-input-cancel',
+                    src: '',
+                    val: -1,
+                },
+            })
+        }
+    }
+
+    input.key(['escape'], handleCancel)
+
+    input.on('submit', (src: string) => {
+        const valStr = src || ''
+        cleanup()
+        if (bal?.slv != null) {
+            bal.slv({
+                putBit: {
+                    idx: 'open-input',
+                    src: valStr,
+                    val: 0,
+                },
+            })
+        }
     })
 
+    input.focus()
     screen.render()
+
     return cpy
 }

@@ -5,6 +5,7 @@ import type State from '../../99.core/state'
 
 import * as ActMnu from '../menu.action'
 import * as ActLib from '../../00.library.unit/library.action'
+import { checkSovereigntyInterlock } from '../../00.library.unit/buz/library.buzz'
 import * as ActTrm from '../../80.terminal.unit/terminal.action'
 import * as ActChc from '../../85.choice.unit/choice.action'
 import * as ActGrd from '../../81.grid.unit/grid.action'
@@ -83,6 +84,22 @@ export const fleetMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
         }
 
         case 'BROADCAST 995.LIBRARY TO FLEET': {
+            // Check Sovereignty Interlock prior to prompt
+            const sovereignty =
+                (await (ActLib as any).checkSovereigntyInterlock?.()) ||
+                (await checkSovereigntyInterlock())
+            if (sovereignty && !sovereignty.allowed) {
+                await ste.hunt(ActCns.UPDATE_CONSOLE, {
+                    idx: 'cns00',
+                    src: '>> [SOVEREIGNTY INTERLOCK] Broadcast blocked: Active node is a periphery repository.',
+                })
+                await ste.hunt(ActCns.UPDATE_CONSOLE, {
+                    idx: 'cns00',
+                    src: `>> Designated sovereign: ${sovereignty.sovereignRepo}`,
+                })
+                break
+            }
+
             const scanRes: any = await ste.hunt(ActLib.SCAN_LIBRARY, {})
             const targets: string[] = scanRes?.libBit?.lst || []
 
@@ -101,18 +118,7 @@ export const fleetMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
                 ySpan: 4,
             })
             const confirmChoice = await ste.hunt(ActChc.OPEN_CHOICE, {
-                dat: {
-                    clr0: Color.BLACK,
-                    clr1: Color.YELLOW,
-                    cb: (choice: string) => {
-                        ste.hunt(ActCns.UPDATE_CONSOLE, {
-                            idx: 'cns00',
-                            src: choice.startsWith('[YES]')
-                                ? `>> [CONFIRM] Broadcast to ${targets.length} repositories.`
-                                : '>> [ABORT] Cancel broadcast.',
-                        })
-                    },
-                },
+                dat: { clr0: Color.BLACK, clr1: Color.RED },
                 src: Align.VERTICAL,
                 lst: [
                     '[NO]  CANCEL BROADCAST',
@@ -126,6 +132,13 @@ export const fleetMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
                     lst: targets,
                 })
                 if (sagaRes?.libBit?.idx === 'progress-library-saga-error') {
+                    if (sagaRes.libBit.src === 'SOVEREIGNTY_BLOCKED') {
+                        await ste.hunt(ActCns.UPDATE_CONSOLE, {
+                            idx: 'cns00',
+                            src: '>> [SOVEREIGNTY BLOCKED] Broadcast terminated.',
+                        })
+                        break
+                    }
                     await ste.hunt(ActMnu.SAGA_TORN_STATE_MENU, {
                         dat: sagaRes.libBit.dat,
                     })

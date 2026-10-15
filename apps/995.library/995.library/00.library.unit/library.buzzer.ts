@@ -19,6 +19,9 @@ export { finalizeSagaJournal } from './buz/library.buzz'
 export { auditLibrary } from './buz/library.buzz'
 export { bumpFleetVersion } from './buz/library.buzz'
 export { resolveRepoRoot } from './buz/library.buzz'
+export { resolveFleetRoot } from './buz/library.buzz'
+export { checkSovereigntyInterlock } from './buz/library.buzz'
+export { rewireLibrary } from './buz/library.buzz'
 export {
     analyzeManifestDivergence,
     synthesizeConflictScratchpad,
@@ -47,3 +50,5 @@ export {
     promoteLockfileScratchpad,
     mintLockfileLedger,
 } from './buz/promotion.buzz'
+
+export { openHumanSaveGate } from './buz/human-save-gate.buzz'

@@ -31,6 +31,9 @@ export function reducer(
         case Act.CREATE_CONSOLE:
             return Buzz.createConsole(clone(model, true), act.bale, state)
 
+        case Act.FILTER_CONSOLE:
+            return Buzz.filterConsole(clone(model, true), act.bale, state)
+
         default:
             return model
     }
