@@ -15,7 +15,9 @@
     "scripts": {
         "//__ DEV & RUNNER _________________________": "",
         "dev": "npm run dev --workspace=@camp_candor/995.library",
-        "tui": "npx tsx apps/995.library/run.ts -t pivot",
+        "tui": "npx tsx apps/995.library/run.ts -t repobot",
+        "tui:pivot": "npx tsx apps/995.library/run.ts -t pivot",
+        "tui:repobot": "npx tsx apps/995.library/run.ts -t repobot",
         "worker:dev": "npm run dev --workspace=@camp_candor/agent",
         "//__ BUILD & TYPES ________________________": "",
         "build": "npm run build --workspaces --if-present",

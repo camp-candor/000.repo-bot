@@ -4,6 +4,11 @@
     "private": true,
     "type": "module",
     "main": "BEE.ts",
+    "terminal": {
+        "globalKey": "REPOBOT",
+        "menuTitle": "REPOBOT MENU",
+        "menuDesc": "Open repo-bot edge coordinator & telemetry cockpit."
+    },
     "exports": {
         ".": {
             "types": "./BEE.ts",
