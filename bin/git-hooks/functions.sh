@@ -14,7 +14,7 @@ get_package_manager() {
     node -e '
         const fs = require("node:fs")
         const packageJson = JSON.parse(fs.readFileSync(process.argv[1], "utf8"))
-        const packageManager = packageJson.packageManager?.split("@")[0] ?? "pnpm"
+        const packageManager = packageJson.packageManager?.split("@")[0] ?? "npm"
 
         console.log(packageManager)
     ' "$repo_root/package.json"

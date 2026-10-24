@@ -39,6 +39,7 @@
         "audit:staging": "npm run test:audit:staging --workspace=@camp_candor/agent",
         "verify:local": "start-server-and-test worker:dev http://127.0.0.1:8787 audit:local",
         "//__ CODE QUALITY & HYGIENE _______________": "",
+        "prepare": "node -e \"try { require('child_process').execSync('git config core.hooksPath .husky/_'); } catch {}\"",
         "fix": "npm run fix:all",
         "fix:all": "npm run prettier:fix && npm run lint:fix",
         "lint:check": "eslint .",
