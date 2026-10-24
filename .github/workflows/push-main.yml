@@ -1,0 +1,48 @@
+name: Main CI
+
+on:
+    push:
+        branches:
+            - main
+    workflow_dispatch:
+
+concurrency:
+    group: push-main-${{ github.ref }}
+    cancel-in-progress: false
+
+permissions:
+    contents: read
+
+env:
+    HUSKY: 0
+
+jobs:
+    ci:
+        name: build, types & test gauntlet
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v4
+
+            - name: Setup Node
+              uses: actions/setup-node@v4
+              with:
+                  node-version: '20'
+                  cache: npm
+
+            - name: Install dependencies
+              run: npm ci
+
+            - name: Verify Types across Project References
+              run: npm run check:types
+
+            - name: Execute Full Monorepo Test Gauntlet
+              run: npm test
+
+            - name: Assert Immutable Runner Boundary
+              run: |
+                  if [ -n "$(git status -s apps/995.library/995.library/)" ]; then
+                    echo "::error::IMMUTABLE HARNESS BOUNDARY BREACHED in apps/995.library/995.library/"
+                    git status -s apps/995.library/995.library/
+                    exit 1
+                  fi

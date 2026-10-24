@@ -1,0 +1,5 @@
+export const SCREEN = 'screen-visage'
+export const MOUNT_FULL = 'mount-visage-full'
+export const MOUNT_PART = 'mount-visage-part'
+export const MOUNT_HEIGHT = 'mount-visage-height'
+export const MOUNT_WIDTH = 'mount-visage-width'

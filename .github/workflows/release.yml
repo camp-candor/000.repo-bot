@@ -1,0 +1,62 @@
+name: Publish GitHub Release
+
+on:
+    push:
+        tags:
+            - 'v*.*.*'
+
+concurrency:
+    group: release-${{ github.ref }}
+    cancel-in-progress: false
+
+permissions:
+    contents: write
+
+env:
+    HUSKY: 0
+
+jobs:
+    release:
+        name: verify and publish release
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout Full Repository History
+              uses: actions/checkout@v4
+              with:
+                  fetch-depth: 0
+
+            - name: Setup Node Runtime
+              uses: actions/setup-node@v4
+              with:
+                  node-version: '20'
+                  cache: npm
+
+            - name: Install Monorepo Dependencies
+              run: npm ci
+
+            - name: Verify Static TypeScript Project References
+              run: npm run check:types
+
+            - name: Execute Full Monorepo Test Gauntlet
+              run: npm test
+
+            - name: Assert Immutable Runner Boundary
+              run: |
+                  if [ -n "$(git status -s apps/995.library/995.library/)" ]; then
+                    echo "::error::IMMUTABLE HARNESS BOUNDARY BREACHED in apps/995.library/995.library/"
+                    git status -s apps/995.library/995.library/
+                    exit 1
+                  fi
+
+            - name: Mint and Publish GitHub Release
+              env:
+                  # Evaluates custom repository secret GH_TOKEN first, falling back to built-in GITHUB_TOKEN
+                  GH_TOKEN: ${{ secrets.GH_TOKEN || secrets.GITHUB_TOKEN }}
+                  GITHUB_TOKEN: ${{ secrets.GH_TOKEN || secrets.GITHUB_TOKEN }}
+              run: |
+                  TAG_NAME="${{ github.ref_name }}"
+                  echo "Publishing automated GitHub Release for ${TAG_NAME}..."
+                  gh release create "${TAG_NAME}" \
+                    --title "${TAG_NAME}: Edge DevOps Control Plane & Autonomous Agent Boilerplate" \
+                    --generate-notes \
+                    --latest

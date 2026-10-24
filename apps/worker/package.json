@@ -1,0 +1,26 @@
+{
+    "name": "@camp_candor/agent",
+    "version": "0.1.0",
+    "private": true,
+    "type": "module",
+    "scripts": {
+        "deploy": "wrangler deploy",
+        "dev": "wrangler dev",
+        "start": "wrangler dev",
+        "cf-typegen": "wrangler types",
+        "test": "vitest -c vitest.config.ts",
+        "test:audit:local": "vitest run -c vitest.audit.config.ts",
+        "test:audit:staging": "vitest run -c vitest.audit.config.ts"
+    },
+    "dependencies": {
+        "@clerk/backend": "3.0.1",
+        "@funtuantw/pi-agent-cf": "latest",
+        "@sinclair/typebox": "latest",
+        "hono": "4.12.9"
+    },
+    "devDependencies": {
+        "@cloudflare/workers-types": "4.20260108.0",
+        "typescript": "^5.5.2",
+        "wrangler": "4.58.0"
+    }
+}

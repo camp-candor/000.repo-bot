@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+set -eu
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+. "$REPO_ROOT/bin/git-hooks/functions.sh"
+
+show_hook_section 'Pre-commit hook'
+check_protected_branch "commit"
+validate_branch_name
+check_staged_filenames
+run_lint_staged_if_needed
+
+run_snail_sh spacer 1
+run_snail_sh status_pair 'Protected branch check' passed success
+run_snail_sh status_pair 'Branch name' "$(get_current_branch)" success
+run_snail_sh status_pair 'Staged filenames' passed success
+run_snail_sh success 'Pre-commit checks passed.'

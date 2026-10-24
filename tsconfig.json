@@ -1,0 +1,28 @@
+{
+    "compilerOptions": {
+        "target": "ES2022",
+        "module": "NodeNext",
+        "moduleResolution": "NodeNext",
+
+        // STRICTNESS LEVEL 100
+        "strict": true,
+        "noImplicitAny": true,
+        "strictNullChecks": true,
+
+        "noUnusedLocals": true,
+        "noUnusedParameters": true,
+        "noFallthroughCasesInSwitch": true,
+
+        "skipLibCheck": true,
+        "baseUrl": ".",
+        "paths": {
+            "@camp_candor/100.agent": ["./packages/100.agent/BEE.ts"]
+        }
+    },
+    "files": [],
+    "exclude": ["node_modules", "dist"],
+    "references": [
+        { "path": "./packages/100.agent" },
+        { "path": "./apps/worker" }
+    ]
+}

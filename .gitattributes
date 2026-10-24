@@ -1,0 +1,16 @@
+# ==============================================================================
+# :: CROSS-PLATFORM NORMALIZATION & CHECKSUM INTEGRITY
+# ==============================================================================
+* text=auto eol=lf
+
+# ==============================================================================
+# :: UPSTREAM MERGE SHIELDS (The 'ours' driver)
+# ==============================================================================
+# Protects downstream sovereign customizations and local configuration
+# when pulling updates from the upstream template repository.
+wrangler.jsonc merge=ours
+README.md merge=ours
+AGENTS.md merge=ours
+.env merge=ours
+apps/worker/wrangler.jsonc merge=ours
+apps/worker/src/tools.custom.ts merge=ours

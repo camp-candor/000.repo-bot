@@ -1,0 +1,8 @@
+export const TIME = 'TIME'
+
+export const EARTH = 'EARTH'
+export const SOWER = 'SOWER'
+export const SHADE = 'SHADE'
+export const SOLID = 'SOLID'
+export const MARKET = 'MARKET'
+export const LIBRARY = 'LIBRARY'

@@ -1,0 +1,13 @@
+{
+    "extends": "../tsconfig-base.json",
+    "compilerOptions": {
+        "outDir": "../dist/995.library",
+        "composite": true,
+        "skipLibCheck": true,
+        "esModuleInterop": true,
+        "allowSyntheticDefaultImports": true
+    },
+
+    "include": ["**/*"],
+    "exclude": ["**/node_modules"]
+}

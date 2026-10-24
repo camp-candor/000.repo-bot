@@ -1,0 +1,84 @@
+name: Bump Version & Dispatch Release
+
+on:
+    workflow_dispatch:
+        inputs:
+            bump_type:
+                description: 'SemVer release increment level'
+                required: true
+                default: 'patch'
+                type: choice
+                options:
+                    - patch
+                    - minor
+                    - major
+
+concurrency:
+    group: bump-version-${{ github.ref }}
+    cancel-in-progress: false
+
+permissions:
+    contents: write
+
+env:
+    HUSKY: 0
+
+jobs:
+    bump:
+        name: validate and bump root version
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout Repository with Tags
+              uses: actions/checkout@v4
+              with:
+                  fetch-depth: 0
+                  token: ${{ secrets.GH_TOKEN || secrets.GITHUB_TOKEN }}
+
+            - name: Setup Node Runtime
+              uses: actions/setup-node@v4
+              with:
+                  node-version: '20'
+                  cache: npm
+
+            - name: Install Monorepo Dependencies
+              run: npm ci
+
+            - name: Pre-Bump Static TypeScript Compilation
+              run: npm run check:types
+
+            - name: Pre-Bump Monorepo Test Gauntlet
+              run: npm test
+
+            - name: Assert Pre-Bump Runner Boundary
+              run: npm run check:boundary
+
+            - name: Configure Git Committer Identity
+              run: |
+                  git config user.name "github-actions[bot]"
+                  git config user.email "github-actions[bot]@users.noreply.github.com"
+
+            - name: Execute Root-Only Version Bump
+              run: |
+                  echo ">> Executing root-only SemVer bump: ${{ inputs.bump_type }}..."
+                  # --no-workspaces guarantees child packages are NOT mutated
+                  npm version ${{ inputs.bump_type }} --no-workspaces -m "chore(release): v%s"
+                  NEW_TAG=$(node -e "console.log('v' + require('./package.json').version)")
+                  echo ">> Successfully created version tag: ${NEW_TAG}"
+
+            - name: Assert Boundary Integrity Post-Bump
+              run: |
+                  echo ">> Verifying child workspaces were not modified..."
+                  if [ -n "$(git status -s apps/ packages/)" ]; then
+                    echo "::error::CRITICAL BREACH: Child workspaces mutated during version bump!"
+                    git status -s apps/ packages/
+                    exit 1
+                  fi
+                  npm run check:boundary
+
+            - name: Push Commit and Tag to Remote Trunk
+              env:
+                  GH_TOKEN: ${{ secrets.GH_TOKEN || secrets.GITHUB_TOKEN }}
+              run: |
+                  echo ">> Pushing bump commit and tag to origin main..."
+                  git push origin main --follow-tags
+                  echo ">> [OK] Tag pushed successfully. Companion release.yml workflow will handle publication."

@@ -1,0 +1,30 @@
+{
+  "compilerOptions": {
+    //  "declaration": true,
+    "module": "commonjs",
+    "target": "es2018",
+    "incremental": true,
+    "isolatedModules": true,
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+    "noImplicitAny": false,
+    "moduleResolution": "node",
+    "resolveJsonModule": false,
+    "sourceMap": true,
+    "skipLibCheck": false,
+    "outDir": "dist",
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./src/*"],
+      "@act/*": ["./act/*"],
+      "@earth/*": ["./000.earth/*"],
+      "@fonts/*": ["./fonts/*"],
+      "@queue/*": ["./queue/*"],
+      "@robot/*": ["./robot/*"],
+      "@ui/*": ["./ui/*"],
+      "@core/*": ["./core/*"],
+      "@content/*": ["./content/*"],
+      "@page/*": ["./src/page/*"]
+    }
+  }
+}

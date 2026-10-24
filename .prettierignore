@@ -1,0 +1,28 @@
+# ==============================================================================
+# :: PRETTIER WORKSPACE BOUNDARIES & HYGIENE IGNORES
+# ==============================================================================
+
+# Dependencies & Build Outputs
+node_modules/
+dist/
+coverage/
+.wrangler/
+.mf/
+*.tsbuildinfo
+package-lock.json
+
+# Immutable Upstream Terminal Harness
+apps/995.library/
+!apps/995.library/run.ts
+!apps/995.library/test/
+
+# Runtime Data & Telemetry Logs
+data/
+
+# Un-migrated Legacy Workspaces (Quarantined until respective epics)
+packages/133.cloudflare/
+packages/104.hotkey/
+packages/105.gemini/
+packages/821.repobot/
+apps/sower/
+vcode/

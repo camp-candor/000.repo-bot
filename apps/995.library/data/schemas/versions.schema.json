@@ -1,0 +1,93 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "FleetVersionsManifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "$schema",
+    "schema_version",
+    "library_version",
+    "updated_at",
+    "sovereign_repo",
+    "allow_periphery_broadcast",
+    "shared_pivots",
+    "repositories"
+  ],
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "schema_version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "library_version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+    },
+    "updated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "sovereign_repo": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+$"
+    },
+    "allow_periphery_broadcast": {
+      "type": "boolean"
+    },
+    "shared_pivots": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+      }
+    },
+    "repositories": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "path",
+          "pinned_sha",
+          "required_contract_version",
+          "expected_branch",
+          "status"
+        ],
+        "properties": {
+          "cluster": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "pinned_sha": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{40}$"
+          },
+          "required_contract_version": {
+            "type": "string",
+            "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+          },
+          "expected_branch": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["LOCKED", "UNMANAGED", "STAGED"]
+          },
+          "dormant_by_design": {
+            "type": "boolean"
+          },
+          "boundary_dependencies": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    }
+  }
+}

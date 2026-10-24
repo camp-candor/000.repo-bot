@@ -1,0 +1,52 @@
+{
+    "$schema": "node_modules/wrangler/config-schema.json",
+    "name": "repo-bot-worker",
+    "main": "src/index.ts",
+    "compatibility_date": "2026-01-07",
+    "compatibility_flags": ["nodejs_compat"],
+    "observability": {
+        "enabled": true,
+    },
+    "ai": {
+        "binding": "AI",
+    },
+    "durable_objects": {
+        "bindings": [
+            {
+                "name": "AGENT_SESSION",
+                "class_name": "AgentSessionDO",
+            },
+        ],
+    },
+    "migrations": [
+        {
+            "tag": "v1",
+            "new_sqlite_classes": ["AgentSessionDO"],
+        },
+    ],
+    "alias": {
+        "ajv": "../../node_modules/@funtuantw/pi-agent-cf/stubs/ajv.js",
+    },
+    "env": {
+        "staging": {
+            "name": "repo-bot-staging",
+            "ai": {
+                "binding": "AI",
+            },
+            "durable_objects": {
+                "bindings": [
+                    {
+                        "name": "AGENT_SESSION",
+                        "class_name": "AgentSessionDO",
+                    },
+                ],
+            },
+            "migrations": [
+                {
+                    "tag": "v1",
+                    "new_sqlite_classes": ["AgentSessionDO"],
+                },
+            ],
+        },
+    },
+}

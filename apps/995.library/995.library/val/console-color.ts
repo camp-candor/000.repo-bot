@@ -1,0 +1,8 @@
+export const BLACK = 'black'
+export const RED = 'red'
+export const GREEN = 'green'
+export const YELLOW = 'yellow'
+export const MAGENTA = 'magenta'
+export const CYAN = 'cyan'
+export const WHITE = 'white'
+export const BLUE = 'blue'

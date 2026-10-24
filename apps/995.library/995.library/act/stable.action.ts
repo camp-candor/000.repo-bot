@@ -1,0 +1,7 @@
+export const INIT_STABLE = '[Stable action] Init Stable'
+export const UPDATE_STABLE = '[Stable action] Update Stable'
+export const OPEN_STABLE = '[Open action] Open Stable'
+export const WRITE_STABLE = '[Write action] Write Stable'
+export const TEST_STABLE = '[Test action] Test Stable'
+export const CLOSE_STABLE = '[Close action] Close Stable'
+export const READY_STABLE = '[Ready action] Ready Stable'

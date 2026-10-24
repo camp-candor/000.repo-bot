@@ -1,0 +1,50 @@
+name: PR Checks
+
+on:
+    pull_request:
+        branches:
+            - main
+    workflow_dispatch:
+
+concurrency:
+    group: pr-${{ github.event.pull_request.number || github.ref_name }}
+    cancel-in-progress: true
+
+permissions:
+    contents: read
+
+env:
+    HUSKY: 0
+
+jobs:
+    checks:
+        name: build, types & test gauntlet
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v4
+              with:
+                  ref: ${{ github.event_name == 'pull_request' && format('refs/pull/{0}/merge', github.event.pull_request.number) || github.ref }}
+
+            - name: Setup Node
+              uses: actions/setup-node@v4
+              with:
+                  node-version: '20'
+                  cache: npm
+
+            - name: Install dependencies
+              run: npm ci
+
+            - name: Verify Types across Project References
+              run: npm run check:types
+
+            - name: Execute Full Monorepo Test Gauntlet
+              run: npm test
+
+            - name: Assert Immutable Runner Boundary
+              run: |
+                  if [ -n "$(git status -s apps/995.library/995.library/)" ]; then
+                    echo "::error::IMMUTABLE HARNESS BOUNDARY BREACHED in apps/995.library/995.library/"
+                    git status -s apps/995.library/995.library/
+                    exit 1
+                  fi
