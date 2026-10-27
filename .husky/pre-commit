@@ -8,6 +8,7 @@ show_hook_section 'Pre-commit hook'
 check_protected_branch "commit"
 validate_branch_name
 check_staged_filenames
+run_sync_package_lock_if_needed
 run_lint_staged_if_needed
 
 run_snail_sh spacer 1

@@ -152,6 +152,44 @@ check_staged_filenames() {
     return 1
 }
 
+run_sync_package_lock_if_needed() {
+    staged_packages="$(
+        git diff --cached --name-only \
+            | grep -E '(^|/)package\.json$|^packages/|^apps/' || true
+    )"
+    lock_modified="$(
+        git diff --name-only package-lock.json 2>/dev/null || true
+    )"
+
+    if [ -z "$staged_packages" ] && [ -z "$lock_modified" ]; then
+        return
+    fi
+
+    show_hook_section 'Syncing package-lock.json'
+    package_manager="$(get_package_manager)"
+
+    case "$package_manager" in
+        npm)
+            npm install --package-lock-only --no-audit --ignore-scripts
+            ;;
+        pnpm)
+            pnpm install --lockfile-only
+            ;;
+        *)
+            ;;
+    esac
+
+    if ! git diff --quiet package-lock.json 2>/dev/null; then
+        git add package-lock.json
+        run_snail_sh status_pair 'package-lock.json' 'synchronized and staged' success
+    elif [ -n "$lock_modified" ]; then
+        git add package-lock.json
+        run_snail_sh status_pair 'package-lock.json' 'staged unstaged changes' success
+    else
+        run_snail_sh status_pair 'package-lock.json' 'already in sync' success
+    fi
+}
+
 run_lint_staged_if_needed() {
     if [ "${SCOPE_COMMIT_MANAGES_LINT_STAGED:-0}" = '1' ]; then
         run_snail_sh spacer 1
@@ -179,6 +217,7 @@ print_usage() {
         '  check_protected_branch <commit|push>' \
         '  validate_branch_name' \
         '  check_staged_filenames' \
+        '  run_sync_package_lock_if_needed' \
         '  run_lint_staged_if_needed'
 }
 
@@ -214,7 +253,7 @@ run_git_hook_function() {
             fi
             check_protected_branch "$1"
             ;;
-        validate_branch_name | check_staged_filenames | run_lint_staged_if_needed | show_completed_commit)
+        validate_branch_name | check_staged_filenames | run_sync_package_lock_if_needed | run_lint_staged_if_needed | show_completed_commit)
             if [ "$#" -ne 0 ]; then
                 print_usage
                 return 2
