@@ -738,6 +738,11 @@ export const flatLibrary = async (
         '.git',
         '.wrangler',
         '.astro',
+        '__snapshots__',
+        'public',
+    ])
+    const IGNORED_FILES = new Set([
+        'worker-configuration.d.ts',
     ])
     const CODE_EXTS = new Set([
         '.ts',
@@ -773,6 +778,8 @@ export const flatLibrary = async (
         '.mp3',
         '.pdf',
         '.zip',
+        '.svg',
+        '.map',
     ])
 
     async function getFilePaths(dir: string): Promise<string[]> {
@@ -793,6 +800,9 @@ export const flatLibrary = async (
                 filePaths.push(...subFiles)
             } else if (entry.isFile()) {
                 if (entry.name.toLowerCase() === 'readme.md') {
+                    continue
+                }
+                if (IGNORED_FILES.has(entry.name.toLowerCase())) {
                     continue
                 }
                 filePaths.push(path.join(dir, entry.name))
@@ -837,6 +847,7 @@ export const flatLibrary = async (
 
                             if (entry.isDirectory()) {
                                 if (IGNORED_DIRS.has(entry.name)) continue
+                                if (entry.name === 'assets') continue
                                 await harvestSrcRecursively(fullPath)
                             } else if (entry.isFile()) {
                                 const base = entry.name.toLowerCase()
@@ -846,7 +857,14 @@ export const flatLibrary = async (
                                 if (base === '.env' || base.startsWith('.env.') || base.startsWith('.dev.vars')) {
                                     continue
                                 }
-                                if (BINARY_EXTS.has(ext)) {
+                                if (IGNORED_FILES.has(base)) {
+                                    continue
+                                }
+                                if (
+                                    BINARY_EXTS.has(ext) ||
+                                    base.endsWith('.map') ||
+                                    ext === '.snap'
+                                ) {
                                     continue
                                 }
 
@@ -910,6 +928,8 @@ export const flatLibrary = async (
         const standardCodeFiles = allScannedFiles.filter((file) => {
             const ext = path.extname(file)
             const filename = path.basename(file)
+
+            if (IGNORED_FILES.has(filename.toLowerCase())) return false
 
             const isAllowedFile =
                 ALLOWED_FILES.has(filename) || filename.startsWith('tsconfig')

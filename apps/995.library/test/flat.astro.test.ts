@@ -37,6 +37,31 @@ test.serial(
         await fs.writeFile(path.join(astroSrcDir, '.env.production'), 'PROD_DB=super_secret')
         await fs.writeFile(path.join(astroSrcDir, '.dev.vars'), 'AI_GATEWAY=secret_token')
         await fs.writeFile(path.join(astroSrcDir, 'logo.png'), 'FAKE_BINARY_PNG')
+        await fs.writeFile(path.join(astroSrcDir, 'icon.svg'), '<svg>vector_content</svg>')
+        await fs.writeFile(path.join(astroSrcDir, 'bundle.js.map'), '{"version":3,"sources":[]}')
+
+        // Excluded src/assets/ directory
+        const astroAssetsDir = path.join(astroSrcDir, 'assets')
+        await fs.ensureDir(astroAssetsDir)
+        await fs.writeFile(path.join(astroAssetsDir, 'hero.svg'), '<svg>hero_vector</svg>')
+        await fs.writeFile(path.join(astroAssetsDir, 'notes.txt'), 'ASSET_NOTES')
+
+        // Excluded __snapshots__ directory
+        const astroSnapDir = path.join(astroSrcDir, '__snapshots__')
+        await fs.ensureDir(astroSnapDir)
+        await fs.writeFile(path.join(astroSnapDir, 'index.test.ts.snap'), 'SNAPSHOT_DATA_LEAK')
+
+        // Excluded src/content/ directory
+        const astroContentDir = path.join(astroSrcDir, 'content')
+        await fs.ensureDir(astroContentDir)
+        await fs.writeFile(path.join(astroContentDir, 'post-01.md'), '# Heavy Editorial Post\nAll about markdown prose')
+        await fs.writeFile(path.join(astroContentDir, 'docs.mdx'), '# Documentation Article')
+
+        // Excluded public/ directory and worker-configuration.d.ts in workspace root
+        const astroPublicDir = path.join(astroAppDir, 'public')
+        await fs.ensureDir(astroPublicDir)
+        await fs.writeFile(path.join(astroPublicDir, 'bundle.js'), 'PUBLIC_BUNDLE_LEAK')
+        await fs.writeFile(path.join(astroAppDir, 'worker-configuration.d.ts'), 'WORKER_CONFIG_TYPINGS_LEAK')
 
         // Build cache inside .astro/ that must NEVER be ingested
         await fs.writeFile(path.join(astroDotDir, 'astro-types.d.ts'), 'export type AstroCache = true;')
@@ -81,6 +106,9 @@ test.serial(
         t.true(flattenedContent.includes('// ----- SOURCE: apps/000.series-dashboard/src/index.astro -----'))
         t.true(flattenedContent.includes('// ----- SOURCE: apps/000.series-dashboard/src/styles.css -----'))
         t.true(flattenedContent.includes('// ----- SOURCE: apps/000.series-dashboard/src/manifest.json -----'))
+        t.true(flattenedContent.includes('// ----- SOURCE: apps/000.series-dashboard/src/content/post-01.md -----'))
+        t.true(flattenedContent.includes('Heavy Editorial Post'))
+        t.true(flattenedContent.includes('Documentation Article'))
 
         // Negative control: Assert secrets were quarantined
         t.false(flattenedContent.includes('SECRET_KEY=leak_attempt'), 'Must NOT contain .env secrets')
@@ -90,6 +118,21 @@ test.serial(
         // Negative control: Assert binaries and .astro cache were rejected
         t.false(flattenedContent.includes('FAKE_BINARY_PNG'), 'Must NOT contain binary file content')
         t.false(flattenedContent.includes('astro-types.d.ts'), 'Must NOT harvest .astro internal build cache')
+
+        // Negative control: Assert .svg, src/assets/, __snapshots__, and *.map were rejected
+        t.false(flattenedContent.includes('icon.svg'), 'Must NOT contain .svg files')
+        t.false(flattenedContent.includes('vector_content'), 'Must NOT contain .svg content')
+        t.false(flattenedContent.includes('apps/000.series-dashboard/src/assets/'), 'Must NOT contain src/assets/ files')
+        t.false(flattenedContent.includes('ASSET_NOTES'), 'Must NOT contain src/assets/ content')
+        t.false(flattenedContent.includes('__snapshots__'), 'Must NOT contain __snapshots__ directory')
+        t.false(flattenedContent.includes('SNAPSHOT_DATA_LEAK'), 'Must NOT contain snapshot file content')
+        t.false(flattenedContent.includes('bundle.js.map'), 'Must NOT contain *.map files')
+
+        // Negative control: Assert public/ directory and worker-configuration.d.ts were rejected
+        t.false(flattenedContent.includes('apps/000.series-dashboard/public/'), 'Must NOT contain public/ directory')
+        t.false(flattenedContent.includes('PUBLIC_BUNDLE_LEAK'), 'Must NOT contain public/ bundle content')
+        t.false(flattenedContent.includes('worker-configuration.d.ts'), 'Must NOT contain worker-configuration.d.ts')
+        t.false(flattenedContent.includes('WORKER_CONFIG_TYPINGS_LEAK'), 'Must NOT contain worker configuration content')
 
         // Telemetry check
         t.true(loggedLines.some((line) => line.includes('>> [ASTRO] Detected Astro workspace in apps/000.series-dashboard')))
