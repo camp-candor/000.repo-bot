@@ -51,6 +51,16 @@ Before writing code, orient yourself in this order:
   and is **STRICTLY IMMUTABLE**. Never add, modify, or delete models, reducers,
   actions, buzzers, or UI components inside `apps/995.library/995.library/`.
   `apps/995.library/run.ts` is the **only permitted modification path**.
+- **BLESSED 12x12 COCKPIT DUAL-PANE TOPOLOGY INVARIANT:** The 12-column terminal
+  grid allocation is immutable. The **left 4 columns**
+  (`{ x: 0, y: 4, xSpan: 4, ySpan: 8 }`) must house the 6 interactive choices
+  bound with explicit grid net data (`net: gridChoice?.grdBit?.dat`), and the
+  **right 8 columns** (`{ x: 4, y: 0, xSpan: 8, ySpan: 12 }`) must mount the
+  information pane via `[Write action] Write Console` (`cns00`) streaming live
+  telemetry and focus tooltips. The Coding Agent is **STRICTLY FORBIDDEN** from
+  collapsing this dual-pane layout, removing the `cns00` information pane,
+  omitting `WRITE_CONSOLE`, omitting choice `net` mesh binding, or reverting to
+  generic placeholder menus.
 - **Fail-Safe Exit:** If compilation, types, lint, tests, or the boundary check
   fail and cannot be remediated within scope, halt and emit `CONFLICT_BLOCKED`
   with diagnostic traces.
@@ -208,6 +218,19 @@ machine:
   terminal emulators. Verify with:
   `git grep -P "[\x{1F300}-\x{1FAD6}]" packages/ apps/worker/src apps/995.library/run.ts`
   (must return 0 matches).
+- **Blessed 12x12 Cockpit Dual-Pane Layout Standard:**
+  Every package flight deck mounted into the Blessed alternate screen buffer
+  (`apps/995.library`) must maintain the dual-pane topology:
+  1. **Left Control Pane (Columns 0-4 / 33% width, Rows 4-12):** Houses exactly the
+     6 interactive domain choices, rendered via `[Open action] Open Choice` with
+     mandatory `net: gridChoice?.grdBit?.dat` binding. Never omit `net` mesh anchoring
+     (doing so causes choice rendering to blow out to 100% full-screen width, obliterating the layout).
+  2. **Right Information & Telemetry Pane (Columns 4-12 / 67% width, Rows 0-12):**
+     Must mount `cns00` via `[Grid action] Update Grid` `{ x: 4, y: 0, xSpan: 8, ySpan: 12 }`
+     AND `[Write action] Write Console` `{ idx: 'cns00', dat: { net: gridConsole?.grdBit?.dat, src: 'alligator0' } }`.
+     All telemetry, boot banners, and live item-focus descriptions stream exclusively into `cns00`.
+  3. **Coding Agent Prohibition:** The Coding Agent is **NEVER** to alter, collapse, or remove
+     this dual-pane layout, omit `WRITE_CONSOLE`, or strip the information panel from the TUI.
 
 ---
 
