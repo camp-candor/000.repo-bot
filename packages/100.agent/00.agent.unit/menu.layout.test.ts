@@ -41,7 +41,9 @@ describe('100.agent 98.menu.unit Blessed Cockpit Dual-Pane Topology', () => {
         ;(global as any).LIBRARY = mockLibrary
 
         const model = new MenuModel()
-        await initMenu(model, { idx: 'test-init' }, { hunt: async () => {} } as any)
+        await initMenu(model, { idx: 'test-init' }, {
+            hunt: async () => {},
+        } as any)
 
         // 1. Grid allocation for information pane must cover columns 4-12 (x: 4, xSpan: 8, rows 0-12)
         const gridConsoleAction = dispatched.find(
