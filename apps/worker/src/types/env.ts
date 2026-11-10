@@ -1,5 +1,6 @@
 import type { D1Database, DurableObjectNamespace } from '@cloudflare/workers-types'
 import type { DiffBoundaryEvaluationResult } from '../audit/diffBoundarySentinel.js'
+import type { WhitelistConformanceResult } from '../audit/whitelistGuard.js'
 
 export interface Env {
   readonly GITHUB_WEBHOOK_SECRET?: string
@@ -9,4 +10,5 @@ export interface Env {
   readonly AGENT_SESSION?: DurableObjectNamespace
   readonly REPO_BOT_DO?: DurableObjectNamespace
   readonly LAST_BOUNDARY_AUDIT?: DiffBoundaryEvaluationResult
+  readonly LAST_WHITELIST_AUDIT?: WhitelistConformanceResult
 }
