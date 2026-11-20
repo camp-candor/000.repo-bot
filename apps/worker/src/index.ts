@@ -1,6 +1,8 @@
 import { Hono } from 'hono'
 import { createAgentWorker } from '@funtuantw/pi-agent-cf'
 import { coreTools, type Env } from './tools.core.js'
+import { updateRepobot } from '@camp_candor/821.repobot/repobot.buzz'
+import { RepobotModel } from '@camp_candor/821.repobot/repobot.model'
 // import { customTools } from './tools.custom.js'
 
 // ----------------------------------------------------------------------------
@@ -56,7 +58,15 @@ OPERATIONAL INVARIANTS:
 const app = new Hono<{ Bindings: Env }>()
 
 // Root Health & Verification Endpoint
-app.get('/', (c) => c.text('REPO-BOT EDGE CONTROL PLANE IS LIVE'))
+app.get('/', (c) => {
+    let bale: unknown
+    updateRepobot(new RepobotModel(), {
+        slv: (res: unknown) => {
+            bale = res
+        },
+    })
+    return c.text(`REPO-BOT EDGE CONTROL PLANE IS LIVE ${JSON.stringify(bale)}`)
+})
 
 // Structured Diagnostics Endpoint (Satisfies packages/100.agent switchboard probe)
 app.get('/health', (c) =>

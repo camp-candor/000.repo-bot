@@ -22,6 +22,18 @@
             "require": "./hunt.ts",
             "default": "./hunt.ts"
         },
+        "./repobot.buzz": {
+            "types": "./00.repobot.unit/buz/repobot.buzz.d.ts",
+            "import": "./00.repobot.unit/buz/repobot.buzz.ts",
+            "require": "./00.repobot.unit/buz/repobot.buzz.ts",
+            "default": "./00.repobot.unit/buz/repobot.buzz.ts"
+        },
+        "./repobot.model": {
+            "types": "./00.repobot.unit/repobot.model.ts",
+            "import": "./00.repobot.unit/repobot.model.ts",
+            "require": "./00.repobot.unit/repobot.model.ts",
+            "default": "./00.repobot.unit/repobot.model.ts"
+        },
         "./*": "./*"
     },
     "scripts": {
