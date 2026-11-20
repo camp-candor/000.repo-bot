@@ -79,6 +79,12 @@ export class ClearTerminal implements Action<TerminalBit> {
     constructor(public bale: TerminalBit) {}
 }
 
+export const SET_SESSION_CONTEXT = '[Terminal action] Set Session Context'
+export class SetSessionContext implements Action<TerminalBit> {
+    readonly type = SET_SESSION_CONTEXT
+    constructor(public bale: TerminalBit) {}
+}
+
 export type Actions =
     | InitTerminal
     | UpdateTerminal
@@ -93,3 +99,4 @@ export type Actions =
     | LayoutTerminal
     | OpenTerminal
     | ClearTerminal
+    | SetSessionContext

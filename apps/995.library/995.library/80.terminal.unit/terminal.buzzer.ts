@@ -1,6 +1,8 @@
 export { initTerminal } from './buz/terminal.buzz'
 export { openTerminal } from './buz/terminal.buzz'
 export { updateTerminal } from './buz/terminal.buzz'
+export { setSessionContext } from './buz/terminal.buzz'
+export { formatHudBannerFrame } from './buz/terminal.buzz'
 export { runTerminal } from './buz/terminal.buzz'
 export { editTerminal } from './buz/terminal.buzz'
 export { suspendTerminal } from './buz/terminal.buzz'

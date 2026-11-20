@@ -5,5 +5,7 @@ export { closeMenu } from './buz/menu.buzz'
 export { printMenu } from './buz/menu.buzz'
 export { libraryMenu } from './buz/menu.library'
 export { routeMenu } from './buz/menu.buzz'
+export { jumpPivot } from './buz/menu.buzz'
+export { buildSessionRouteAuditTable } from './buz/menu.audit'
 
 export { fleetMenu, sagaTornStateMenu } from './buz/menu.fleet'

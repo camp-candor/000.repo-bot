@@ -130,6 +130,48 @@ export class RewireLibrary implements Action<LibraryBit> {
     constructor(public bale: LibraryBit) {}
 }
 
+export const RESOLVE_FLEET_ROOT = '[Library action] Resolve Fleet Root'
+export class ResolveFleetRoot implements Action<LibraryBit> {
+    readonly type = RESOLVE_FLEET_ROOT
+    constructor(public bale: LibraryBit) {}
+}
+
+export const SCAN_FLEET_PIVOTS = '[Library action] Scan Fleet Pivots'
+export class ScanFleetPivots implements Action<LibraryBit> {
+    readonly type = SCAN_FLEET_PIVOTS
+    constructor(public bale: LibraryBit) {}
+}
+
+export const HYDRATE_PIVOT_MODULES = '[Library action] Hydrate Pivot Modules'
+export class HydratePivotModules implements Action<LibraryBit> {
+    readonly type = HYDRATE_PIVOT_MODULES
+    constructor(public bale: LibraryBit) {}
+}
+
+export const DISCOVER_FLEET_PIVOTS = '[Library action] Discover Fleet Pivots'
+export class DiscoverFleetPivots implements Action<LibraryBit> {
+    readonly type = DISCOVER_FLEET_PIVOTS
+    constructor(public bale: LibraryBit) {}
+}
+
+export const BOOT_SWITCHBOARD = '[Library action] Boot Switchboard'
+export class BootSwitchboard implements Action<LibraryBit> {
+    readonly type = BOOT_SWITCHBOARD
+    constructor(public bale: LibraryBit) {}
+}
+
+export const CHECK_WORKER_BRIDGE = '[Library action] Check Worker Bridge'
+export class CheckWorkerBridge implements Action<LibraryBit> {
+    readonly type = CHECK_WORKER_BRIDGE
+    constructor(public bale: LibraryBit) {}
+}
+
+export const TOGGLE_WORKER_BRIDGE = '[Library action] Toggle Worker Bridge'
+export class ToggleWorkerBridge implements Action<LibraryBit> {
+    readonly type = TOGGLE_WORKER_BRIDGE
+    constructor(public bale: LibraryBit) {}
+}
+
 export type Actions =
     | CheckGitWorkingTree
     | ProgressLibrarySaga
@@ -152,4 +194,11 @@ export type Actions =
     | BumpFleetVersion
     | CheckSovereignty
     | RewireLibrary
+    | ResolveFleetRoot
+    | ScanFleetPivots
+    | HydratePivotModules
+    | DiscoverFleetPivots
+    | BootSwitchboard
+    | CheckWorkerBridge
+    | ToggleWorkerBridge
 

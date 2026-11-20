@@ -49,6 +49,9 @@ export function reducer(
         case Act.CLEAR_TERMINAL:
             return Buzz.clearTerminal(clone(model, true), act.bale, state)
 
+        case Act.SET_SESSION_CONTEXT:
+            return Buzz.setSessionContext(clone(model, true), act.bale, state)
+
         default:
             return model
     }

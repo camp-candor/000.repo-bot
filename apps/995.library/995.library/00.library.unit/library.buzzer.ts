@@ -47,3 +47,6 @@ export {
 } from './buz/promotion.buzz'
 
 export { openHumanSaveGate } from './buz/human-save-gate.buzz';
+export { scanFleetPivots, hydratePivotModules, discoverFleetPivots } from './buz/pivot-discovery.buzz';
+export { bootSwitchboard } from './buz/boot-switchboard.buzz';
+export { checkWorkerBridge, toggleWorkerBridge } from './buz/worker-bridge.buzz';

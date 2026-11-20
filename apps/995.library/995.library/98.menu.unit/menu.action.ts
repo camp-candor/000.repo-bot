@@ -43,6 +43,12 @@ export class RouteMenu implements Action<undefined> {
     constructor(public bale: undefined) {}
 }
 
+export const JUMP_PIVOT = '[Menu action] Jump Pivot'
+export class JumpPivot implements Action<MenuBit> {
+    readonly type = JUMP_PIVOT
+    constructor(public bale: MenuBit) {}
+}
+
 export const FLEET_MENU = '[Menu action] Fleet Menu'
 export class FleetMenu implements Action<MenuBit | undefined> {
     readonly type = FLEET_MENU
@@ -63,5 +69,6 @@ export type Actions =
     | PrintMenu
     | LibraryMenu
     | RouteMenu
+    | JumpPivot
     | FleetMenu
     | SagaTornStateMenu

@@ -40,16 +40,126 @@ export const initTerminal = async (
     return cpy
 }
 
+export function formatHudBannerFrame(cpy: TerminalModel): string {
+    const sessionLabel = (cpy.activePivotTitle || 'MASTER SWITCHBOARD').toUpperCase();
+    const seriesLabel = (cpy as any).activeSeriesSlug || 'UNBOUND';
+    const sealVal = (cpy as any).canonSealHash || 'UNSEALED';
+    const sealPrefix =
+        sealVal && sealVal !== 'UNSEALED'
+            ? `SEALED (H_root: ${String(sealVal).slice(0, 12)})`
+            : 'UNSEALED (LOCAL_DRAFT)';
+    const rigLabel = (cpy as any).hostRigRole || 'RIG 1 (ORCHESTRATOR)';
+
+    return [
+        `ACTIVE SESSION: [${sessionLabel}] | HOST RIG: ${rigLabel}`,
+        `ACTIVE SERIES : ${seriesLabel} | CANON STATUS: ${sealPrefix}`,
+    ].join('\n');
+}
+
 export const updateTerminal = async (
     cpy: TerminalModel,
     bal: TerminalBit,
-    _ste: State,
+    ste?: State,
 ) => {
-    const lstMsg: any[] = []
-    if (bal?.slv != null) {
-        bal.slv({ trmBit: { idx: 'update-terminal', lst: lstMsg } })
+    const hudFrame = (cpy as any).hudVisible === false
+        ? '[HUD TELEMETRY HIDDEN]'
+        : bal?.src && (bal.src as string).trim().length > 0
+          ? (bal.src as string).trim()
+          : formatHudBannerFrame(cpy);
+
+    (cpy as any).lastRenderedHudFrame = hudFrame;
+
+    if (!ste || typeof (ste as any).hunt !== 'function') {
+        if (bal?.slv) {
+            bal.slv({
+                trmBit: {
+                    idx: 'update-terminal-headless',
+                    src: hudFrame,
+                } as any,
+            });
+        }
+        return cpy;
     }
-    return cpy
+
+    try {
+        const gridBit = await (ste as any).hunt('[Grid action] Update Grid', {
+            x: 4,
+            y: 0,
+            xSpan: 8,
+            ySpan: 3,
+        });
+
+        const g = globalThis as Record<string, any>;
+        if (g.LIBRARY && typeof g.LIBRARY.hunt === 'function') {
+            const hasBoxUnit = Boolean(g.LIBRARY.state?.value?.box) || Boolean(g.LIBRARY.isHeadlessStub);
+            if (hasBoxUnit) {
+                await g.LIBRARY.hunt('[Box action] Update Box', {
+                    idx: 'hud00',
+                    src: hudFrame,
+                    net: gridBit?.grdBit?.dat,
+                });
+            }
+        }
+    } catch {}
+
+    if (bal?.slv != null) {
+        bal.slv({ trmBit: { idx: 'update-terminal-ok', src: hudFrame } as any });
+    }
+    return cpy;
+}
+
+export const setSessionContext = async (
+    cpy: TerminalModel,
+    bal: TerminalBit,
+    ste?: State,
+) => {
+    const payload: any = (bal as any)?.dat && typeof (bal as any).dat === 'object' ? { ...(bal as any).dat, ...(bal as any) } : (bal as any);
+
+    if (typeof payload?.activePivotTitle === 'string' && payload.activePivotTitle.trim().length > 0) {
+        (cpy as any).activePivotTitle = payload.activePivotTitle.trim();
+    }
+    if (typeof payload?.activeSeriesSlug === 'string' && payload.activeSeriesSlug.trim().length > 0) {
+        (cpy as any).activeSeriesSlug = payload.activeSeriesSlug.trim();
+    }
+    if (typeof payload?.canonSealHash === 'string' && payload.canonSealHash.trim().length > 0) {
+        (cpy as any).canonSealHash = payload.canonSealHash.trim();
+    }
+    if (typeof payload?.hostRigRole === 'string' && payload.hostRigRole.trim().length > 0) {
+        (cpy as any).hostRigRole = payload.hostRigRole.trim();
+    }
+    if (typeof payload?.hudVisible === 'boolean') {
+        (cpy as any).hudVisible = payload.hudVisible;
+    }
+
+    await updateTerminal(cpy, { idx: 'hud-context-sync' } as any, ste as any);
+
+    const pivotName = ((cpy as any).activePivotTitle || 'MASTER SWITCHBOARD').toUpperCase();
+    const delimiterBanner = `>> [SESSION: ${pivotName}] Context engaged (series: ${(cpy as any).activeSeriesSlug}, seal: ${String((cpy as any).canonSealHash).slice(0, 12)})...`;
+
+    if (ste && typeof (ste as any).hunt === 'function') {
+        try {
+            await (ste as any).hunt('[Console action] Update Console', {
+                idx: 'cns00',
+                src: delimiterBanner,
+            });
+        } catch {}
+    }
+
+    if ((bal as any)?.slv) {
+        (bal as any).slv({
+            trmBit: {
+                idx: 'set-session-context-ok',
+                src: delimiterBanner,
+                activePivotTitle: (cpy as any).activePivotTitle,
+                activeSeriesSlug: (cpy as any).activeSeriesSlug,
+                canonSealHash: (cpy as any).canonSealHash,
+                hostRigRole: (cpy as any).hostRigRole,
+                hudVisible: (cpy as any).hudVisible,
+            } as any,
+        });
+    }
+
+    return cpy;
 }
 
 export const openTerminal = async (

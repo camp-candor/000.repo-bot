@@ -22,6 +22,7 @@ import * as ActMnu from '../menu.action'
 import * as ActTrm from '../../80.terminal.unit/terminal.action'
 import * as ActChc from '../../85.choice.unit/choice.action'
 import * as ActPut from '../../84.input.unit/input.action'
+export { buildSessionRouteAuditTable } from './menu.audit'
 
 import * as ActGrd from '../../81.grid.unit/grid.action'
 import * as ActCns from '../../83.console.unit/console.action'
@@ -1137,6 +1138,10 @@ export const libraryMenu = async (cpy: MenuModel, bal: MenuBit, ste: State) => {
         case 'ROOT MENU': {
             // Defensive teardown prior to returning to master navigation switchboard
             await ste.hunt(ActTrm.CLEAR_TERMINAL, {})
+            if (bal?.slv) {
+                bal.slv({ mnuBit: { idx: 'root-menu' } })
+                return cpy
+            }
             bit = await ste.hunt(ActMnu.UPDATE_MENU, {})
             return cpy
         }

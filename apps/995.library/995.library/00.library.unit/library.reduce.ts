@@ -2,6 +2,7 @@ import clone from 'clone-deep'
 import * as Act from './library.action'
 import { LibraryModel } from './library.model'
 import * as Buzz from './library.buzzer'
+import { resolveFleetRoot } from './buz/pivot-discovery.buzz'
 import type State from '../99.core/state'
 
 export function reducer(
@@ -74,6 +75,27 @@ export function reducer(
 
         case Act.REWIRE_LIBRARY:
             return Buzz.rewireLibrary(clone(model, true), act.bale, state)
+
+        case Act.RESOLVE_FLEET_ROOT:
+            return resolveFleetRoot(clone(model, true), act.bale, state)
+
+        case Act.SCAN_FLEET_PIVOTS:
+            return Buzz.scanFleetPivots(clone(model, true), act.bale, state)
+
+        case Act.HYDRATE_PIVOT_MODULES:
+            return Buzz.hydratePivotModules(clone(model, true), act.bale, state)
+
+        case Act.DISCOVER_FLEET_PIVOTS:
+            return Buzz.discoverFleetPivots(clone(model, true), act.bale, state)
+
+        case Act.BOOT_SWITCHBOARD:
+            return Buzz.bootSwitchboard(clone(model, true), act.bale, state)
+
+        case Act.CHECK_WORKER_BRIDGE:
+            return Buzz.checkWorkerBridge(clone(model, true), act.bale, state)
+
+        case Act.TOGGLE_WORKER_BRIDGE:
+            return Buzz.toggleWorkerBridge(clone(model, true), act.bale, state)
 
         default:
             return model

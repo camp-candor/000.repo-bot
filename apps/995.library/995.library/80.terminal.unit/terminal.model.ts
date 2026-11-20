@@ -11,6 +11,12 @@ export class TerminalModel implements Terminal {
 
     rootIDX: any
     rootDAT: any
+    activePivotTitle: string = 'MASTER SWITCHBOARD'
+    activeSeriesSlug: string = 'UNBOUND'
+    canonSealHash: string = 'UNSEALED'
+    hostRigRole: string = 'RIG 1 (ORCHESTRATOR)'
+    hudVisible: boolean = true
+    lastRenderedHudFrame: string = ''
 
     get blessed(): any {
         return _blessed

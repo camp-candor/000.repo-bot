@@ -11,7 +11,11 @@ const require = createRequire(import.meta.url)
 const exec = promisify(execCb)
 
 // 1. Setup CLI
-program.option('--first').option('-t, --separator <char>')
+program
+    .option('--first')
+    .option('-t, --separator <char>')
+    .option('--boot-switchboard')
+    .option('--headless')
 program.parse(process.argv)
 const options = program.opts()
 
@@ -126,6 +130,22 @@ const init = async () => {
     try {
         const LIBRARY = require(path.join(libPath, 'hunt'))
         global.LIBRARY = LIBRARY
+        ;(globalThis as any).LIBRARY = LIBRARY
+
+        // Task 5.2: Thin delegation to 00.library.unit BOOT_SWITCHBOARD when requested
+        // Keeps apps/995.library/995.library/** untouched while allowing unified boot.
+        try {
+            const BOOT_ACTION = '[Library action] Boot Switchboard'
+            if (process.argv.includes('--boot-switchboard') || process.argv.includes('--headless')) {
+                await LIBRARY.hunt(BOOT_ACTION, {
+                    startDir: process.cwd(),
+                    headless: process.argv.includes('--headless'),
+                })
+                if (process.argv.includes('--headless')) return
+            }
+        } catch {
+            // Fall through to legacy schema-driven runner on boot harness absence
+        }
 
         const LIBRARY_ACTION = require(
             path.join(libPath, '00.library.unit/library.action'),
@@ -264,6 +284,21 @@ const init = async () => {
                     idx: 'cns00',
                     src: `:: [WARN] Skipping pivot [${pkg.name}]: ${err.message}`,
                 })
+            }
+        }
+
+        // Discover & mount sibling fleet pivots across $FLEET_ROOT only when running in sovereign 995.library
+        const activeRepoName = path.basename(
+            path.resolve(import.meta.dirname, '../..'),
+        )
+        if (activeRepoName === '995.library') {
+            try {
+                await LIBRARY.hunt('[Library action] Discover Fleet Pivots', {
+                    startDir: import.meta.dirname,
+                    registerMenus: true,
+                })
+            } catch {
+                // Fail-closed: continue with local pivots if fleet discovery encounters an error
             }
         }
 

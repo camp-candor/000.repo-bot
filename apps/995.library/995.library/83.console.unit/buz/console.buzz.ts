@@ -86,6 +86,38 @@ export const updateConsole = async (
     const textPayload = bal?.src || ''
     const meta = (bal?.dat as any) || {}
 
+    // Task 4.3: Namespaced scrollback preservation (bounded FIFO, pure ASCII)
+    try {
+        if ((meta as any).clearExplicit === true) {
+            ;(cpy as any).scrollbackLines = []
+        }
+        if (typeof (meta as any).sessionNamespace === 'string' && (meta as any).sessionNamespace.trim().length > 0) {
+            let cleanNs = ''
+            const rawNs = (meta as any).sessionNamespace.trim()
+            for (let i = 0; i < rawNs.length; i++) {
+                const code = rawNs.charCodeAt(i)
+                if (code >= 0x20 && code <= 0x7e) cleanNs += rawNs[i]
+            }
+            if (cleanNs) (cpy as any).activeNamespace = cleanNs
+        }
+        let sanitized = ''
+        for (let i = 0; i < textPayload.length; i++) {
+            const code = textPayload.charCodeAt(i)
+            if (code >= 0x20 && code <= 0x7e || code === 0x0a) {
+                sanitized += textPayload[i]
+            }
+        }
+        sanitized = sanitized.trim()
+        if (sanitized.length > 0) {
+            if (!Array.isArray((cpy as any).scrollbackLines)) (cpy as any).scrollbackLines = []
+            ;(cpy as any).scrollbackLines.push(sanitized)
+            const maxLines = (cpy as any).maxScrollbackLines || 500
+            if ((cpy as any).scrollbackLines.length > maxLines) {
+                ;(cpy as any).scrollbackLines.splice(0, (cpy as any).scrollbackLines.length - maxLines)
+            }
+        }
+    } catch {}
+
     // Ingest into in-memory FIFO Ring Buffer
     if (textPayload && cpy.ring) {
         cpy.ring.push(textPayload, {

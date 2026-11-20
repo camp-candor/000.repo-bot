@@ -82,4 +82,7 @@ export class ConsoleRingBuffer {
 export class ConsoleModel implements Console {
     ring = new ConsoleRingBuffer(10000)
     activeFilter: RingBufferQuery = {}
+    activeNamespace: string = 'MASTER SWITCHBOARD'
+    scrollbackLines: string[] = []
+    maxScrollbackLines: number = 500
 }

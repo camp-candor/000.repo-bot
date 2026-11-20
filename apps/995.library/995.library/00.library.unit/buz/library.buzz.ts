@@ -2274,3 +2274,7 @@ export const bumpFleetVersion = async (
 
     return cpy
 }
+
+export { scanFleetPivots, hydratePivotModules, discoverFleetPivots } from './pivot-discovery.buzz'
+export { bootSwitchboard } from './boot-switchboard.buzz'
+export { checkWorkerBridge, toggleWorkerBridge } from './worker-bridge.buzz'
