@@ -21,6 +21,8 @@ export function reducer(
 
         case Act.DISCONNECT_REPOBOT:
             return Buzz.disconnectRepobot(model, act.bale, state)
+ case Act.TEST_REPOBOT: return Buzz.testRepobot(clone(model), act.bale, state)
+
 
         default:
             return model

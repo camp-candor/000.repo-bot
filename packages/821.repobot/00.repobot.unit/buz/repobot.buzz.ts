@@ -318,3 +318,5 @@ export const disconnectRepobot = async (
 
     return cpy
 }
+
+export const testRepobot = async ( cpy: RepobotModel, bal: RepobotBit, ste: State,) => { if (ste) { await ste.hunt('[Console action] Update Console', { idx: 'cns00', src: '>> Executing testRepobot stub', }) } if (bal && bal.slv != null) { bal.slv({ testBit: { idx: 'testRepobot-stub' } }) } return cpy}

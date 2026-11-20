@@ -545,6 +545,7 @@ export const updateUnit = async (cpy: UnitModel, bal: UnitBit, ste: State) => {
     }
 
     const buzzFile = path.resolve(bal.src, bal.idx, 'buz', root + '.buzz.ts')
+    const buzzDtsFile = path.resolve(bal.src, bal.idx, 'buz', root + '.buzz.d.ts')
     const buzzerFile = path.resolve(bal.src, bal.idx, root + '.buzzer.ts')
     const actionFile = path.resolve(bal.src, bal.idx, root + '.action.ts')
     const reduceFile = path.resolve(bal.src, bal.idx, root + '.reduce.ts')
@@ -642,6 +643,22 @@ export const updateUnit = async (cpy: UnitModel, bal: UnitBit, ste: State) => {
     await FS.outputFile(reduceFile, reduceContent, 'utf8')
     await FS.outputFile(buzzerFile, buzzerContent, 'utf8')
     await FS.outputFile(buzzFile, buzzContent, 'utf8')
+
+    // 5. Mutate buz/.buzz.d.ts if present
+    if (FS.existsSync(buzzDtsFile)) {
+        let buzzDtsContent = await FS.readFile(buzzDtsFile, 'utf8')
+        if (!buzzDtsContent.includes(`export declare const ${buzNom}:`)) {
+            const dtsDecl = [
+                `export declare const ${buzNom}: (`,
+                `    cpy: ${cpyNom},`,
+                `    bal?: ${balNom},`,
+                `    ste?: unknown,`,
+                `) => Promise<${cpyNom}>`,
+            ].join('\n')
+            buzzDtsContent = `${buzzDtsContent.trimEnd()}\n${dtsDecl}\n`
+            await FS.outputFile(buzzDtsFile, buzzDtsContent, 'utf8')
+        }
+    }
 
     if (ste) {
         await ste.hunt(ActCns.UPDATE_CONSOLE, {

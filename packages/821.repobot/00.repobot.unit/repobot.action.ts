@@ -25,5 +25,7 @@ export class DisconnectRepobot implements Action {
     constructor(public bale?: RepobotBit) {}
 }
 
-export type Actions =
-    InitRepobot | UpdateRepobot | ConnectRepobot | DisconnectRepobot
+export const TEST_REPOBOT = "[Test action] Test Repobot";export class TestRepobot implements Action { readonly type = TEST_REPOBOT; constructor(public bale: RepobotBit) {}}
+
+export type Actions = InitRepobot | UpdateRepobot | ConnectRepobot | DisconnectRepobot
+    | TestRepobot;

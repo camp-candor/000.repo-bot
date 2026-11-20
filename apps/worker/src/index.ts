@@ -1,7 +1,7 @@
 import { Hono } from 'hono'
 import { createAgentWorker } from '@funtuantw/pi-agent-cf'
 import { coreTools, type Env } from './tools.core.js'
-import { updateRepobot } from '@camp_candor/821.repobot/repobot.buzz'
+import { testRepobot } from '@camp_candor/821.repobot/repobot.buzz'
 import { RepobotModel } from '@camp_candor/821.repobot/repobot.model'
 // import { customTools } from './tools.custom.js'
 
@@ -60,7 +60,7 @@ const app = new Hono<{ Bindings: Env }>()
 // Root Health & Verification Endpoint
 app.get('/', (c) => {
     let bale: unknown
-    updateRepobot(new RepobotModel(), {
+    testRepobot(new RepobotModel(), {
         slv: (res: unknown) => {
             bale = res
         },
